@@ -1,0 +1,38 @@
+[
+  {
+    "id": "ORD-2024-001",
+    "customerId": "CUST-001",
+    "customerName": "أحمد محمد",
+    "customerPhone": "0501234567",
+    "customerEmail": "ahmed@example.com",
+    "items": [
+      {
+        "productId": "PROD-001",
+        "productName": "لابتوب ديل XPS 15",
+        "quantity": 1,
+        "unitPrice": 4500,
+        "total": 4500
+      },
+      {
+        "productId": "PROD-006",
+        "productName": "ماوس لاسلكي",
+        "quantity": 2,
+        "unitPrice": 150,
+        "total": 300
+      }
+    ],
+    "subtotal": 4800,
+    "tax": 240,
+    "total": 5040,
+    "status": "completed",
+    "paymentMethod": "credit_card",
+    "paymentStatus": "paid",
+    "shippingMethod": "express",
+    "shippingAddress": "الرياض - حي المروج",
+    "trackingNumber": "TRK-123456",
+    "notes": "العميل طلب توصيل سريع",
+    "createdAt": "2024-02-14",
+    "updatedAt": "2024-02-16",
+    "createdBy": "admin"
+  }
+]

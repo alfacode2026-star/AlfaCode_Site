@@ -1,0 +1,24 @@
+[
+  {
+    "id": "CUST-001",
+    "name": "أحمد محمد",
+    "email": "ahmed@example.com",
+    "phone": "0501234567",
+    "company": "شركة التقنية المتطورة",
+    "address": "الرياض - حي المروج",
+    "city": "الرياض",
+    "country": "السعودية",
+    "type": "corporate",
+    "status": "active",
+    "taxNumber": "310123456700003",
+    "balance": 5000,
+    "creditLimit": 10000,
+    "totalOrders": 15,
+    "totalSpent": 45000,
+    "firstPurchase": "2023-01-15",
+    "lastPurchase": "2024-02-10",
+    "notes": "عميل ممتاز - يفضل الدفع عن طريق البطاقة",
+    "createdAt": "2023-01-15",
+    "createdBy": "admin"
+  }
+]
