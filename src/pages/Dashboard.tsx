@@ -12,27 +12,62 @@ import {
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import inventoryService from '../services/inventoryService'
+import paymentsService from '../services/paymentsService'
+import { useTenant } from '../contexts/TenantContext'
+import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 
 const Dashboard = () => {
   const navigate = useNavigate()
+  const { industryType } = useTenant()
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [financialMetrics, setFinancialMetrics] = useState({
+    totalProjectsProfit: 0,
+    totalGeneralExpenses: 0,
+    netCompanyProfit: 0
+  })
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const data = await inventoryService.getProducts()
-        setProducts(Array.isArray(data) ? data : [])
+        const [productsData, generalExpenses] = await Promise.all([
+          inventoryService.getProducts(),
+          industryType === 'engineering' ? paymentsService.getTotalGeneralExpenses() : Promise.resolve(0)
+        ])
+        setProducts(Array.isArray(productsData) ? productsData : [])
+
+        // Calculate financial metrics for engineering companies
+        if (industryType === 'engineering') {
+          const allPayments = await paymentsService.getPayments()
+          
+          // Calculate total projects profit: income from projects - expenses from projects
+          const projectIncome = allPayments
+            .filter(p => p.paymentType === 'income' && p.projectId && p.status === 'paid')
+            .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+          
+          const projectExpenses = allPayments
+            .filter(p => p.paymentType === 'expense' && p.projectId && !p.isGeneralExpense && p.status === 'paid')
+            .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+          
+          const totalProjectsProfit = projectIncome - projectExpenses
+          const netCompanyProfit = totalProjectsProfit - generalExpenses
+
+          setFinancialMetrics({
+            totalProjectsProfit,
+            totalGeneralExpenses: generalExpenses,
+            netCompanyProfit
+          })
+        }
       } catch (error) {
-        console.error('Error fetching products:', error)
+        console.error('Error fetching data:', error)
         setProducts([])
       } finally {
         setLoading(false)
       }
     }
     fetchData()
-  }, [])
+  }, [industryType])
 
   // Calculate stats dynamically from products data
   const totalProducts = products.length
@@ -108,6 +143,58 @@ const Dashboard = () => {
           </Col>
         ))}
       </Row>
+
+      {/* Financial Metrics for Engineering Companies */}
+      {industryType === 'engineering' && (
+        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+          <Col xs={24} sm={12} lg={8}>
+            <Card>
+              <Statistic
+                title="ربح المشاريع الإجمالي"
+                value={financialMetrics.totalProjectsProfit}
+                precision={0}
+                prefix={<RiseOutlined />}
+                suffix="ريال"
+                valueStyle={{ color: financialMetrics.totalProjectsProfit >= 0 ? '#3f8600' : '#cf1322' }}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card>
+              <Statistic
+                title="إجمالي المصاريف العامة"
+                value={financialMetrics.totalGeneralExpenses}
+                precision={0}
+                prefix={<FallOutlined />}
+                suffix="ريال"
+                valueStyle={{ color: '#cf1322' }}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card 
+              style={{
+                background: financialMetrics.netCompanyProfit >= 0 
+                  ? 'linear-gradient(135deg, #52c41a 0%, #73d13d 100%)'
+                  : 'linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%)',
+                border: 'none'
+              }}
+            >
+              <Statistic
+                title={<span style={{ color: 'white', fontSize: '16px' }}>صافي ربح الشركة</span>}
+                value={financialMetrics.netCompanyProfit}
+                precision={0}
+                prefix={financialMetrics.netCompanyProfit >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <FallOutlined style={{ color: 'white' }} />}
+                suffix={<span style={{ color: 'white' }}>ريال</span>}
+                valueStyle={{ color: 'white', fontSize: '28px', fontWeight: 'bold' }}
+              />
+              <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
+                <div>ربح المشاريع - المصاريف العامة</div>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* الإجراءات السريعة */}
       <Card title="إجراءات سريعة" style={{ marginBottom: 24 }}>

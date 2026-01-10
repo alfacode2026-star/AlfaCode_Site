@@ -28,7 +28,8 @@ import {
   Divider,
   InputNumber,
   AutoComplete,
-  Tabs
+  Tabs,
+  Switch
 } from 'antd'
 import {
   SearchOutlined,
@@ -68,6 +69,7 @@ const ContractsPage = () => {
   const [projects, setProjects] = useState([])
   const [selectedPaymentProject, setSelectedPaymentProject] = useState(null)
   const [availablePaymentWorkScopes, setAvailablePaymentWorkScopes] = useState([])
+  const [isGeneralExpense, setIsGeneralExpense] = useState(false)
 
   useEffect(() => {
     loadContracts()
@@ -566,12 +568,26 @@ const ContractsPage = () => {
     try {
       const values = await paymentForm.validateFields()
 
+      // For general expenses, we don't need a contract
+      // But if no contract is selected and it's not a general expense, show error
+      if (!isGeneralExpense && !selectedContract) {
+        message.error('يرجى اختيار عقد أو تفعيل خيار المصروف العام')
+        return
+      }
+
       const paymentData = {
-        contractId: selectedContract.id,
-        projectId: industryType === 'engineering' ? (values.projectId || null) : null,
-        workScope: industryType === 'engineering' ? (values.workScope || null) : null,
+        contractId: isGeneralExpense ? null : (selectedContract?.id || null),
+        isGeneralExpense: isGeneralExpense,
+        category: isGeneralExpense ? values.category : null,
+        projectId: isGeneralExpense ? null : (industryType === 'engineering' ? (values.projectId || null) : null),
+        workScope: isGeneralExpense ? null : (industryType === 'engineering' ? (values.workScope || null) : null),
+        paymentType: isGeneralExpense ? 'expense' : (values.paymentType || 'expense'),
         amount: values.amount,
         dueDate: moment(values.dueDate).format('YYYY-MM-DD'),
+        paidDate: values.status === 'paid' ? (values.paidDate ? moment(values.paidDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')) : null,
+        status: values.status || 'pending',
+        paymentMethod: values.paymentMethod || null,
+        referenceNumber: values.referenceNumber || null,
         notes: values.notes || '',
         createdBy: 'user'
       }
@@ -579,12 +595,15 @@ const ContractsPage = () => {
       const result = await paymentsService.createPayment(paymentData)
 
       if (result.success) {
-        message.success('تم إضافة الدفعة بنجاح!')
+        message.success(isGeneralExpense ? 'تم إضافة المصروف العام بنجاح!' : 'تم إضافة الدفعة بنجاح!')
         setPaymentModalVisible(false)
         setSelectedPaymentProject(null)
         setAvailablePaymentWorkScopes([])
+        setIsGeneralExpense(false)
         paymentForm.resetFields()
-        await loadContractPayments(selectedContract.id)
+        if (selectedContract) {
+          await loadContractPayments(selectedContract.id)
+        }
       } else {
         message.error(result.error || 'فشل في إضافة الدفعة')
       }
@@ -956,6 +975,9 @@ const ContractsPage = () => {
             icon={<PlusCircleOutlined />}
             onClick={() => {
               paymentForm.resetFields()
+              setIsGeneralExpense(false)
+              setSelectedPaymentProject(null)
+              setAvailablePaymentWorkScopes([])
               setPaymentModalVisible(true)
             }}
           >
@@ -1057,14 +1079,40 @@ const ContractsPage = () => {
               <Table
                 dataSource={selectedContractPayments}
                 columns={[
-                  { title: 'رقم الدفعة', dataIndex: 'paymentNumber', key: 'paymentNumber' },
+                  { 
+                    title: 'رقم الدفعة', 
+                    dataIndex: 'paymentNumber', 
+                    key: 'paymentNumber',
+                    render: (paymentNumber, record) => (
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{paymentNumber}</div>
+                        {record.isGeneralExpense && (
+                          <Tag color="purple" style={{ marginTop: 4 }}>
+                            مصروف عام / General
+                          </Tag>
+                        )}
+                      </div>
+                    )
+                  },
                   ...(industryType === 'engineering' ? [{
-                    title: 'اسم المشروع',
+                    title: 'اسم المشروع / التصنيف',
                     dataIndex: 'projectName',
                     key: 'projectName',
-                    render: (projectName) => (
-                      <span style={{ fontWeight: 500 }}>{projectName || 'غير محدد'}</span>
-                    ),
+                    render: (projectName, record) => {
+                      if (record.isGeneralExpense && record.expenseCategory) {
+                        return (
+                          <div>
+                            <Tag color="purple">{record.expenseCategory}</Tag>
+                            <div style={{ fontSize: '12px', color: '#999', marginTop: 4 }}>
+                              مصروف عام
+                            </div>
+                          </div>
+                        )
+                      }
+                      return (
+                        <span style={{ fontWeight: 500 }}>{projectName || 'غير محدد'}</span>
+                      )
+                    },
                   }] : []),
                   {
                     title: 'المبلغ',
@@ -1109,21 +1157,60 @@ const ContractsPage = () => {
       </Modal>
 
       <Modal
-        title="إضافة دفعة جديدة"
+        title={isGeneralExpense ? "إضافة مصروف عام جديد" : "إضافة دفعة جديدة"}
         open={paymentModalVisible}
         onOk={handleAddPayment}
         onCancel={() => {
           setPaymentModalVisible(false)
           setSelectedPaymentProject(null)
           setAvailablePaymentWorkScopes([])
+          setIsGeneralExpense(false)
           paymentForm.resetFields()
         }}
         okText="إضافة"
         cancelText="إلغاء"
-        width={500}
+        width={600}
       >
         <Form form={paymentForm} layout="vertical" style={{ marginTop: 24 }}>
-          {industryType === 'engineering' && (
+          {/* General Expense Toggle */}
+          <Form.Item label="مصروف عام؟">
+            <Switch
+              checked={isGeneralExpense}
+              onChange={(checked) => {
+                setIsGeneralExpense(checked)
+                if (checked) {
+                  // Clear project and work scope when enabling general expense
+                  setSelectedPaymentProject(null)
+                  setAvailablePaymentWorkScopes([])
+                  paymentForm.setFieldsValue({ projectId: undefined, workScope: undefined })
+                }
+              }}
+              checkedChildren="نعم"
+              unCheckedChildren="لا"
+            />
+            <span style={{ marginRight: 8, color: '#666' }}>مصروف عام (غير مرتبط بمشروع)</span>
+          </Form.Item>
+
+          {/* Category for General Expenses */}
+          {isGeneralExpense && (
+            <Form.Item
+              name="category"
+              label="تصنيف المصروف العام"
+              rules={[{ required: true, message: 'يرجى اختيار تصنيف المصروف' }]}
+            >
+              <Select placeholder="اختر تصنيف المصروف">
+                <Option value="Office Rent">إيجار المكتب (Office Rent)</Option>
+                <Option value="Salaries">الرواتب (Salaries)</Option>
+                <Option value="Marketing">التسويق (Marketing)</Option>
+                <Option value="Utilities">المرافق (Utilities)</Option>
+                <Option value="Supplies">المستلزمات (Supplies)</Option>
+                <Option value="Other">أخرى (Other)</Option>
+              </Select>
+            </Form.Item>
+          )}
+
+          {/* Project and Work Scope - Only show if NOT general expense */}
+          {!isGeneralExpense && industryType === 'engineering' && (
             <>
               <Form.Item
                 name="projectId"
@@ -1183,13 +1270,70 @@ const ContractsPage = () => {
             />
           </Form.Item>
 
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="dueDate"
+                label="تاريخ الاستحقاق"
+                rules={[{ required: true, message: 'يرجى اختيار تاريخ الاستحقاق' }]}
+              >
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="status"
+                label="الحالة"
+                initialValue="pending"
+              >
+                <Select>
+                  <Option value="pending">قيد الانتظار</Option>
+                  <Option value="paid">مدفوع</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
           <Form.Item
-            name="dueDate"
-            label="تاريخ الاستحقاق"
-            rules={[{ required: true, message: 'يرجى اختيار تاريخ الاستحقاق' }]}
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.status !== currentValues.status}
           >
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+            {({ getFieldValue }) =>
+              getFieldValue('status') === 'paid' ? (
+                <Form.Item
+                  name="paidDate"
+                  label="تاريخ الدفع"
+                  rules={[{ required: true, message: 'يرجى اختيار تاريخ الدفع' }]}
+                >
+                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                </Form.Item>
+              ) : null
+            }
           </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="paymentMethod"
+                label="طريقة الدفع (اختياري)"
+              >
+                <Select placeholder="اختر طريقة الدفع" allowClear>
+                  <Option value="cash">نقدي</Option>
+                  <Option value="bank_transfer">تحويل بنكي</Option>
+                  <Option value="check">شيك</Option>
+                  <Option value="other">أخرى</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="referenceNumber"
+                label="رقم المرجع (اختياري)"
+              >
+                <Input placeholder="رقم المرجع أو رقم الإيصال" />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item name="notes" label="ملاحظات (اختياري)">
             <Input.TextArea rows={3} placeholder="ملاحظات إضافية..." />

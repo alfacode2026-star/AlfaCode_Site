@@ -89,21 +89,25 @@ class PaymentsService {
   // Create new payment
   async createPayment(paymentData) {
     try {
-      if (!paymentData.contractId) {
+      // For general expenses, contractId can be NULL
+      // Otherwise, contractId is required
+      if (!paymentData.isGeneralExpense && !paymentData.contractId) {
         return {
           success: false,
-          error: 'معرف العقد مطلوب',
+          error: 'معرف العقد مطلوب (أو حدد مصروف عام)',
           errorCode: 'CONTRACT_ID_REQUIRED'
         }
       }
 
-      // Verify contract exists
-      const contract = await contractsService.getContract(paymentData.contractId)
-      if (!contract) {
-        return {
-          success: false,
-          error: 'العقد غير موجود',
-          errorCode: 'CONTRACT_NOT_FOUND'
+      // Verify contract exists only if it's not a general expense
+      if (!paymentData.isGeneralExpense && paymentData.contractId) {
+        const contract = await contractsService.getContract(paymentData.contractId)
+        if (!contract) {
+          return {
+            success: false,
+            error: 'العقد غير موجود',
+            errorCode: 'CONTRACT_NOT_FOUND'
+          }
         }
       }
 
@@ -117,14 +121,27 @@ class PaymentsService {
         }
       }
 
-      const paymentNumber = paymentData.paymentNumber || this.generatePaymentNumber(contract.contractNumber)
+      // Generate payment number
+      let paymentNumber = paymentData.paymentNumber
+      if (!paymentNumber) {
+        if (paymentData.isGeneralExpense) {
+          // For general expenses, generate a standalone payment number
+          paymentNumber = `GE-${Date.now()}`
+        } else if (paymentData.contractId) {
+          const contract = await contractsService.getContract(paymentData.contractId)
+          paymentNumber = contract ? this.generatePaymentNumber(contract.contractNumber) : `P-${Date.now()}`
+        } else {
+          paymentNumber = `P-${Date.now()}`
+        }
+      }
 
       const newPayment = {
         tenant_id: tenantId,
-        contract_id: paymentData.contractId,
-        project_id: paymentData.projectId || null,
-        work_scope: paymentData.workScope || null,
-        payment_type: paymentData.paymentType || (paymentData.contractId ? 'income' : 'expense'),
+        contract_id: paymentData.isGeneralExpense ? null : (paymentData.contractId || null),
+        project_id: paymentData.isGeneralExpense ? null : (paymentData.projectId || null),
+        work_scope: paymentData.isGeneralExpense ? null : (paymentData.workScope || null),
+        payment_type: paymentData.isGeneralExpense ? 'expense' : (paymentData.paymentType || (paymentData.contractId ? 'income' : 'expense')),
+        expense_category: paymentData.isGeneralExpense ? (paymentData.category || null) : null,
         payment_number: paymentNumber,
         amount: paymentData.amount || 0,
         due_date: paymentData.dueDate,
@@ -366,6 +383,43 @@ class PaymentsService {
     }
   }
 
+  // Get all general expenses (expenses without project_id and with category)
+  async getGeneralExpenses() {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) return []
+
+      const { data, error } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .is('project_id', null)
+        .not('expense_category', 'is', null)
+        .eq('payment_type', 'expense')
+        .order('due_date', { ascending: false })
+
+      if (error) throw error
+
+      return (data || []).map(p => this.mapToCamelCase(p))
+    } catch (error) {
+      console.error('Error fetching general expenses:', error.message)
+      return []
+    }
+  }
+
+  // Get total general expenses (sum of all general expenses)
+  async getTotalGeneralExpenses() {
+    try {
+      const generalExpenses = await this.getGeneralExpenses()
+      return generalExpenses
+        .filter(p => p.status === 'paid')
+        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+    } catch (error) {
+      console.error('Error calculating total general expenses:', error.message)
+      return 0
+    }
+  }
+
   // Helper: Map snake_case to camelCase
   mapToCamelCase(payment) {
     if (!payment) return null
@@ -376,6 +430,8 @@ class PaymentsService {
       projectId: payment.project_id || null,
       workScope: payment.work_scope || null,
       paymentType: payment.payment_type || (payment.contract_id ? 'income' : 'expense'),
+      expenseCategory: payment.expense_category || null,
+      isGeneralExpense: !payment.project_id && payment.expense_category ? true : false,
       paymentNumber: payment.payment_number,
       amount: parseFloat(payment.amount) || 0,
       dueDate: payment.due_date,

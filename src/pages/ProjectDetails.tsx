@@ -122,9 +122,12 @@ const ProjectDetails = () => {
 
     const expensePaymentsTotal = payments.reduce((sum, payment) => {
       // Only count expense payments (supplier payments) that are paid
+      // Exclude general expenses (those without project_id or with isGeneralExpense flag)
       // If paymentType is undefined and no contractId, treat as expense (backward compatibility)
       const isExpense = payment.paymentType === 'expense' || (payment.paymentType === undefined && !payment.contractId)
-      if (isExpense && payment.status === 'paid') {
+      const isGeneralExpense = payment.isGeneralExpense || (!payment.projectId && payment.expenseCategory)
+      
+      if (isExpense && !isGeneralExpense && payment.status === 'paid') {
         return sum + (parseFloat(payment.amount) || 0)
       }
       return sum
@@ -300,7 +303,14 @@ const ProjectDetails = () => {
     })
 
     // Add payments to ledger (income or expense based on paymentType)
+    // Exclude general expenses from project ledger
     payments.forEach(payment => {
+      // Skip general expenses (those without project_id or with isGeneralExpense flag)
+      const isGeneralExpense = payment.isGeneralExpense || (!payment.projectId && payment.expenseCategory)
+      if (isGeneralExpense) {
+        return // Skip general expenses in project ledger
+      }
+
       // Determine if income: explicit type or has contractId (backward compatibility)
       const isIncome = payment.paymentType === 'income' || (payment.paymentType === undefined && payment.contractId)
       const paymentType = payment.paymentType || (payment.contractId ? 'income' : 'expense')
@@ -388,12 +398,15 @@ const ProjectDetails = () => {
       title: 'النوع',
       dataIndex: 'typeLabel',
       key: 'type',
-      render: (typeLabel: string, record: any) => {
+                  render: (typeLabel: string, record: any) => {
         const isIncome = record.paymentType === 'income'
         const color = isIncome ? 'green' : record.type === 'order' ? 'red' : 'orange'
         return (
           <Tag color={color}>
             {typeLabel}
+            {record.isGeneralExpense && (
+              <span style={{ marginRight: 4, fontSize: '10px' }}> / مصروف عام</span>
+            )}
           </Tag>
         )
       },
@@ -846,6 +859,10 @@ const ProjectDetails = () => {
           ]}
           dataSource={payments
             .filter(p => {
+              // Exclude general expenses
+              const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
+              if (isGeneralExpense) return false
+              
               // If paymentType is undefined but contractId exists, treat as income
               const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
               return isIncome
@@ -866,6 +883,9 @@ const ProjectDetails = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <FileTextOutlined />
             <Title level={4} style={{ margin: 0 }}>سجل المصاريف والمشتريات</Title>
+            <span style={{ fontSize: '12px', color: '#999', marginRight: 8 }}>
+              (المصاريف العامة مستثناة)
+            </span>
           </div>
         }
       >
