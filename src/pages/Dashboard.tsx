@@ -31,9 +31,8 @@ const Dashboard = () => {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [productsData, generalExpenses] = await Promise.all([
-          inventoryService.getProducts(),
-          industryType === 'engineering' ? paymentsService.getTotalGeneralExpenses() : Promise.resolve(0)
+        const [productsData] = await Promise.all([
+          inventoryService.getProducts()
         ])
         setProducts(Array.isArray(productsData) ? productsData : [])
 
@@ -46,16 +45,32 @@ const Dashboard = () => {
             .filter(p => p.paymentType === 'income' && p.projectId && p.status === 'paid')
             .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
           
+          // Project expenses: expenses with project_id and expense_category (categorized project expenses)
           const projectExpenses = allPayments
-            .filter(p => p.paymentType === 'expense' && p.projectId && !p.isGeneralExpense && p.status === 'paid')
+            .filter(p => 
+              p.paymentType === 'expense' && 
+              p.projectId && 
+              p.expenseCategory && 
+              p.status === 'paid'
+            )
+            .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+          
+          // General expenses: expenses without project_id but with expense_category (administrative expenses)
+          const generalExpensesTotal = allPayments
+            .filter(p => 
+              p.paymentType === 'expense' && 
+              !p.projectId && 
+              p.expenseCategory && 
+              p.status === 'paid'
+            )
             .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
           
           const totalProjectsProfit = projectIncome - projectExpenses
-          const netCompanyProfit = totalProjectsProfit - generalExpenses
+          const netCompanyProfit = totalProjectsProfit - generalExpensesTotal
 
           setFinancialMetrics({
             totalProjectsProfit,
-            totalGeneralExpenses: generalExpenses,
+            totalGeneralExpenses: generalExpensesTotal,
             netCompanyProfit
           })
         }

@@ -89,18 +89,19 @@ class PaymentsService {
   // Create new payment
   async createPayment(paymentData) {
     try {
-      // For general expenses, contractId can be NULL
-      // Otherwise, contractId is required
-      if (!paymentData.isGeneralExpense && !paymentData.contractId) {
+      // For general expenses or project expenses, contractId can be NULL
+      // Only require contractId if it's a contract-related payment (income from client)
+      const isProjectExpense = !paymentData.isGeneralExpense && paymentData.projectId
+      if (!paymentData.isGeneralExpense && !isProjectExpense && !paymentData.contractId) {
         return {
           success: false,
-          error: 'معرف العقد مطلوب (أو حدد مصروف عام)',
+          error: 'معرف العقد مطلوب (أو حدد مصروف عام أو مصروف مشروع)',
           errorCode: 'CONTRACT_ID_REQUIRED'
         }
       }
 
-      // Verify contract exists only if it's not a general expense
-      if (!paymentData.isGeneralExpense && paymentData.contractId) {
+      // Verify contract exists only if it's a contract-related payment
+      if (paymentData.contractId && !paymentData.isGeneralExpense && !isProjectExpense) {
         const contract = await contractsService.getContract(paymentData.contractId)
         if (!contract) {
           return {
@@ -127,6 +128,9 @@ class PaymentsService {
         if (paymentData.isGeneralExpense) {
           // For general expenses, generate a standalone payment number
           paymentNumber = `GE-${Date.now()}`
+        } else if (paymentData.projectId && !paymentData.contractId) {
+          // For project expenses without contract, generate project expense number
+          paymentNumber = `PE-${Date.now()}`
         } else if (paymentData.contractId) {
           const contract = await contractsService.getContract(paymentData.contractId)
           paymentNumber = contract ? this.generatePaymentNumber(contract.contractNumber) : `P-${Date.now()}`
@@ -141,7 +145,8 @@ class PaymentsService {
         project_id: paymentData.isGeneralExpense ? null : (paymentData.projectId || null),
         work_scope: paymentData.isGeneralExpense ? null : (paymentData.workScope || null),
         payment_type: paymentData.isGeneralExpense ? 'expense' : (paymentData.paymentType || (paymentData.contractId ? 'income' : 'expense')),
-        expense_category: paymentData.isGeneralExpense ? (paymentData.category || null) : null,
+        // Allow expense_category for all expenses (general expenses OR categorized project expenses like Labor)
+        expense_category: paymentData.category || null,
         payment_number: paymentNumber,
         amount: paymentData.amount || 0,
         due_date: paymentData.dueDate,
@@ -150,6 +155,10 @@ class PaymentsService {
         payment_method: paymentData.paymentMethod || null,
         reference_number: paymentData.referenceNumber || null,
         notes: paymentData.notes || null,
+        payment_frequency: paymentData.paymentFrequency || 'one-time',
+        transaction_type: paymentData.transactionType || 'regular',
+        manager_name: paymentData.managerName || null,
+        linked_advance_id: paymentData.linkedAdvanceId || null,
         created_by: paymentData.createdBy || 'user'
       }
 
@@ -204,9 +213,26 @@ class PaymentsService {
       if (paymentData.paymentMethod !== undefined) updateData.payment_method = paymentData.paymentMethod
       if (paymentData.referenceNumber !== undefined) updateData.reference_number = paymentData.referenceNumber
       if (paymentData.notes !== undefined) updateData.notes = paymentData.notes
-      if (paymentData.projectId !== undefined) updateData.project_id = paymentData.projectId || null
+      
+      // Handle project_id and isGeneralExpense
+      if (paymentData.isGeneralExpense !== undefined) {
+        if (paymentData.isGeneralExpense) {
+          // For general expenses, set project_id to null
+          updateData.project_id = null
+        } else if (paymentData.projectId !== undefined) {
+          updateData.project_id = paymentData.projectId || null
+        }
+      } else if (paymentData.projectId !== undefined) {
+        updateData.project_id = paymentData.projectId || null
+      }
+      
       if (paymentData.workScope !== undefined) updateData.work_scope = paymentData.workScope || null
       if (paymentData.paymentType !== undefined) updateData.payment_type = paymentData.paymentType
+      if (paymentData.category !== undefined) updateData.expense_category = paymentData.category || null
+      if (paymentData.paymentFrequency !== undefined) updateData.payment_frequency = paymentData.paymentFrequency || 'one-time'
+      if (paymentData.transactionType !== undefined) updateData.transaction_type = paymentData.transactionType || 'regular'
+      if (paymentData.managerName !== undefined) updateData.manager_name = paymentData.managerName || null
+      if (paymentData.linkedAdvanceId !== undefined) updateData.linked_advance_id = paymentData.linkedAdvanceId || null
 
       // If marking as paid, set paid_date if not provided
       if (paymentData.status === 'paid' && !paymentData.paidDate) {
@@ -407,6 +433,30 @@ class PaymentsService {
     }
   }
 
+  // Get all expenses (both general and project-related) for the General Expenses page
+  async getAllExpenses() {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) return []
+
+      // Get all expense payments that are either general expenses or categorized project expenses
+      const { data, error } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('payment_type', 'expense')
+        .not('expense_category', 'is', null)
+        .order('due_date', { ascending: false })
+
+      if (error) throw error
+
+      return (data || []).map(p => this.mapToCamelCase(p))
+    } catch (error) {
+      console.error('Error fetching all expenses:', error.message)
+      return []
+    }
+  }
+
   // Get total general expenses (sum of all general expenses)
   async getTotalGeneralExpenses() {
     try {
@@ -417,6 +467,118 @@ class PaymentsService {
     } catch (error) {
       console.error('Error calculating total general expenses:', error.message)
       return 0
+    }
+  }
+
+  // Get advances (petty cash issued to managers)
+  async getAdvances(managerName = null) {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) return []
+
+      let query = supabase
+        .from('payments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('transaction_type', 'advance')
+        .order('due_date', { ascending: false })
+
+      if (managerName) {
+        query = query.eq('manager_name', managerName)
+      }
+
+      const { data: advances, error } = await query
+
+      if (error) throw error
+
+      return (advances || []).map(p => this.mapToCamelCase(p))
+    } catch (error) {
+      console.error('Error fetching advances:', error.message)
+      return []
+    }
+  }
+
+  // Get settlements for an advance
+  async getSettlementsForAdvance(advanceId) {
+    try {
+      if (!advanceId) return []
+
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) return []
+
+      const { data: settlements, error } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('linked_advance_id', advanceId)
+        .eq('transaction_type', 'settlement')
+        .order('due_date', { ascending: false })
+
+      if (error) throw error
+
+      return (settlements || []).map(p => this.mapToCamelCase(p))
+    } catch (error) {
+      console.error('Error fetching settlements:', error.message)
+      return []
+    }
+  }
+
+  // Get outstanding advances per manager
+  async getOutstandingAdvancesByManager() {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) return []
+
+      // Get all advances
+      const advances = await this.getAdvances()
+
+      // Get all settlements
+      const { data: settlements, error } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('transaction_type', 'settlement')
+        .not('linked_advance_id', 'is', null)
+
+      if (error) throw error
+
+      // Calculate outstanding balance per manager
+      const managerBalances = {}
+
+      advances.forEach(advance => {
+        const manager = advance.managerName || 'غير محدد'
+        if (!managerBalances[manager]) {
+          managerBalances[manager] = {
+            managerName: manager,
+            totalAdvances: 0,
+            totalSettled: 0,
+            outstandingBalance: 0,
+            advanceCount: 0
+          }
+        }
+
+        const advanceAmount = parseFloat(advance.amount) || 0
+        managerBalances[manager].totalAdvances += advanceAmount
+        managerBalances[manager].advanceCount += 1
+
+        // Calculate settled amount for this advance
+        const settledAmount = (settlements || [])
+          .filter(s => s.linked_advance_id === advance.id)
+          .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)
+
+        managerBalances[manager].totalSettled += settledAmount
+      })
+
+      // Calculate outstanding balance for each manager
+      Object.keys(managerBalances).forEach(manager => {
+        managerBalances[manager].outstandingBalance = 
+          managerBalances[manager].totalAdvances - managerBalances[manager].totalSettled
+      })
+
+      return Object.values(managerBalances)
+    } catch (error) {
+      console.error('Error calculating outstanding advances:', error.message)
+      return []
     }
   }
 
@@ -440,6 +602,10 @@ class PaymentsService {
       paymentMethod: payment.payment_method,
       referenceNumber: payment.reference_number,
       notes: payment.notes,
+      paymentFrequency: payment.payment_frequency || 'one-time',
+      transactionType: payment.transaction_type || 'regular',
+      managerName: payment.manager_name || null,
+      linkedAdvanceId: payment.linked_advance_id || null,
       createdAt: payment.created_at,
       updatedAt: payment.updated_at,
       createdBy: payment.created_by

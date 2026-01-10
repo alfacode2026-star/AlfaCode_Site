@@ -12,6 +12,8 @@ import {
   RocketOutlined,
   FileTextOutlined,
   FileProtectOutlined,
+  TeamOutlined,
+  BankOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useTenant } from '../contexts/TenantContext'
@@ -56,6 +58,18 @@ const Navigation = () => {
       key: '/projects',
       icon: <RocketOutlined />,
       label: 'المشاريع',
+    }] : []),
+    // Show Labor page only for engineering companies
+    ...(isEngineering ? [{
+      key: '/labor',
+      icon: <TeamOutlined />,
+      label: 'يوميات العمال',
+    }] : []),
+    // Show General Expenses only for engineering companies
+    ...(isEngineering ? [{
+      key: '/general-expenses',
+      icon: <BankOutlined />,
+      label: 'المصاريف العامة والإدارية',
     }] : []),
     {
       key: '/customers',

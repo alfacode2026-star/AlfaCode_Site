@@ -114,7 +114,7 @@ const ProjectDetails = () => {
     return totalBudget
   }
 
-  // Calculate Total Expenses: Sum of all Orders + Expense Payments linked to this project
+  // Calculate Total Expenses: Sum of all Orders + Expense Payments linked to this project (including labor costs)
   const calculateTotalExpenses = () => {
     const ordersTotal = orders.reduce((sum, order) => {
       return sum + (parseFloat(order.total) || 0)
@@ -123,8 +123,11 @@ const ProjectDetails = () => {
     const expensePaymentsTotal = payments.reduce((sum, payment) => {
       // Only count expense payments (supplier payments) that are paid
       // Exclude general expenses (those without project_id or with isGeneralExpense flag)
+      // Include labor expenses (expenseCategory = 'Labor/أجور عمال') if they have project_id
       // If paymentType is undefined and no contractId, treat as expense (backward compatibility)
       const isExpense = payment.paymentType === 'expense' || (payment.paymentType === undefined && !payment.contractId)
+      // General expenses are those without project_id but with expenseCategory
+      // Labor expenses have both project_id and expenseCategory, so they're NOT general expenses
       const isGeneralExpense = payment.isGeneralExpense || (!payment.projectId && payment.expenseCategory)
       
       if (isExpense && !isGeneralExpense && payment.status === 'paid') {

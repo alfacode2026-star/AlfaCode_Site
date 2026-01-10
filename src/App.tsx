@@ -16,6 +16,8 @@ import ProjectDetails from './pages/ProjectDetails';
 import SetupPage from './pages/SetupPage';
 import QuotationsPage from './pages/QuotationsPage';
 import ContractsPage from './pages/ContractsPage';
+import LaborPage from './pages/LaborPage';
+import GeneralExpenses from './pages/GeneralExpenses';
 
 // Import Navigation component
 import Navigation from './components/Navigation';
@@ -108,6 +110,8 @@ function AppContent() {
             <Route path="/contracts" element={<ContractsPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetails />} />
+            <Route path="/labor" element={<LaborPage />} />
+            <Route path="/general-expenses" element={<GeneralExpenses />} />
             <Route path="/customers" element={<CustomersPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/reports" element={<ReportsPage />} />
