@@ -516,7 +516,7 @@ const ProjectDetails = () => {
           border: 'none'
         }}
       >
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
@@ -586,7 +586,7 @@ const ProjectDetails = () => {
               value={totalBudget}
               prefix={<WalletOutlined style={{ color: 'white' }} />}
               suffix={<span style={{ color: 'white' }}>ريال</span>}
-              valueStyle={{ color: 'white', fontSize: '28px', fontWeight: 'bold' }}
+              styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
               {contracts.length > 0 ? (
@@ -611,7 +611,7 @@ const ProjectDetails = () => {
               value={totalCollected}
               prefix={<InboxOutlined style={{ color: 'white' }} />}
               suffix={<span style={{ color: 'white' }}>ريال</span>}
-              valueStyle={{ color: 'white', fontSize: '28px', fontWeight: 'bold' }}
+              styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
               <div>{payments.filter(p => (p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)) && p.status === 'paid').length} مستخلص مدفوع</div>
@@ -632,7 +632,7 @@ const ProjectDetails = () => {
               value={totalExpenses}
               prefix={<ShoppingOutlined style={{ color: 'white' }} />}
               suffix={<span style={{ color: 'white' }}>ريال</span>}
-              valueStyle={{ color: 'white', fontSize: '28px', fontWeight: 'bold' }}
+              styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
               <div>{orders.length} أمر شراء + {payments.filter(p => (p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)) && p.status === 'paid').length} دفعة مصروف</div>
@@ -655,7 +655,7 @@ const ProjectDetails = () => {
               value={cashFlow}
               prefix={cashFlow >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <RiseOutlined style={{ color: 'white', transform: 'rotate(180deg)' }} />}
               suffix={<span style={{ color: 'white' }}>ريال</span>}
-              valueStyle={{ color: 'white', fontSize: '28px', fontWeight: 'bold' }}
+              styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
               <div>الهامش: {profitMargin.toFixed(2)}%</div>
@@ -742,7 +742,7 @@ const ProjectDetails = () => {
       {/* Scope Spending Breakdown */}
       {scopeBreakdown.length > 0 && (
         <Card title={<Title level={4} style={{ margin: 0 }}>توزيع الإنفاق حسب نطاق العمل</Title>}>
-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Space orientation="vertical" size="large" style={{ width: '100%' }}>
             {scopeBreakdown.map((scope) => (
               <div key={scope.scope}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>

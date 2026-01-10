@@ -45,9 +45,8 @@ import dayjs from 'dayjs'
 
 const { Option } = Select
 const { Title } = Typography
-const { TabPane } = Tabs
 
-type ExpenseType = 'administrative' | 'project'
+type ExpenseType = 'administrative' | 'project' | 'manager_advance'
 type TransactionType = 'regular' | 'advance' | 'settlement'
 
 const GeneralExpenses = () => {
@@ -77,10 +76,60 @@ const GeneralExpenses = () => {
   const [managers, setManagers] = useState<string[]>([])
   const [outstandingAdvances, setOutstandingAdvances] = useState<any[]>([])
   const [pettyCashAdvances, setPettyCashAdvances] = useState<any[]>([])
+  const [openAdvances, setOpenAdvances] = useState<any[]>([]) // For settlement dropdown
+  const [selectedLinkedAdvance, setSelectedLinkedAdvance] = useState<any>(null) // Selected advance for settlement
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
+  const [settlementType, setSettlementType] = useState<string>('expense') // 'expense' or 'return'
+  const [settlementPoItems, setSettlementPoItems] = useState<any[]>([]) // Items for settlement PO
+  const [settlementPoVendor, setSettlementPoVendor] = useState<any>(null) // Vendor/Recipient for settlement PO
+  const [settlementPoVendorSearch, setSettlementPoVendorSearch] = useState('')
+  const [settlementPoVendorOptions, setSettlementPoVendorOptions] = useState<any[]>([])
+  const [isSettlementPoNewVendor, setIsSettlementPoNewVendor] = useState(false)
+  const [settlementPoNewVendorName, setSettlementPoNewVendorName] = useState('')
+  const [settlementPoNewVendorPhone, setSettlementPoNewVendorPhone] = useState('')
+  const [settlementPoNewVendorEmail, setSettlementPoNewVendorEmail] = useState('')
+  const [settlementAmountExceedsLimit, setSettlementAmountExceedsLimit] = useState(false)
+  const [settlementAmountError, setSettlementAmountError] = useState<string | null>(null)
+  const [transferModalVisible, setTransferModalVisible] = useState(false)
+  const [transferForm] = Form.useForm()
 
   const isEngineering = industryType === 'engineering'
+
+  // Calculate settlement total from PO items
+  const calculateSettlementTotal = () => {
+    if (settlementPoItems.length === 0) {
+      return 0
+    }
+    return settlementPoItems.reduce((sum, item) => sum + (item.total || 0), 0)
+  }
+
+  // Update settlement amount validation when items or linked advance changes
+  useEffect(() => {
+    // Only validate for expense-type settlements with a linked advance
+    if (transactionType === 'settlement' && settlementType === 'expense' && selectedLinkedAdvance) {
+      const total = calculateSettlementTotal()
+      const remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
+        ? parseFloat(selectedLinkedAdvance.remainingAmount) 
+        : parseFloat(selectedLinkedAdvance.amount || 0)
+      
+      if (total > remainingAmount && total > 0) {
+        setSettlementAmountExceedsLimit(true)
+        setSettlementAmountError(`مجموع البنود (${total.toLocaleString()}) يتجاوز المبلغ المتبقي في العهدة (${remainingAmount.toLocaleString()})`)
+      } else {
+        setSettlementAmountExceedsLimit(false)
+        setSettlementAmountError(null)
+      }
+      
+      // Update form amount field with calculated total (always, even if 0)
+      form.setFieldsValue({ amount: total })
+    } else if (transactionType !== 'settlement' || settlementType !== 'expense') {
+      // Clear validation state when not in expense-type settlement mode
+      setSettlementAmountExceedsLimit(false)
+      setSettlementAmountError(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settlementPoItems, selectedLinkedAdvance, transactionType, settlementType])
 
   useEffect(() => {
     loadExpenses()
@@ -95,8 +144,46 @@ const GeneralExpenses = () => {
     if (activeTab === 'petty-cash') {
       loadPettyCashAdvances()
       loadOutstandingAdvances()
+      loadOpenAdvances() // Load approved advances for settlement dropdown
     }
   }, [activeTab])
+
+  // Load approved advances for settlement dropdown (including partially_settled with remaining_amount > 0)
+  const loadOpenAdvances = async () => {
+    try {
+      // Get approved and partially_settled advances
+      const allAdvances = await paymentsService.getAdvances()
+      // Filter to only show advances that can be settled: approved or partially_settled with remaining_amount > 0
+      const openAdvances = allAdvances.filter(advance => {
+        const status = advance.status
+        if (status === 'approved') {
+          // Check if remaining_amount > 0 (should be, but double-check)
+          const remaining = advance.remainingAmount !== null && advance.remainingAmount !== undefined 
+            ? parseFloat(advance.remainingAmount) 
+            : parseFloat(advance.amount || 0)
+          return remaining > 0
+        }
+        if (status === 'partially_settled') {
+          const remaining = advance.remainingAmount !== null && advance.remainingAmount !== undefined 
+            ? parseFloat(advance.remainingAmount) 
+            : 0
+          return remaining > 0
+        }
+        return false
+      })
+      setOpenAdvances(openAdvances)
+    } catch (error) {
+      console.error('Error loading open advances:', error)
+      setOpenAdvances([])
+    }
+  }
+
+  // Set date field when modal opens for new administrative expenses
+  useEffect(() => {
+    if (isModalVisible && !editingExpense && expenseType === 'administrative') {
+      form.setFieldsValue({ date: dayjs() })
+    }
+  }, [isModalVisible, editingExpense, expenseType, form])
 
   const loadCategories = async () => {
     try {
@@ -104,10 +191,22 @@ const GeneralExpenses = () => {
         categoryService.getAdministrativeCategories(),
         categoryService.getProjectCategories()
       ])
-      setAdminCategories(adminCats.map(cat => ({ value: cat.name, label: cat.nameAr || cat.name })))
-      setProjectCategories(projectCats.map(cat => ({ value: cat.name, label: cat.nameAr || cat.name })))
+      // Only set categories if they exist and are arrays
+      if (Array.isArray(adminCats)) {
+        setAdminCategories(adminCats.map(cat => ({ value: cat.name, label: cat.nameAr || cat.name })))
+      } else {
+        setAdminCategories([])
+      }
+      if (Array.isArray(projectCats)) {
+        setProjectCategories(projectCats.map(cat => ({ value: cat.name, label: cat.nameAr || cat.name })))
+      } else {
+        setProjectCategories([])
+      }
     } catch (error) {
       console.error('Error loading categories:', error)
+      // Set empty arrays on error to prevent undefined issues
+      setAdminCategories([])
+      setProjectCategories([])
     }
   }
 
@@ -163,7 +262,7 @@ const GeneralExpenses = () => {
       setOutstandingAdvances(balances)
       
       // Extract unique manager names
-      const managerNames = balances.map(b => b.managerName).filter(Boolean)
+      const managerNames = balances.map((b: any) => b.managerName).filter((name: any): name is string => Boolean(name))
       setManagers([...new Set(managerNames)])
     } catch (error) {
       console.error('Error loading outstanding advances:', error)
@@ -195,34 +294,93 @@ const GeneralExpenses = () => {
     setAvailableWorkScopes([])
     setShowNewCategoryInput(false)
     setNewCategoryName('')
+    setSettlementType('expense')
+    setSelectedLinkedAdvance(null)
+    setSettlementPoItems([])
+    setSettlementPoVendor(null)
+    setSettlementPoVendorSearch('')
+    setSettlementPoVendorOptions([])
+    setIsSettlementPoNewVendor(false)
+    setSettlementPoNewVendorName('')
+    setSettlementPoNewVendorPhone('')
+    setSettlementPoNewVendorEmail('')
+    setSettlementAmountExceedsLimit(false)
+    setSettlementAmountError(null)
     form.resetFields()
+    form.setFieldsValue({
+      expenseType: 'administrative',
+      paymentFrequency: 'one-time',
+      transactionType: 'regular',
+      quantity: 1,
+      unitPrice: 0,
+      date: dayjs() // Default to today for administrative expenses
+    })
     setIsModalVisible(true)
   }
 
   const handleEditExpense = (expense: any) => {
     setEditingExpense(expense)
-    const isAdmin = expense.isGeneralExpense
-    setExpenseType(isAdmin ? 'administrative' : 'project')
+    // Determine expense type: manager advance if transactionType is advance, admin if isGeneralExpense, otherwise project
+    let expenseTypeValue: ExpenseType = 'administrative'
+    if (expense.transactionType === 'advance' || expense.transactionType === 'settlement') {
+      expenseTypeValue = 'manager_advance'
+    } else if (expense.isGeneralExpense) {
+      expenseTypeValue = 'administrative'
+    } else {
+      expenseTypeValue = 'project'
+    }
+    
+    setExpenseType(expenseTypeValue)
     setTransactionType(expense.transactionType || 'regular')
+    setSettlementType(expense.settlementType || 'expense')
     setSelectedCustomer(null)
     setCustomerSearchValue('')
     setIsNewSupplier(false)
     setSelectedProject(null)
+    setSelectedLinkedAdvance(null)
+    setSettlementPoItems([])
+    setSettlementPoVendor(null)
+    setSettlementPoVendorSearch('')
+    setIsSettlementPoNewVendor(false)
+    // For administrative expenses and manager advances, use a single date field
+    const expenseDate = expense.dueDate ? dayjs(expense.dueDate) : (expense.paidDate ? dayjs(expense.paidDate) : dayjs())
+    
+    // Load open advances if editing a settlement
+    if (expense.transactionType === 'settlement') {
+      loadOpenAdvances().then(() => {
+        // Find and set the linked advance
+        if (expense.linkedAdvanceId) {
+          const linkedAdvance = openAdvances.find(a => a.id === expense.linkedAdvanceId)
+          if (linkedAdvance) {
+            setSelectedLinkedAdvance(linkedAdvance)
+            // Auto-fill project if advance has one
+            if (linkedAdvance.projectId) {
+              setSelectedProject(linkedAdvance.projectId)
+              form.setFieldsValue({ projectId: linkedAdvance.projectId })
+            }
+          }
+        }
+      })
+    }
+    
     form.setFieldsValue({
-      expenseType: isAdmin ? 'administrative' : 'project',
+      expenseType: expenseTypeValue,
       projectId: expense.projectId || undefined,
       category: expense.expenseCategory || undefined,
       amount: expense.amount,
-      dueDate: expense.dueDate ? dayjs(expense.dueDate) : undefined,
-      paidDate: expense.paidDate ? dayjs(expense.paidDate) : undefined,
-      status: expense.status,
+      date: expenseTypeValue === 'administrative' || expenseTypeValue === 'manager_advance' ? expenseDate : undefined,
+      dueDate: expenseTypeValue !== 'administrative' && expenseTypeValue !== 'manager_advance' ? (expense.dueDate ? dayjs(expense.dueDate) : undefined) : undefined,
+      paidDate: expenseTypeValue !== 'administrative' && expenseTypeValue !== 'manager_advance' ? (expense.paidDate ? dayjs(expense.paidDate) : undefined) : undefined,
+      status: expenseTypeValue === 'administrative' ? 'paid' : (expenseTypeValue === 'manager_advance' && expense.transactionType !== 'settlement' ? (expense.status || 'pending') : undefined),
       paymentMethod: expense.paymentMethod || undefined,
       referenceNumber: expense.referenceNumber || undefined,
       notes: expense.notes || undefined,
+      recipientName: expense.recipientName || undefined,
       paymentFrequency: expense.paymentFrequency || 'one-time',
       transactionType: expense.transactionType || 'regular',
       managerName: expense.managerName || undefined,
-      linkedAdvanceId: expense.linkedAdvanceId || undefined
+      linkedAdvanceId: expense.linkedAdvanceId || undefined,
+      settlementType: expense.settlementType || 'expense'
     })
     setIsModalVisible(true)
   }
@@ -285,7 +443,8 @@ const GeneralExpenses = () => {
     }
 
     try {
-      const searchResults = await customersService.searchCustomers(searchText)
+      // STRICT VENDOR FILTERING: Only fetch type = 'vendor' or 'supplier', exclude 'client'
+      const searchResults = await customersService.searchCustomers(searchText, 'vendor')
       const options = searchResults.map(customer => ({
         value: customer.id,
         label: `${customer.name} - ${customer.phone}${customer.email ? ` (${customer.email})` : ''}`,
@@ -328,6 +487,9 @@ const GeneralExpenses = () => {
         setNewSupplierName('')
         setNewSupplierPhone('')
         setNewSupplierEmail('')
+        // Display the customer name in the input field, not the UUID
+        setCustomerSearchValue(customer.name)
+        form.setFieldsValue({ customerSearch: customer.name })
       }
     }
   }
@@ -390,14 +552,138 @@ const GeneralExpenses = () => {
     setSelectedProducts(updated)
   }
 
+  // Settlement PO Vendor Search (similar to customer search)
+  // STRICT VENDOR FILTERING: Only fetch type = 'vendor' or 'supplier', exclude 'client'
+  const handleSettlementPoVendorSearch = async (searchText: string) => {
+    setSettlementPoVendorSearch(searchText)
+    
+    if (!searchText || searchText.trim() === '') {
+      setSettlementPoVendorOptions([])
+      setIsSettlementPoNewVendor(false)
+      setSettlementPoVendor(null)
+      return
+    }
+
+    try {
+      // STRICT VENDOR FILTERING: Only fetch type = 'vendor' or 'supplier', exclude 'client'
+      const searchResults = await customersService.searchCustomers(searchText, 'vendor')
+      const options = searchResults.map(customer => ({
+        value: customer.id,
+        label: `${customer.name} - ${customer.phone}${customer.email ? ` (${customer.email})` : ''}`,
+        customer: customer
+      }))
+      
+      const exactMatch = searchResults.find(c => 
+        c.name.toLowerCase() === searchText.toLowerCase().trim() ||
+        c.phone === searchText.trim()
+      )
+      
+      if (!exactMatch && searchText.trim().length > 0) {
+        options.push({
+          value: '__NEW__',
+          label: `إضافة مورد جديد: "${searchText.trim()}"`,
+          isNew: true
+        })
+      }
+      
+      setSettlementPoVendorOptions(options)
+    } catch (error) {
+      console.error('Error searching vendors:', error)
+      setSettlementPoVendorOptions([])
+    }
+  }
+
+  const handleSettlementPoVendorSelect = (value: string, option: any) => {
+    if (value === '__NEW__' || option?.isNew) {
+      setIsSettlementPoNewVendor(true)
+      setSettlementPoVendor(null)
+      const nameFromSearch = settlementPoVendorSearch.trim()
+      setSettlementPoNewVendorName(nameFromSearch)
+      setSettlementPoNewVendorPhone('')
+      setSettlementPoNewVendorEmail('')
+    } else {
+      const customer = option?.customer || settlementPoVendorOptions.find((opt: any) => opt.value === value)?.customer
+      if (customer) {
+        setSettlementPoVendor(customer)
+        setIsSettlementPoNewVendor(false)
+        setSettlementPoNewVendorName('')
+        setSettlementPoNewVendorPhone('')
+        setSettlementPoNewVendorEmail('')
+        setSettlementPoVendorSearch(customer.name)
+        form.setFieldsValue({ settlementPoVendor: customer.name })
+      }
+    }
+  }
+
+  // Settlement PO Item handlers
+  const handleAddSettlementPoItem = () => {
+    const itemDescription = form.getFieldValue('settlementPoItemDescription')
+    const quantity = form.getFieldValue('settlementPoQuantity') || 1
+    const unitPrice = form.getFieldValue('settlementPoUnitPrice') || 0
+
+    if (!itemDescription || itemDescription.trim() === '') {
+      message.error('يرجى إدخال وصف البند')
+      return
+    }
+
+    if (quantity <= 0) {
+      message.error('الكمية يجب أن تكون أكبر من صفر')
+      return
+    }
+
+    if (unitPrice < 0) {
+      message.error('سعر الوحدة يجب أن يكون أكبر من أو يساوي صفر')
+      return
+    }
+    
+    const newItem = {
+      id: Date.now(),
+      productId: null,
+      product: itemDescription.trim(),
+      price: unitPrice,
+      quantity: quantity,
+      total: unitPrice * quantity,
+      isManualEntry: true
+    }
+    
+    const updatedItems = [...settlementPoItems, newItem]
+    setSettlementPoItems(updatedItems)
+    form.setFieldsValue({ settlementPoItemDescription: '', settlementPoQuantity: 1, settlementPoUnitPrice: 0 })
+    
+    // Calculate and update amount field
+    const total = updatedItems.reduce((sum, item) => sum + (item.total || 0), 0)
+    form.setFieldsValue({ amount: total })
+    message.success('تم إضافة البند')
+  }
+
+  const handleRemoveSettlementPoItem = (index: number) => {
+    const updated = [...settlementPoItems]
+    updated.splice(index, 1)
+    setSettlementPoItems(updated)
+    
+    // Calculate and update amount field
+    const total = updated.reduce((sum, item) => sum + (item.total || 0), 0)
+    form.setFieldsValue({ amount: total })
+  }
+
   const handleSubmit = async (values: any) => {
+    console.log('Submitting data:', values)
+    console.log('Expense Type:', expenseType)
+    console.log('Editing Expense:', editingExpense)
+    
     try {
       const isAdmin = expenseType === 'administrative'
       const isProjectExpense = expenseType === 'project'
+      const isManagerAdvance = expenseType === 'manager_advance'
       
-      // For project expenses, use the same structure as OrdersPage
-      if (isProjectExpense && selectedProducts.length > 0) {
-        // Create order-like structure for project expenses
+      // For project expenses, use ONLY ordersService (same as OrdersPage) - NO paymentsService
+      if (isProjectExpense) {
+        if (selectedProducts.length === 0) {
+          message.error('يرجى إضافة بند واحد على الأقل')
+          return
+        }
+
+        // Handle supplier/customer - same logic as OrdersPage
         let finalCustomerId = null
         let finalCustomerName = ''
         let finalCustomerPhone = ''
@@ -439,7 +725,13 @@ const GeneralExpenses = () => {
           return
         }
 
-        // Create order for project expense
+        // Validate project selection for engineering mode
+        if (isEngineering && !values.projectId) {
+          message.error('يرجى اختيار المشروع')
+          return
+        }
+
+        // Create order for project expense - EXACT same as OrdersPage
         const orderItems = selectedProducts.map(p => ({
           productId: p.productId || null,
           productName: p.product,
@@ -457,7 +749,7 @@ const GeneralExpenses = () => {
           projectId: isEngineering ? (values.projectId || null) : null,
           workScope: isEngineering ? (values.workScope || null) : null,
           items: orderItems,
-          status: 'pending',
+          status: values.status || 'pending',
           paymentMethod: values.paymentMethod || 'cash',
           shippingAddress: '',
           shippingMethod: 'standard',
@@ -467,87 +759,411 @@ const GeneralExpenses = () => {
 
         const orderResult = await ordersService.createOrder(orderData)
         
-        if (!orderResult.success) {
-          message.error(orderResult.error || 'فشل في إنشاء أمر الشراء')
-          return
-        }
-
-        // Also create payment record for the expense
-        const paymentData = {
-          isGeneralExpense: false,
-          projectId: isEngineering ? (values.projectId || null) : null,
-          workScope: isEngineering ? (values.workScope || null) : null,
-          category: values.category,
-          amount: selectedProducts.reduce((sum, item) => sum + (item.total || 0), 0),
-          dueDate: values.dueDate ? values.dueDate.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0],
-          paidDate: values.paidDate ? values.paidDate.format('YYYY-MM-DD') : null,
-          status: values.status || 'pending',
-          paymentMethod: values.paymentMethod || null,
-          referenceNumber: values.referenceNumber || null,
-          notes: values.notes || null,
-          paymentType: 'expense',
-          paymentFrequency: values.paymentFrequency || 'one-time',
-          transactionType: 'regular'
-        }
-
-        const paymentResult = await paymentsService.createPayment(paymentData)
-        
-        if (paymentResult.success) {
-          message.success('تم إضافة مصروف المشروع وأمر الشراء بنجاح')
+        if (orderResult.success) {
+          message.success('تم إضافة أمر الشراء بنجاح')
           setIsModalVisible(false)
           form.resetFields()
           setSelectedProducts([])
+          setSelectedCustomer(null)
+          setCustomerSearchValue('')
+          setIsNewSupplier(false)
+          setNewSupplierName('')
+          setNewSupplierPhone('')
+          setNewSupplierEmail('')
+          setSelectedProject(null)
+          setAvailableWorkScopes([])
           loadExpenses()
         } else {
-          message.error(paymentResult.error || 'فشل في إنشاء سجل الدفع')
+          message.error(orderResult.error || 'فشل في إنشاء أمر الشراء')
         }
 
         return
       }
 
-      // Regular expense (administrative or simple project expense)
-      const paymentData = {
-        isGeneralExpense: isAdmin,
-        projectId: isAdmin ? null : (values.projectId || null),
-        workScope: isAdmin ? null : (values.workScope || null),
-        category: values.category,
-        amount: parseFloat(values.amount),
-        dueDate: values.dueDate ? values.dueDate.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0],
-        paidDate: values.paidDate ? values.paidDate.format('YYYY-MM-DD') : null,
-        status: values.status || 'pending',
-        paymentMethod: values.paymentMethod || null,
-        referenceNumber: values.referenceNumber || null,
-        notes: values.notes || null,
-        paymentType: 'expense',
-        paymentFrequency: values.paymentFrequency || 'one-time',
-        transactionType: transactionType,
-        managerName: transactionType === 'advance' || transactionType === 'settlement' ? (values.managerName || null) : null,
-        linkedAdvanceId: transactionType === 'settlement' ? (values.linkedAdvanceId || null) : null
-      }
-
-      let result
-      if (editingExpense) {
-        result = await paymentsService.updatePayment(editingExpense.id, paymentData)
-      } else {
-        result = await paymentsService.createPayment(paymentData)
-      }
-
-      if (result.success) {
-        message.success(editingExpense ? 'تم تحديث المصروف بنجاح' : 'تم إضافة المصروف بنجاح')
-        setIsModalVisible(false)
-        form.resetFields()
-        setSelectedProducts([])
-        loadExpenses()
-        if (activeTab === 'petty-cash') {
-          loadPettyCashAdvances()
-          loadOutstandingAdvances()
+      // For Manager Advance expenses
+      if (isManagerAdvance) {
+        // For settlement, manager name comes from the linked advance, so skip validation
+        if (transactionType !== 'settlement' && !values.managerName) {
+          message.error('يرجى إدخال اسم مدير المشروع')
+          return
         }
-      } else {
-        message.error(result.error || (editingExpense ? 'فشل في تحديث المصروف' : 'فشل في إضافة المصروف'))
+        
+        // Validate amount <= remaining amount (not original amount)
+        // Use 'let' instead of 'const' because amountValue may be reassigned for expense-type settlements
+        let amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
+        
+        // For non-settlement advances, validate amount immediately
+        // For settlements, validation happens later (expense-type: from PO items, return-type: after checking remaining amount)
+        if (transactionType !== 'settlement') {
+          if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
+            message.error('يرجى إدخال مبلغ صحيح')
+            return
+          }
+        }
+        
+        // For settlement, validate linked advance and prepare PO data
+        if (transactionType === 'settlement') {
+          if (!values.linkedAdvanceId) {
+            message.error('يرجى اختيار العهدة المفتوحة')
+            return
+          }
+
+          if (!selectedLinkedAdvance) {
+            message.error('لم يتم العثور على تفاصيل العهدة المرتبطة')
+            return
+          }
+
+          // For expense-type settlements, calculate amount from PO items and validate
+          if (settlementType === 'expense') {
+            if (!selectedLinkedAdvance.projectId) {
+              message.error('العهدة المرتبطة لا تحتوي على مشروع. يرجى اختيار مشروع للتسوية')
+              return
+            }
+
+            // Validate vendor/recipient
+            if (!settlementPoVendor && !isSettlementPoNewVendor) {
+              message.error('يرجى اختيار أو إضافة مورد/مستلم لأمر الشراء')
+              return
+            }
+
+            // Validate PO items
+            if (settlementPoItems.length === 0) {
+              message.error('يرجى إضافة بند واحد على الأقل لأمر الشراء')
+              return
+            }
+
+            // Calculate amount from PO items for expense-type settlements
+            const calculatedAmount = calculateSettlementTotal()
+            if (calculatedAmount <= 0) {
+              message.error('يجب أن يكون مجموع البنود أكبر من صفر')
+              return
+            }
+
+            // Validate calculated amount against remaining amount
+            const remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
+              ? parseFloat(selectedLinkedAdvance.remainingAmount) 
+              : parseFloat(selectedLinkedAdvance.amount || 0)
+
+            if (remainingAmount <= 0) {
+              message.error('العهدة تم تسويتها بالكامل - لا يمكن إنشاء تسوية جديدة')
+              return
+            }
+
+            if (calculatedAmount > remainingAmount) {
+              message.error(`مجموع البنود (${calculatedAmount.toLocaleString()}) يتجاوز المبلغ المتبقي في العهدة (${remainingAmount.toLocaleString()})`)
+              return
+            }
+
+            // Use calculated amount instead of form value
+            amountValue = calculatedAmount
+
+            // Handle vendor creation if new
+            let finalVendorId = null
+            let finalVendorName = ''
+            let finalVendorPhone = ''
+            let finalVendorEmail = ''
+
+            if (isSettlementPoNewVendor) {
+              const vendorName = settlementPoNewVendorName.trim() || settlementPoVendorSearch.trim()
+              if (!vendorName) {
+                message.error('يرجى إدخال اسم المورد/المستلم')
+                return
+              }
+
+              const newVendorData = {
+                name: vendorName,
+                phone: settlementPoNewVendorPhone.trim() || null,
+                email: settlementPoNewVendorEmail.trim() || null,
+                type: 'supplier',
+                status: 'active'
+              }
+
+              const createResult = await customersService.addCustomer(newVendorData)
+              if (createResult.success) {
+                finalVendorId = createResult.customer.id
+                finalVendorName = createResult.customer.name
+                finalVendorPhone = createResult.customer.phone || ''
+                finalVendorEmail = createResult.customer.email || ''
+                message.success('تم إضافة المورد الجديد بنجاح')
+              } else {
+                message.error(createResult.error || 'فشل في إضافة المورد الجديد')
+                return
+              }
+            } else if (settlementPoVendor) {
+              finalVendorId = settlementPoVendor.id
+              finalVendorName = settlementPoVendor.name
+              finalVendorPhone = settlementPoVendor.phone || ''
+              finalVendorEmail = settlementPoVendor.email || ''
+            }
+
+            // Prepare PO data
+            const poItems = settlementPoItems.map(p => ({
+              productId: p.productId || null,
+              productName: p.product,
+              quantity: p.quantity,
+              unitPrice: p.price,
+              total: p.total,
+              isManualEntry: p.isManualEntry || false
+            }))
+
+            // Use paymentsService.createSettlementWithPO for dual-save
+            const expenseDate = values.date ? values.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
+
+            // Get manager name from linked advance
+            const managerName = selectedLinkedAdvance.managerName
+
+            const result = await paymentsService.createSettlementWithPO({
+              linkedAdvanceId: values.linkedAdvanceId,
+              amount: amountValue,
+              date: expenseDate,
+              paymentMethod: 'settlement', // Force to 'settlement' - payment method is hidden for settlements
+              referenceNumber: values.referenceNumber?.trim() || null,
+              notes: values.notes || null,
+              settlementType: settlementType || 'expense',
+              managerName: managerName,
+              projectId: selectedLinkedAdvance.projectId,
+              workScope: values.workScope || null,
+              // PO data
+              vendorId: finalVendorId,
+              vendorName: finalVendorName,
+              vendorPhone: finalVendorPhone,
+              vendorEmail: finalVendorEmail,
+              poItems: poItems,
+              poStatus: 'completed', // Settlement PO is immediately completed
+              poPaymentMethod: 'cash' // Default, but payment is already made from advance
+            })
+
+            if (result.success) {
+              message.success('تم حفظ التسوية وأمر الشراء بنجاح')
+              setIsModalVisible(false)
+              form.resetFields()
+              setSelectedProducts([])
+              setEditingExpense(null)
+              setTransactionType('advance')
+              setSettlementType('expense')
+              setSelectedLinkedAdvance(null)
+              setSettlementPoItems([])
+              setSettlementPoVendor(null)
+              setSettlementPoVendorSearch('')
+              setIsSettlementPoNewVendor(false)
+              loadExpenses()
+              if (activeTab === 'petty-cash') {
+                loadPettyCashAdvances()
+                loadOutstandingAdvances()
+                loadOpenAdvances() // Reload open advances after creating settlement
+              }
+            } else {
+              console.error('Settlement with PO save failed:', {
+                success: result.success,
+                error: result.error,
+                errorCode: result.errorCode,
+                fullResult: result
+              })
+              message.error(result.error || 'فشل في حفظ التسوية وأمر الشراء')
+            }
+            return
+          } else {
+            // For return-type settlements, validate manually entered amount
+            // Re-parse amountValue from form for return-type settlements
+            amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
+            if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
+              message.error('يرجى إدخال مبلغ صحيح')
+              return
+            }
+            
+            const remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
+              ? parseFloat(selectedLinkedAdvance.remainingAmount) 
+              : parseFloat(selectedLinkedAdvance.amount || 0)
+
+            if (remainingAmount <= 0) {
+              message.error('العهدة تم تسويتها بالكامل - لا يمكن إنشاء تسوية جديدة')
+              return
+            }
+
+            if (amountValue > remainingAmount) {
+              message.error(`المبلغ يجب أن يكون أقل من أو يساوي المبلغ المتبقي (${remainingAmount.toLocaleString()} ريال)`)
+              return
+            }
+          }
+        }
+
+        // Regular advance (no PO creation, no settlement validation needed)
+        if (transactionType !== 'settlement') {
+          const amountValueCheck = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
+          if (!values.amount || isNaN(amountValueCheck) || amountValueCheck <= 0) {
+            message.error('يرجى إدخال مبلغ صحيح')
+            return
+          }
+        }
+
+        // Auto-generate reference number for new advances
+        let referenceNumber = values.referenceNumber?.trim() || null
+        if (!referenceNumber && !editingExpense && transactionType === 'advance') {
+          referenceNumber = await paymentsService.generateAdvanceReferenceNumber()
+        }
+
+        // For settlement, get manager name from linked advance and validate remaining amount
+        let managerName = values.managerName || null
+        if (transactionType === 'settlement' && values.linkedAdvanceId) {
+          const linkedAdvance = selectedLinkedAdvance || openAdvances.find(a => a.id === values.linkedAdvanceId)
+          if (linkedAdvance) {
+            managerName = linkedAdvance.managerName
+            // For return-type settlements, we still need to update remaining_amount
+            // This will be handled in the service, but we need to ensure the advance exists
+          }
+        }
+
+        const expenseDate = values.date ? values.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
+
+        const paymentData = {
+          isGeneralExpense: true, // Manager advances are general expenses
+          projectId: values.projectId || null, // Optional project_id
+          workScope: null,
+          category: null, // No category for manager advances
+          amount: amountValue,
+          dueDate: expenseDate, // Use single date field
+          paidDate: expenseDate, // Same as dueDate for manager advances
+          status: editingExpense ? values.status : 'pending', // Default to pending for new entries, use existing for edits
+          paymentMethod: transactionType === 'settlement' ? 'settlement' : (values.paymentMethod || null), // Force 'settlement' for settlements
+          referenceNumber: referenceNumber,
+          notes: values.notes || null,
+          paymentFrequency: null, // No frequency for manager advances
+          transactionType: transactionType,
+          managerName: managerName,
+          linkedAdvanceId: transactionType === 'settlement' ? (values.linkedAdvanceId || null) : null,
+          settlementType: transactionType === 'settlement' ? (settlementType || 'expense') : null
+        }
+
+        let result
+        if (editingExpense) {
+          result = await paymentsService.updatePayment(editingExpense.id, paymentData)
+        } else {
+          result = await paymentsService.createPayment(paymentData)
+        }
+
+        if (result.success) {
+          message.success(transactionType === 'settlement' ? 'تم حفظ التسوية بنجاح' : 'تم حفظ العهدة بنجاح')
+          setIsModalVisible(false)
+          form.resetFields()
+          setSelectedProducts([])
+          setEditingExpense(null)
+          setTransactionType('advance')
+          setSettlementType('expense')
+          setSelectedLinkedAdvance(null)
+          setSettlementPoItems([])
+          setSettlementPoVendor(null)
+          setSettlementPoVendorSearch('')
+          setIsSettlementPoNewVendor(false)
+          loadExpenses()
+          if (activeTab === 'petty-cash') {
+            loadPettyCashAdvances()
+            loadOutstandingAdvances()
+            loadOpenAdvances() // Reload open advances after creating settlement
+          }
+        } else {
+          console.error('Manager advance save failed:', {
+            success: result.success,
+            error: result.error,
+            errorCode: result.errorCode,
+            fullResult: result
+          })
+          message.error(result.error || 'فشل في حفظ العهدة')
+        }
+        return
       }
-    } catch (error) {
+
+      // For Administrative expenses
+      if (isAdmin) {
+        if (!values.category) {
+          message.error('يرجى اختيار الفئة')
+          return
+        }
+        let amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
+        if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
+          message.error('يرجى إدخال مبلغ صحيح')
+          return
+        }
+        if (!values.paymentFrequency) {
+          message.error('يرجى اختيار دورية الصرف')
+          return
+        }
+        if (!values.paymentMethod) {
+          message.error('يرجى اختيار طريقة الدفع')
+          return
+        }
+
+        // Generate auto-reference number if empty (EXP-001, EXP-002, etc.)
+        let referenceNumber = values.referenceNumber?.trim() || null
+        if (!referenceNumber && !editingExpense) {
+          referenceNumber = await paymentsService.generateExpenseReferenceNumber()
+        }
+
+        const expenseDate = values.date ? values.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
+
+        // Prepare payment data for administrative expense
+        // Note: The 'category' field here maps to 'expense_category' in the database via paymentsService
+        // The 'recipientName' field maps to 'recipient_name' in the database
+        const paymentData = {
+          isGeneralExpense: true,
+          projectId: null,
+          workScope: null,
+          category: values.category, // Maps to expense_category in DB via paymentsService
+          amount: amountValue,
+          dueDate: expenseDate,
+          paidDate: expenseDate, // Same as dueDate since status is auto-set to 'paid'
+          status: 'paid', // Auto-set to 'paid' for administrative expenses
+          paymentMethod: values.paymentMethod || null,
+          referenceNumber: referenceNumber,
+          notes: values.notes || null,
+          recipientName: values.recipientName || null, // Maps to recipient_name in DB via paymentsService
+          paymentFrequency: values.paymentFrequency || 'one-time',
+          transactionType: 'regular',
+          managerName: null,
+          linkedAdvanceId: null
+        }
+
+        console.log('Payment Data for Administrative Expense:', paymentData)
+
+        let result
+        if (editingExpense) {
+          console.log('Updating payment with ID:', editingExpense.id)
+          result = await paymentsService.updatePayment(editingExpense.id, paymentData)
+        } else {
+          console.log('Creating new payment')
+          result = await paymentsService.createPayment(paymentData)
+        }
+
+        console.log('Service result:', result)
+
+        if (result.success) {
+          message.success('تم حفظ المصروف بنجاح')
+          setIsModalVisible(false)
+          form.resetFields()
+          setSelectedProducts([])
+          setEditingExpense(null)
+          loadExpenses()
+        } else {
+          const errorMsg = result.error || result.errorCode || 'فشل في حفظ المصروف'
+          console.error('Payment save failed:', {
+            success: result.success,
+            error: result.error,
+            errorCode: result.errorCode,
+            fullResult: result
+          })
+          message.error(errorMsg)
+        }
+      }
+    } catch (error: any) {
       console.error('Error saving expense:', error)
-      message.error('فشل في حفظ المصروف')
+      console.error('Error details:', {
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+        hint: error?.hint,
+        stack: error?.stack
+      })
+      const errorMessage = error?.message || error?.details || 'فشل في حفظ المصروف'
+      message.error(`خطأ في الحفظ: ${errorMessage}`)
     }
   }
 
@@ -561,6 +1177,25 @@ const GeneralExpenses = () => {
     setIsNewSupplier(false)
     setShowNewCategoryInput(false)
     setNewCategoryName('')
+    setExpenseType('administrative')
+    setTransactionType('regular')
+    setSettlementType('expense')
+    setSelectedLinkedAdvance(null)
+    setSettlementPoItems([])
+    setSettlementPoVendor(null)
+    setSettlementPoVendorSearch('')
+    setIsSettlementPoNewVendor(false)
+    setSettlementAmountExceedsLimit(false)
+    setSettlementAmountError(null)
+    // Reset form with default values
+    form.setFieldsValue({
+      expenseType: 'administrative',
+      paymentFrequency: 'one-time',
+      transactionType: 'regular',
+      quantity: 1,
+      unitPrice: 0,
+      date: dayjs() // Reset date to today for administrative expenses
+    })
   }
 
   // Calculate statistics
@@ -646,39 +1281,38 @@ const GeneralExpenses = () => {
       sorter: (a: any, b: any) => parseFloat(a.amount || 0) - parseFloat(b.amount || 0)
     },
     {
-      title: 'دورية الصرف',
-      dataIndex: 'paymentFrequency',
-      key: 'paymentFrequency',
-      width: 120,
-      render: (frequency: string) => {
-        const freqMap: Record<string, string> = {
-          'one-time': 'لمرة واحدة',
-          'monthly': 'شهري',
-          'yearly': 'سنوي'
-        }
-        return frequency ? <Tag>{freqMap[frequency] || frequency}</Tag> : '-'
-      }
-    },
-    {
-      title: 'تاريخ الاستحقاق',
+      title: 'التاريخ',
       dataIndex: 'dueDate',
       key: 'dueDate',
       width: 120,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-'
-    },
-    {
-      title: 'تاريخ الدفع',
-      dataIndex: 'paidDate',
-      key: 'paidDate',
-      width: 120,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-'
+      render: (date: string, record: any) => {
+        // For manager advances, use dueDate as the single date field
+        if (record.transactionType === 'advance' || record.transactionType === 'settlement') {
+          return date ? dayjs(date).format('YYYY-MM-DD') : '-'
+        }
+        // For other expenses, show both dates if available
+        return date ? dayjs(date).format('YYYY-MM-DD') : '-'
+      }
     },
     {
       title: 'الحالة',
       dataIndex: 'status',
       key: 'status',
-      width: 100,
-      render: (status: string) => {
+      width: 120,
+      render: (status: string, record: any) => {
+        // Manager advances use: pending, approved, rejected, settled, partially_settled
+        if (record.transactionType === 'advance' || record.transactionType === 'settlement') {
+          const statusConfig: Record<string, { color: string; label: string }> = {
+            pending: { color: 'warning', label: 'قيد المراجعة' },
+            approved: { color: 'success', label: 'تمت الموافقة' },
+            rejected: { color: 'error', label: 'مرفوض' },
+            settled: { color: 'success', label: 'تم التسوية' },
+            partially_settled: { color: 'processing', label: 'تم التسوية جزئياً' }
+          }
+          const config = statusConfig[status] || { color: 'default', label: status }
+          return <Tag color={config.color}>{config.label}</Tag>
+        }
+        // Other expenses use: paid, pending, overdue, cancelled
         const statusConfig: Record<string, { color: string; label: string }> = {
           paid: { color: 'success', label: 'مدفوع' },
           pending: { color: 'warning', label: 'معلق' },
@@ -696,7 +1330,7 @@ const GeneralExpenses = () => {
       width: 120,
       render: (method: string) => {
         const methods: Record<string, string> = {
-          cash: 'نقد',
+          cash: 'نقدي',
           bank_transfer: 'تحويل بنكي',
           check: 'شيك',
           other: 'أخرى'
@@ -715,33 +1349,42 @@ const GeneralExpenses = () => {
       key: 'actions',
       width: 120,
       fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEditExpense(record)}
-            size="small"
-          >
-            تعديل
-          </Button>
-          <Popconfirm
-            title="هل أنت متأكد من حذف هذا المصروف؟"
-            onConfirm={() => handleDeleteExpense(record.id)}
-            okText="نعم"
-            cancelText="لا"
-          >
+      render: (_: any, record: any) => {
+        // Don't allow editing if status is 'approved' for manager advances
+        const isApproved = (record.transactionType === 'advance' || record.transactionType === 'settlement') && record.status === 'approved'
+        
+        return (
+          <Space>
             <Button
               type="link"
-              danger
-              icon={<DeleteOutlined />}
+              icon={<EditOutlined />}
+              onClick={() => handleEditExpense(record)}
               size="small"
+              disabled={isApproved}
+              title={isApproved ? 'لا يمكن تعديل العهدة المعتمدة' : undefined}
             >
-              حذف
+              تعديل
             </Button>
-          </Popconfirm>
-        </Space>
-      )
+            <Popconfirm
+              title="هل أنت متأكد من حذف هذا المصروف؟"
+              onConfirm={() => handleDeleteExpense(record.id)}
+              okText="نعم"
+              cancelText="لا"
+            >
+              <Button
+                type="link"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+                disabled={isApproved}
+                title={isApproved ? 'لا يمكن حذف العهدة المعتمدة' : undefined}
+              >
+                حذف
+              </Button>
+            </Popconfirm>
+          </Space>
+        )
+      }
     }
   ]
 
@@ -763,7 +1406,78 @@ const GeneralExpenses = () => {
         return <Tag>عادي</Tag>
       }
     },
-    ...columns.slice(5), // Amount, frequency, dates, status, etc.
+    {
+      title: 'المبلغ',
+      dataIndex: 'amount',
+      key: 'amount',
+      width: 120,
+      render: (amount: number) => `${parseFloat(amount || 0).toLocaleString()} ريال`,
+      sorter: (a: any, b: any) => parseFloat(a.amount || 0) - parseFloat(b.amount || 0)
+    },
+    {
+      title: 'المبلغ المتبقي',
+      dataIndex: 'remainingAmount',
+      key: 'remainingAmount',
+      width: 150,
+      render: (remaining: number | null, record: any) => {
+        // Only show for advances, not settlements
+        if (record.transactionType === 'advance') {
+          const remainingAmount = remaining !== null && remaining !== undefined ? parseFloat(remaining) : parseFloat(record.amount || 0)
+          const originalAmount = parseFloat(record.amount || 0)
+          const color = remainingAmount <= 0 ? 'success' : remainingAmount < originalAmount ? 'warning' : 'default'
+          return (
+            <Tag color={color}>
+              {remainingAmount.toLocaleString()} ريال
+            </Tag>
+          )
+        }
+        return '-'
+      },
+      sorter: (a: any, b: any) => {
+        const aRemaining = a.transactionType === 'advance' ? (parseFloat(a.remainingAmount) || parseFloat(a.amount || 0)) : 0
+        const bRemaining = b.transactionType === 'advance' ? (parseFloat(b.remainingAmount) || parseFloat(b.amount || 0)) : 0
+        return aRemaining - bRemaining
+      }
+    },
+    {
+      title: 'التاريخ',
+      dataIndex: 'dueDate',
+      key: 'dueDate',
+      width: 120,
+      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-'
+    },
+    {
+      title: 'الحالة',
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      render: (status: string, record: any) => {
+        const statusConfig: Record<string, { color: string; label: string }> = {
+          pending: { color: 'warning', label: 'قيد المراجعة' },
+          approved: { color: 'success', label: 'تمت الموافقة' },
+          rejected: { color: 'error', label: 'مرفوض' },
+          settled: { color: 'success', label: 'تم التسوية' },
+          partially_settled: { color: 'processing', label: 'تم التسوية جزئياً' }
+        }
+        const config = statusConfig[status] || { color: 'default', label: status }
+        return <Tag color={config.color}>{config.label}</Tag>
+      }
+    },
+    {
+      title: 'طريقة الدفع',
+      dataIndex: 'paymentMethod',
+      key: 'paymentMethod',
+      width: 120,
+      render: (method: string) => {
+        const methods: Record<string, string> = {
+          cash: 'نقدي',
+          bank_transfer: 'تحويل بنكي',
+          check: 'شيك',
+          other: 'أخرى'
+        }
+        return method ? methods[method] || method : '-'
+      }
+    },
     {
       title: 'العهدة المرتبطة',
       dataIndex: 'linkedAdvanceId',
@@ -774,7 +1488,7 @@ const GeneralExpenses = () => {
           const advance = pettyCashAdvances.find(a => a.id === linkedId)
           return advance ? (
             <Tag color="blue">
-              {advance.paymentNumber} - {advance.amount} ريال
+              {advance.referenceNumber || advance.paymentNumber} - {advance.amount} ريال
             </Tag>
           ) : (
             <Tag>{linkedId.substring(0, 8)}...</Tag>
@@ -782,7 +1496,14 @@ const GeneralExpenses = () => {
         }
         return '-'
       }
-    }
+    },
+    {
+      title: 'ملاحظات',
+      dataIndex: 'notes',
+      key: 'notes',
+      ellipsis: true
+    },
+    columns[columns.length - 1] // Actions column
   ]
 
   return (
@@ -823,7 +1544,7 @@ const GeneralExpenses = () => {
                 value={paidExpenses}
                 precision={0}
                 suffix="ريال"
-                valueStyle={{ color: '#3f8600' }}
+                styles={{ value: { color: '#3f8600' } }}
               />
             </Card>
           </Col>
@@ -834,7 +1555,7 @@ const GeneralExpenses = () => {
                 value={pendingExpenses}
                 precision={0}
                 suffix="ريال"
-                valueStyle={{ color: '#cf1322' }}
+                styles={{ value: { color: '#cf1322' } }}
               />
             </Card>
           </Col>
@@ -856,7 +1577,7 @@ const GeneralExpenses = () => {
                       value={balance.outstandingBalance}
                       precision={0}
                       suffix="ريال"
-                      valueStyle={{ color: balance.outstandingBalance > 0 ? '#cf1322' : '#3f8600' }}
+                      styles={{ value: { color: balance.outstandingBalance > 0 ? '#cf1322' : '#3f8600' } }}
                       prefix={<UserOutlined />}
                     />
                     <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
@@ -869,57 +1590,82 @@ const GeneralExpenses = () => {
           </Card>
         )}
 
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
-          <TabPane tab={<span><BankOutlined />المصاريف العامة</span>} key="general">
-            {/* Search */}
-            <Input
-              placeholder="ابحث عن مصروف (رقم، مصدر، فئة، ملاحظات)..."
-              prefix={<SearchOutlined />}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              style={{ marginBottom: 16, maxWidth: 400 }}
-              allowClear
-            />
+        <Tabs 
+          activeKey={activeTab} 
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'general',
+              label: (
+                <span>
+                  <BankOutlined />
+                  المصاريف العامة
+                </span>
+              ),
+              children: (
+                <>
+                  {/* Search */}
+                  <Input
+                    placeholder="ابحث عن مصروف (رقم، مصدر، فئة، ملاحظات)..."
+                    prefix={<SearchOutlined />}
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    style={{ marginBottom: 16, maxWidth: 400 }}
+                    allowClear
+                  />
 
-            {/* Table */}
-            <Table
-              columns={columns}
-              dataSource={filteredExpenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
-              loading={loading}
-              scroll={{ x: 1500 }}
-              pagination={{
-                pageSize: 20,
-                showSizeChanger: true,
-                showTotal: (total) => `إجمالي ${total} مصروف`
-              }}
-            />
-          </TabPane>
+                  {/* Table */}
+                  <Table
+                    columns={columns}
+                    dataSource={filteredExpenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
+                    loading={loading}
+                    scroll={{ x: 1500 }}
+                    pagination={{
+                      pageSize: 20,
+                      showSizeChanger: true,
+                      showTotal: (total) => `إجمالي ${total} مصروف`
+                    }}
+                  />
+                </>
+              )
+            },
+            {
+              key: 'petty-cash',
+              label: (
+                <span>
+                  <WalletOutlined />
+                  عُهد مديري المشاريع
+                </span>
+              ),
+              children: (
+                <>
+                  {/* Search */}
+                  <Input
+                    placeholder="ابحث عن عهدة أو تسوية..."
+                    prefix={<SearchOutlined />}
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    style={{ marginBottom: 16, maxWidth: 400 }}
+                    allowClear
+                  />
 
-          <TabPane tab={<span><WalletOutlined />عُهد مديري المشاريع</span>} key="petty-cash">
-            {/* Search */}
-            <Input
-              placeholder="ابحث عن عهدة أو تسوية..."
-              prefix={<SearchOutlined />}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              style={{ marginBottom: 16, maxWidth: 400 }}
-              allowClear
-            />
-
-            {/* Table */}
-            <Table
-              columns={pettyCashColumns}
-              dataSource={filteredExpenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
-              loading={loading}
-              scroll={{ x: 1700 }}
-              pagination={{
-                pageSize: 20,
-                showSizeChanger: true,
-                showTotal: (total) => `إجمالي ${total} عملية`
-              }}
-            />
-          </TabPane>
-        </Tabs>
+                  {/* Table */}
+                  <Table
+                    columns={pettyCashColumns}
+                    dataSource={filteredExpenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
+                    loading={loading}
+                    scroll={{ x: 1700 }}
+                    pagination={{
+                      pageSize: 20,
+                      showSizeChanger: true,
+                      showTotal: (total) => `إجمالي ${total} عملية`
+                    }}
+                  />
+                </>
+              )
+            }
+          ]}
+        />
       </Card>
 
       {/* Add/Edit Modal */}
@@ -929,167 +1675,256 @@ const GeneralExpenses = () => {
         onCancel={handleCancel}
         footer={null}
         width={900}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
-          initialValues={{
-            expenseType: 'administrative',
-            status: 'pending',
-            paymentFrequency: 'one-time',
-            transactionType: 'regular',
-            quantity: 1,
-            unitPrice: 0
-          }}
         >
           <Form.Item
             name="expenseType"
-            label="نوع المصروف"
+            label="نوع المصروف / Type of Expense"
             rules={[{ required: true, message: 'يرجى اختيار نوع المصروف' }]}
           >
             <Radio.Group
               value={expenseType}
               onChange={(e) => {
                 setExpenseType(e.target.value)
-                form.setFieldsValue({ projectId: undefined, category: undefined, workScope: undefined })
+                const isAdmin = e.target.value === 'administrative'
+                const isManagerAdvance = e.target.value === 'manager_advance'
+                form.setFieldsValue({ 
+                  projectId: undefined, 
+                  category: undefined, 
+                  workScope: undefined,
+                  paymentFrequency: isAdmin ? 'one-time' : undefined,
+                  paymentMethod: undefined,
+                  managerName: undefined,
+                  amount: undefined,
+                  date: isAdmin || isManagerAdvance ? dayjs() : undefined, // Reset date to today for admin expenses and manager advances
+                  dueDate: undefined,
+                  paidDate: undefined,
+                  transactionType: isManagerAdvance ? 'advance' : 'regular',
+                  status: isManagerAdvance ? 'pending' : undefined
+                })
+                if (isManagerAdvance) {
+                  setTransactionType('advance')
+                  loadOpenAdvances()
+                }
                 setSelectedProducts([])
+                setSelectedCustomer(null)
+                setCustomerSearchValue('')
+                setIsNewSupplier(false)
               }}
               buttonStyle="solid"
               size="large"
+              style={{ width: '100%' }}
             >
-              <Radio.Button value="administrative">
+              <Radio.Button value="administrative" style={{ flex: 1, textAlign: 'center' }}>
                 <Space>
                   <BankOutlined />
-                  مصروف إداري
+                  Administrative / إداري
                 </Space>
               </Radio.Button>
-              <Radio.Button value="project">
+              <Radio.Button value="project" style={{ flex: 1, textAlign: 'center' }}>
                 <Space>
-                  <BankOutlined />
-                  مصروف مشروع
+                  <LinkOutlined />
+                  Project Related / مشروع
+                </Space>
+              </Radio.Button>
+              <Radio.Button value="manager_advance" style={{ flex: 1, textAlign: 'center' }}>
+                <Space>
+                  <WalletOutlined />
+                  Manager Advance / عهدة مدير
                 </Space>
               </Radio.Button>
             </Radio.Group>
           </Form.Item>
 
-          {/* Transaction Type for Petty Cash */}
-          {activeTab === 'petty-cash' && (
-            <Form.Item
-              name="transactionType"
-              label="نوع العملية"
-              rules={[{ required: true, message: 'يرجى اختيار نوع العملية' }]}
-            >
-              <Radio.Group
-                value={transactionType}
-                onChange={(e) => {
-                  setTransactionType(e.target.value)
-                  if (e.target.value !== 'settlement') {
-                    form.setFieldsValue({ linkedAdvanceId: undefined })
-                  }
-                  if (e.target.value === 'regular') {
-                    form.setFieldsValue({ managerName: undefined })
-                  }
-                }}
-                buttonStyle="solid"
-                size="large"
-              >
-                <Radio.Button value="advance">إصدار عهدة</Radio.Button>
-                <Radio.Button value="settlement">تسوية</Radio.Button>
-                <Radio.Button value="regular">عادي</Radio.Button>
-              </Radio.Group>
-            </Form.Item>
-          )}
-
-          {/* Manager Name for Advance/Settlement */}
-          {(transactionType === 'advance' || transactionType === 'settlement') && (
-            <Form.Item
-              name="managerName"
-              label="اسم المدير"
-              rules={[{ required: true, message: 'يرجى إدخال اسم المدير' }]}
-            >
-              <AutoComplete
-                options={managers.map(m => ({ value: m, label: m }))}
-                placeholder="أدخل اسم المدير"
-                style={{ width: '100%' }}
-                onSearch={(value) => {
-                  if (!managers.includes(value) && value.trim()) {
-                    setManagers([...new Set([...managers, value.trim()])])
-                  }
-                }}
-                filterOption={(input, option) =>
-                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }
-              />
-            </Form.Item>
-          )}
-
-          {/* Linked Advance for Settlement */}
-          {transactionType === 'settlement' && (
-            <Form.Item
-              name="linkedAdvanceId"
-              label="العهدة المرتبطة"
-              rules={[{ required: true, message: 'يرجى اختيار العهدة المرتبطة' }]}
-            >
-              <Select
-                placeholder="اختر العهدة المرتبطة"
-                showSearch
-                filterOption={(input, option) =>
-                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }
-                size="large"
-              >
-                {pettyCashAdvances
-                  .filter(a => a.transactionType === 'advance' && a.managerName === form.getFieldValue('managerName'))
-                  .map((advance) => (
-                    <Option key={advance.id} value={advance.id}>
-                      {advance.paymentNumber} - {advance.amount} ريال ({dayjs(advance.dueDate).format('YYYY-MM-DD')})
-                    </Option>
-                  ))}
-              </Select>
-            </Form.Item>
-          )}
-
-          {expenseType === 'project' && (
+          {/* Manager Advance Form: عهدة مدير المشروع */}
+          {expenseType === 'manager_advance' && (
             <>
-              {isEngineering && (
+              <Form.Item
+                name="transactionType"
+                label="نوع العملية"
+                rules={[{ required: true, message: 'يرجى اختيار نوع العملية' }]}
+                initialValue="advance"
+              >
+                <Radio.Group
+                  value={transactionType}
+                  onChange={(e) => {
+                    setTransactionType(e.target.value)
+                    if (e.target.value !== 'settlement') {
+                      form.setFieldsValue({ linkedAdvanceId: undefined, managerName: undefined })
+                      loadOpenAdvances() // Reload when switching back
+                    } else {
+                      loadOpenAdvances() // Load approved advances for settlement
+                    }
+                  }}
+                  buttonStyle="solid"
+                  size="large"
+                >
+                  <Radio.Button value="advance">إصدار عهدة</Radio.Button>
+                  <Radio.Button value="settlement">تسوية</Radio.Button>
+                </Radio.Group>
+              </Form.Item>
+
+              {/* Manager Name - Hidden for settlement, shown for advance */}
+              {transactionType !== 'settlement' && (
+                <Form.Item
+                  name="managerName"
+                  label="اسم مدير المشروع"
+                  rules={[{ required: true, message: 'يرجى إدخال اسم مدير المشروع' }]}
+                >
+                  <AutoComplete
+                    options={managers.map(m => ({ value: m, label: m }))}
+                    placeholder="أدخل اسم مدير المشروع"
+                    style={{ width: '100%' }}
+                    size="large"
+                    onSearch={(value) => {
+                      if (!managers.includes(value) && value.trim()) {
+                        setManagers([...new Set([...managers, value.trim()])])
+                      }
+                    }}
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                  />
+                </Form.Item>
+              )}
+
+              {/* Settlement: Open Advance Dropdown */}
+              {transactionType === 'settlement' && (
                 <>
                   <Form.Item
-                    name="projectId"
-                    label="المشروع"
-                    rules={[{ required: true, message: 'يرجى اختيار المشروع' }]}
+                    name="linkedAdvanceId"
+                    label="العهدة المفتوحة"
+                    rules={[{ required: true, message: 'يرجى اختيار العهدة المفتوحة' }]}
                   >
                     <Select
-                      placeholder="اختر المشروع"
+                      placeholder="اختر العهدة المفتوحة (معتمدة فقط)"
                       showSearch
-                      onChange={handleProjectChange}
                       filterOption={(input, option) =>
-                        (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                        (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                       }
                       size="large"
+                      onChange={(value) => {
+                        const selectedAdvance = openAdvances.find(a => a.id === value)
+                        if (selectedAdvance) {
+                          setSelectedLinkedAdvance(selectedAdvance)
+                          form.setFieldsValue({ managerName: selectedAdvance.managerName })
+                          // Auto-fill project if advance has one
+                          if (selectedAdvance.projectId) {
+                            setSelectedProject(selectedAdvance.projectId)
+                            form.setFieldsValue({ projectId: selectedAdvance.projectId })
+                            // Load work scopes if project has them
+                            if (selectedAdvance.projectId) {
+                              projectsService.getProjectById(selectedAdvance.projectId).then((project) => {
+                                if (project && project.workScopes && Array.isArray(project.workScopes) && project.workScopes.length > 0) {
+                                  setAvailableWorkScopes(project.workScopes)
+                                } else {
+                                  setAvailableWorkScopes([])
+                                }
+                              }).catch(() => setAvailableWorkScopes([]))
+                            }
+                          }
+                        }
+                      }}
                     >
-                      {projects.map((p) => (
-                        <Option key={p.id} value={p.id}>
-                          {p.name}
-                        </Option>
-                      ))}
+                      {openAdvances.map((advance) => {
+                        const remainingAmount = advance.remainingAmount !== null && advance.remainingAmount !== undefined 
+                          ? parseFloat(advance.remainingAmount) 
+                          : parseFloat(advance.amount || 0)
+                        const originalAmount = parseFloat(advance.amount || 0)
+                        return (
+                          <Option key={advance.id} value={advance.id}>
+                            {advance.referenceNumber || advance.paymentNumber} - {advance.managerName} - المبلغ الأصلي: {originalAmount.toLocaleString()} ريال - المتبقي: {remainingAmount.toLocaleString()} ريال ({dayjs(advance.dueDate || advance.createdAt).format('YYYY-MM-DD')})
+                          </Option>
+                        )
+                      })}
                     </Select>
                   </Form.Item>
 
-                  {selectedProject && availableWorkScopes.length > 0 && (
+                  {/* Display linked advance info */}
+                  {selectedLinkedAdvance && (
+                    <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f0f9ff', border: '1px solid #91d5ff' }}>
+                      <div style={{ marginBottom: 8, fontWeight: 'bold', color: '#1890ff' }}>
+                        تفاصيل العهدة المرتبطة:
+                      </div>
+                      <div>المبلغ الأصلي: <strong>{parseFloat(selectedLinkedAdvance.amount || 0).toLocaleString()} ريال</strong></div>
+                      <div>المبلغ المتبقي: <strong style={{ color: selectedLinkedAdvance.remainingAmount > 0 ? '#cf1322' : '#3f8600' }}>
+                        {parseFloat(selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined ? selectedLinkedAdvance.remainingAmount : selectedLinkedAdvance.amount || 0).toLocaleString()} ريال
+                      </strong></div>
+                      <div>المدير: <strong>{selectedLinkedAdvance.managerName}</strong></div>
+                      {selectedLinkedAdvance.projectId && (
+                        <div>المشروع: <strong>{projects.find(p => p.id === selectedLinkedAdvance.projectId)?.name || 'جاري التحميل...'}</strong></div>
+                      )}
+                    </Card>
+                  )}
+
+                  {/* Settlement Type: Expense or Return */}
+                  <Form.Item
+                    name="settlementType"
+                    label="نوع التسوية"
+                    rules={[{ required: true, message: 'يرجى اختيار نوع التسوية' }]}
+                    initialValue="expense"
+                  >
+                    <Radio.Group
+                      value={settlementType}
+                      onChange={(e) => setSettlementType(e.target.value)}
+                      buttonStyle="solid"
+                      size="large"
+                    >
+                      <Radio.Button value="expense">مصروف</Radio.Button>
+                      <Radio.Button value="return">مرتجع نقدي</Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+
+                  {/* Project ID - Read-Only for settlements, with Transfer button */}
+                  {isEngineering && selectedLinkedAdvance?.projectId && (
+                    <Form.Item
+                      name="projectId"
+                      label="المشروع"
+                    >
+                      <Input.Group compact>
+                        <Input
+                          value={projects.find(p => p.id === selectedLinkedAdvance.projectId)?.name || 'جاري التحميل...'}
+                          readOnly
+                          disabled
+                          style={{ width: 'calc(100% - 140px)' }}
+                          size="large"
+                        />
+                        <Button
+                          type="default"
+                          onClick={() => {
+                            // Don't pre-fill newProjectId - user must select a different project
+                            transferForm.resetFields()
+                            setTransferModalVisible(true)
+                          }}
+                          style={{ width: 140 }}
+                          size="large"
+                        >
+                          ترحيل العهدة
+                        </Button>
+                      </Input.Group>
+                    </Form.Item>
+                  )}
+
+                  {/* Work Scope - Show for settlements with project that has work scopes */}
+                  {isEngineering && selectedLinkedAdvance?.projectId && availableWorkScopes.length > 0 && settlementType === 'expense' && (
                     <Form.Item
                       name="workScope"
-                      label="نطاق العمل"
-                      rules={[{ required: true, message: 'يرجى اختيار نطاق العمل' }]}
+                      label="نطاق العمل (اختياري)"
+                      tooltip="نطاق العمل للمشروع"
                     >
                       <Select
-                        placeholder="اختر نطاق العمل"
+                        placeholder="اختر نطاق العمل (اختياري)"
                         showSearch
                         filterOption={(input, option) =>
                           (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
                         }
                         size="large"
+                        allowClear
                       >
                         {availableWorkScopes.map((scope) => (
                           <Option key={scope} value={scope}>
@@ -1099,30 +1934,621 @@ const GeneralExpenses = () => {
                       </Select>
                     </Form.Item>
                   )}
+
+                  {/* Purchase Order Section for Settlement (only for expense type) */}
+                  {settlementType === 'expense' && (
+                    <>
+                      <Divider>إنشاء أمر شراء (Purchase Order) للتسوية</Divider>
+                      
+                      {/* Vendor/Recipient Selection */}
+                      <Form.Item
+                        name="settlementPoVendor"
+                        label="المورد/المستلم"
+                        rules={[
+                          {
+                            validator: (_, value) => {
+                              if (!settlementPoVendor && !isSettlementPoNewVendor) {
+                                return Promise.reject(new Error('يرجى البحث واختيار مورد أو إضافة مورد جديد'))
+                              }
+                              return Promise.resolve()
+                            }
+                          }
+                        ]}
+                      >
+                        <AutoComplete
+                          options={settlementPoVendorOptions}
+                          onSearch={handleSettlementPoVendorSearch}
+                          onSelect={handleSettlementPoVendorSelect}
+                          onChange={(value) => {
+                            setSettlementPoVendorSearch(value)
+                            if (!value) {
+                              setSettlementPoVendor(null)
+                              setIsSettlementPoNewVendor(false)
+                            }
+                          }}
+                          value={settlementPoVendorSearch}
+                          placeholder="ابحث عن مورد أو عميل بالاسم أو الهاتف..."
+                          style={{ width: '100%' }}
+                          filterOption={false}
+                          notFoundContent={settlementPoVendorOptions.length === 0 && settlementPoVendorSearch ? 'لا توجد نتائج - يمكنك إضافة مورد جديد' : null}
+                          size="large"
+                        />
+                      </Form.Item>
+
+                      {/* New Vendor Form */}
+                      {isSettlementPoNewVendor && (
+                        <Card size="small" style={{ marginBottom: 16, backgroundColor: '#fff7e6', border: '1px solid #ffd591' }}>
+                          <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#d46b08' }}>
+                            إضافة مورد جديد
+                          </div>
+                          <Row gutter={16}>
+                            <Col span={24}>
+                              <Form.Item
+                                label="اسم المورد"
+                                required
+                                tooltip="اسم المورد مطلوب"
+                              >
+                                <Input
+                                  placeholder="اسم المورد"
+                                  value={settlementPoNewVendorName}
+                                  onChange={(e) => {
+                                    const value = e.target.value
+                                    setSettlementPoNewVendorName(value)
+                                    setSettlementPoVendorSearch(value)
+                                  }}
+                                  size="large"
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col span={12}>
+                              <Form.Item label="رقم الهاتف (اختياري)">
+                                <Input
+                                  placeholder="رقم الهاتف"
+                                  value={settlementPoNewVendorPhone}
+                                  onChange={(e) => setSettlementPoNewVendorPhone(e.target.value)}
+                                  size="large"
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col span={12}>
+                              <Form.Item label="البريد الإلكتروني (اختياري)">
+                                <Input
+                                  placeholder="البريد الإلكتروني"
+                                  value={settlementPoNewVendorEmail}
+                                  onChange={(e) => setSettlementPoNewVendorEmail(e.target.value)}
+                                  size="large"
+                                />
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                        </Card>
+                      )}
+
+                      {/* Settlement PO Items */}
+                      <Form.Item label="بنود أمر الشراء" required>
+                        <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
+                          <Col span={12}>
+                            <Form.Item name="settlementPoItemDescription" noStyle>
+                              <Input placeholder="وصف البند/المادة" size="large" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={6}>
+                            <Form.Item name="settlementPoQuantity" noStyle>
+                              <InputNumber
+                                placeholder="الكمية"
+                                min={0.01}
+                                step={1}
+                                style={{ width: '100%' }}
+                                size="large"
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={6}>
+                            <Form.Item name="settlementPoUnitPrice" noStyle>
+                              <InputNumber
+                                placeholder="سعر الوحدة"
+                                min={0}
+                                step={0.01}
+                                style={{ width: '100%' }}
+                                formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                                size="large"
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Button type="dashed" onClick={handleAddSettlementPoItem} icon={<PlusOutlined />} style={{ marginBottom: 16, width: '100%' }} size="large">
+                          إضافة بند
+                        </Button>
+                        {settlementPoItems.length === 0 && (
+                          <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 8 }}>
+                            * يجب إضافة بند واحد على الأقل لأمر الشراء
+                          </div>
+                        )}
+                      </Form.Item>
+
+                      {/* Display Added Items */}
+                      {settlementPoItems.length > 0 && (
+                        <Card title="البنود المضافة" size="small" style={{ marginBottom: 16 }}>
+                          <Table
+                            dataSource={settlementPoItems.map((item, index) => ({ ...item, key: index }))}
+                            columns={[
+                              { 
+                                title: 'وصف البند/المادة', 
+                                dataIndex: 'product',
+                                render: (product) => <span style={{ fontWeight: 500 }}>{product}</span>
+                              },
+                              { title: 'الكمية', dataIndex: 'quantity' },
+                              { 
+                                title: 'سعر الوحدة', 
+                                dataIndex: 'price', 
+                                render: (p) => `${p.toLocaleString()} ريال` 
+                              },
+                              { 
+                                title: 'الإجمالي', 
+                                dataIndex: 'total', 
+                                render: (t) => (
+                                  <span style={{ fontWeight: 500, color: '#1890ff' }}>
+                                    {t.toLocaleString()} ريال
+                                  </span>
+                                )
+                              },
+                              {
+                                title: 'حذف',
+                                render: (_, record: any) => (
+                                  <Button
+                                    type="link"
+                                    danger
+                                    size="small"
+                                    icon={<DeleteOutlined />}
+                                    onClick={() => handleRemoveSettlementPoItem(record.key)}
+                                  >
+                                    حذف
+                                  </Button>
+                                )
+                              }
+                            ]}
+                            pagination={false}
+                            size="small"
+                            summary={() => {
+                              const total = settlementPoItems.reduce((sum, item) => sum + (item.total || 0), 0)
+                              const remainingAmount = selectedLinkedAdvance?.remainingAmount !== null && selectedLinkedAdvance?.remainingAmount !== undefined 
+                                ? parseFloat(selectedLinkedAdvance.remainingAmount) 
+                                : parseFloat(selectedLinkedAdvance?.amount || 0)
+                              const exceedsLimit = total > remainingAmount && total > 0
+                              
+                              return (
+                                <Table.Summary.Row style={{ backgroundColor: exceedsLimit ? '#fff2f0' : 'transparent' }}>
+                                  <Table.Summary.Cell colSpan={3} align="right">
+                                    <strong>المبلغ الإجمالي:</strong>
+                                  </Table.Summary.Cell>
+                                  <Table.Summary.Cell>
+                                    <strong style={{ 
+                                      color: exceedsLimit ? '#cf1322' : '#1890ff', 
+                                      fontSize: 16,
+                                      fontWeight: 'bold'
+                                    }}>
+                                      {total.toLocaleString()} ريال
+                                    </strong>
+                                    {exceedsLimit && selectedLinkedAdvance && (
+                                      <div style={{ color: '#cf1322', fontSize: 12, marginTop: 4 }}>
+                                        يتجاوز المبلغ المتبقي ({remainingAmount.toLocaleString()} ريال)
+                                      </div>
+                                    )}
+                                  </Table.Summary.Cell>
+                                  <Table.Summary.Cell />
+                                </Table.Summary.Row>
+                              )
+                            }}
+                          />
+                        </Card>
+                      )}
+                    </>
+                  )}
                 </>
               )}
 
-              {/* Project Expense Form (like OrdersPage) */}
-              <Divider>بنود المصروف</Divider>
+              {/* Project ID - Optional (for advances only, not settlements) */}
+              {isEngineering && transactionType !== 'settlement' && (
+                <Form.Item
+                  name="projectId"
+                  label="المشروع (اختياري)"
+                  tooltip="يمكن تركها فارغة للمهام العامة للشركة"
+                >
+                  <Select
+                    placeholder="اختر المشروع (اختياري)"
+                    showSearch
+                    filterOption={(input, option) =>
+                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    size="large"
+                    allowClear
+                  >
+                    {projects.map((p) => (
+                      <Option key={p.id} value={p.id}>
+                        {p.name} {p.client?.name ? `- ${p.client.name}` : ''}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
+
+              <Form.Item
+                name="amount"
+                label={transactionType === 'settlement' && settlementType === 'expense' ? "مبلغ التسوية (يُحسب تلقائياً من البنود)" : "المبلغ (ريال)"}
+                rules={[
+                  { required: true, message: 'يرجى إدخال المبلغ' },
+                  {
+                    validator: (_, value) => {
+                      // For expense-type settlements, amount is auto-calculated, so validation is handled separately
+                      if (transactionType === 'settlement' && settlementType === 'expense') {
+                        // This validation is handled in useEffect, so we just check if there are items
+                        if (settlementPoItems.length === 0) {
+                          return Promise.reject(new Error('يرجى إضافة بند واحد على الأقل'))
+                        }
+                        const total = calculateSettlementTotal()
+                        if (total <= 0) {
+                          return Promise.reject(new Error('يجب أن يكون المبلغ أكبر من صفر'))
+                        }
+                        return Promise.resolve()
+                      }
+                      
+                      // For other cases (advance or return-type settlement), use normal validation
+                      if (!value || value === null || value === undefined) {
+                        return Promise.reject(new Error('يرجى إدخال المبلغ'))
+                      }
+                      const numValue = typeof value === 'number' ? value : parseFloat(value)
+                      if (isNaN(numValue) || numValue <= 0) {
+                        return Promise.reject(new Error('يجب أن يكون المبلغ أكبر من صفر'))
+                      }
+                      // For return-type settlements, validate that amount <= remaining amount
+                      if (transactionType === 'settlement' && settlementType === 'return' && selectedLinkedAdvance) {
+                        const remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
+                          ? parseFloat(selectedLinkedAdvance.remainingAmount) 
+                          : parseFloat(selectedLinkedAdvance.amount || 0)
+                        
+                        if (remainingAmount <= 0) {
+                          return Promise.reject(new Error('العهدة تم تسويتها بالكامل - لا يمكن إنشاء تسوية جديدة'))
+                        }
+                        
+                        if (numValue > remainingAmount) {
+                          return Promise.reject(new Error(`المبلغ يجب أن يكون أقل من أو يساوي المبلغ المتبقي (${remainingAmount.toLocaleString()} ريال)`))
+                        }
+                      }
+                      return Promise.resolve()
+                    }
+                  }
+                ]}
+                help={transactionType === 'settlement' && settlementType === 'expense' && settlementAmountError ? (
+                  <span style={{ color: '#ff4d4f' }}>{settlementAmountError}</span>
+                ) : null}
+                validateStatus={transactionType === 'settlement' && settlementType === 'expense' && settlementAmountExceedsLimit ? 'error' : undefined}
+              >
+                {transactionType === 'settlement' && settlementType === 'expense' ? (
+                  <InputNumber
+                    value={calculateSettlementTotal()}
+                    disabled
+                    size="large"
+                    style={{ 
+                      width: '100%',
+                      backgroundColor: settlementAmountExceedsLimit ? '#fff2f0' : '#f5f5f5'
+                    }}
+                    formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0'}
+                    parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '0') as any}
+                  />
+                ) : (
+                  <InputNumber
+                    min={0.01}
+                    step={0.01}
+                    placeholder="0.00"
+                    size="large"
+                    style={{ width: '100%' }}
+                    formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                    parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                    max={transactionType === 'settlement' && settlementType === 'return' && selectedLinkedAdvance 
+                      ? (selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
+                          ? parseFloat(selectedLinkedAdvance.remainingAmount) 
+                          : parseFloat(selectedLinkedAdvance.amount || 0))
+                      : undefined}
+                  />
+                )}
+              </Form.Item>
               
-              <Form.Item label="المورد/العميل" required>
+              {/* Show remaining amount info for expense-type settlements */}
+              {transactionType === 'settlement' && settlementType === 'expense' && selectedLinkedAdvance && (
+                <div style={{ 
+                  marginBottom: 16, 
+                  padding: '12px', 
+                  backgroundColor: settlementAmountExceedsLimit ? '#fff2f0' : '#f0f9ff', 
+                  border: `1px solid ${settlementAmountExceedsLimit ? '#ffccc7' : '#91d5ff'}`,
+                  borderRadius: '4px'
+                }}>
+                  <div style={{ marginBottom: 4, fontWeight: 'bold', color: settlementAmountExceedsLimit ? '#cf1322' : '#1890ff' }}>
+                    المبلغ المتبقي في العهدة: <span style={{ fontSize: '16px' }}>{parseFloat(selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined ? selectedLinkedAdvance.remainingAmount : selectedLinkedAdvance.amount || 0).toLocaleString()} ريال</span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#666' }}>
+                    يتم حساب مبلغ التسوية تلقائياً من مجموع بنود أمر الشراء
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Administrative Form: Simplified - Category, Frequency, Amount, Description, Date */}
+          {expenseType === 'administrative' && (
+            <>
+              {/* Category Selection */}
+              <Form.Item
+                name="category"
+                label="الفئة / Category"
+                rules={[{ required: true, message: 'يرجى اختيار الفئة' }]}
+              >
+                <Select
+                  placeholder="اختر الفئة"
+                  size="large"
+                  popupRender={(menu) => (
+                    <div>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <div style={{ padding: '8px' }}>
+                        {!showNewCategoryInput ? (
+                          <Button
+                            type="link"
+                            icon={<PlusOutlined />}
+                            onClick={() => setShowNewCategoryInput(true)}
+                            block
+                          >
+                            إضافة فئة جديدة
+                          </Button>
+                        ) : (
+                          <Space orientation="vertical" style={{ width: '100%' }}>
+                            <Input
+                              placeholder="اسم الفئة الجديدة"
+                              value={newCategoryName}
+                              onChange={(e) => setNewCategoryName(e.target.value)}
+                              onPressEnter={handleAddCategory}
+                            />
+                            <Space>
+                              <Button type="primary" size="small" onClick={handleAddCategory}>
+                                إضافة
+                              </Button>
+                              <Button size="small" onClick={() => {
+                                setShowNewCategoryInput(false)
+                                setNewCategoryName('')
+                              }}>
+                                إلغاء
+                              </Button>
+                            </Space>
+                          </Space>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                >
+                  {adminCategories.map((cat) => (
+                    <Option key={cat.value} value={cat.value}>
+                      {cat.label}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+
+              {/* Payment Frequency */}
+              <Form.Item
+                name="paymentFrequency"
+                label="دورية الصرف / Frequency"
+                rules={[{ required: true, message: 'يرجى اختيار دورية الصرف' }]}
+              >
+                <Select size="large">
+                  <Option value="monthly">شهري (Monthly)</Option>
+                  <Option value="yearly">سنوي (Yearly)</Option>
+                  <Option value="one-time">لمرة واحدة (One-time)</Option>
+                </Select>
+              </Form.Item>
+
+              <Row gutter={16}>
+                {/* Amount */}
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="amount"
+                    label="المبلغ (ريال) / Amount"
+                    rules={[
+                      { required: true, message: 'يرجى إدخال المبلغ' },
+                      {
+                        validator: (_, value) => {
+                          if (!value || value === null || value === undefined) {
+                            return Promise.reject(new Error('يرجى إدخال المبلغ'))
+                          }
+                          const numValue = typeof value === 'number' ? value : parseFloat(value)
+                          if (isNaN(numValue) || numValue <= 0) {
+                            return Promise.reject(new Error('يجب أن يكون المبلغ أكبر من صفر'))
+                          }
+                          return Promise.resolve()
+                        }
+                      }
+                    ]}
+                  >
+                    <InputNumber
+                      min={0.01}
+                      step={0.01}
+                      placeholder="0.00"
+                      size="large"
+                      style={{ width: '100%' }}
+                      formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                      parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                    />
+                  </Form.Item>
+                </Col>
+
+                {/* Payment Method */}
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="paymentMethod"
+                    label="طريقة الدفع / Payment Method"
+                    rules={[{ required: true, message: 'يرجى اختيار طريقة الدفع' }]}
+                  >
+                    <Select size="large" placeholder="اختر طريقة الدفع">
+                      <Option value="cash">نقدي (Cash)</Option>
+                      <Option value="bank_transfer">تحويل بنكي (Bank Transfer)</Option>
+                      <Option value="check">شيك (Check)</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              {/* Description */}
+              <Form.Item
+                name="notes"
+                label="الوصف / Description"
+              >
+                <Input.TextArea
+                  rows={3}
+                  placeholder="وصف المصروف (اختياري)"
+                  size="large"
+                />
+              </Form.Item>
+
+              {/* Recipient Name */}
+              <Form.Item
+                name="recipientName"
+                label="اسم المستلم / Recipient Name"
+                tooltip="اسم المستلم مهم لطباعة سند الصرف (Payment Voucher) لاحقاً"
+              >
+                <Input
+                  placeholder="أدخل اسم المستلم"
+                  size="large"
+                />
+              </Form.Item>
+
+              {/* Date - Single field for administrative expenses, defaults to today */}
+              <Form.Item
+                name="date"
+                label="التاريخ / Date"
+                rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
+              >
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="YYYY-MM-DD"
+                  size="large"
+                  placeholder="اختر التاريخ (افتراضي: اليوم)"
+                />
+              </Form.Item>
+
+              {/* Reference Number - Auto-generated if empty (optional field) */}
+              <Form.Item
+                name="referenceNumber"
+                label="رقم المرجع (اختياري) / Reference Number (optional)"
+                tooltip="إذا تركته فارغاً، سيتم توليد رقم مرجع تلقائياً (EXP-001, EXP-002, إلخ)"
+              >
+                <Input placeholder="EXP-001 (سيتم توليده تلقائياً إذا كان فارغاً)" size="large" />
+              </Form.Item>
+            </>
+          )}
+
+          {/* Project Related Form - IDENTICAL to OrdersPage (no Category/Frequency) */}
+          {expenseType === 'project' && (
+            <>
+              {isEngineering && (
+                <Card size="small" style={{ marginBottom: 24, backgroundColor: '#f0f9ff', border: '1px solid #91d5ff' }}>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item
+                        name="projectId"
+                        label={<span style={{ fontWeight: 'bold' }}>المشروع</span>}
+                        rules={[{ required: true, message: 'يرجى اختيار المشروع' }]}
+                      >
+                        <Select
+                          placeholder="اختر المشروع"
+                          showSearch
+                          onChange={handleProjectChange}
+                          filterOption={(input, option) =>
+                            (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                          }
+                          size="large"
+                        >
+                          {projects.map((p) => (
+                            <Option key={p.id} value={p.id}>
+                              {p.name} {p.client?.name ? `- ${p.client.name}` : ''}
+                            </Option>
+                          ))}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      {selectedProject && availableWorkScopes.length > 0 && (
+                        <Form.Item
+                          name="workScope"
+                          label={<span style={{ fontWeight: 'bold' }}>نطاق العمل</span>}
+                          rules={[{ required: true, message: 'يرجى اختيار نطاق العمل' }]}
+                        >
+                          <Select
+                            placeholder="اختر نطاق العمل"
+                            showSearch
+                            filterOption={(input, option) =>
+                              (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                            }
+                            size="large"
+                          >
+                            {availableWorkScopes.map((scope) => (
+                              <Option key={scope} value={scope}>
+                                {scope}
+                              </Option>
+                            ))}
+                          </Select>
+                        </Form.Item>
+                      )}
+                    </Col>
+                  </Row>
+                </Card>
+              )}
+
+              <Divider>بنود الشراء</Divider>
+
+              <Form.Item
+                name="customerSearch"
+                label="المورد/العميل"
+                rules={[
+                  {
+                    validator: (_, value) => {
+                      if (!selectedCustomer && !isNewSupplier) {
+                        return Promise.reject(new Error('يرجى البحث واختيار مورد أو عميل'))
+                      }
+                      return Promise.resolve()
+                    }
+                  }
+                ]}
+              >
                 <AutoComplete
                   options={customerSearchOptions}
                   onSearch={handleCustomerSearch}
                   onSelect={handleCustomerSelect}
-                  onChange={(value) => setCustomerSearchValue(value)}
+                  onChange={(value) => {
+                    setCustomerSearchValue(value)
+                    if (!value) {
+                      setSelectedCustomer(null)
+                      setIsNewSupplier(false)
+                    }
+                  }}
                   value={customerSearchValue}
                   placeholder="ابحث عن مورد أو عميل بالاسم أو الهاتف..."
                   style={{ width: '100%' }}
                   filterOption={false}
+                  notFoundContent={customerSearchOptions.length === 0 && customerSearchValue ? 'لا توجد نتائج - يمكنك إضافة مورد جديد' : null}
                 />
               </Form.Item>
 
               {isNewSupplier && (
                 <Card size="small" style={{ marginBottom: 16, backgroundColor: '#fff7e6', border: '1px solid #ffd591' }}>
+                  <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#d46b08' }}>
+                    إضافة مورد جديد
+                  </div>
                   <Row gutter={16}>
                     <Col span={24}>
-                      <Form.Item label="اسم المورد" required>
+                      <Form.Item
+                        label="اسم المورد"
+                        required
+                        tooltip="اسم المورد مطلوب"
+                      >
                         <Input
                           placeholder="اسم المورد"
                           value={newSupplierName}
@@ -1156,49 +2582,82 @@ const GeneralExpenses = () => {
                 </Card>
               )}
 
-              <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
-                <Col span={12}>
-                  <Form.Item name="itemDescription" label="وصف البند/المادة">
-                    <Input placeholder="وصف البند/المادة (مثال: 100 كيس أسمنت)" />
-                  </Form.Item>
-                </Col>
-                <Col span={6}>
-                  <Form.Item name="quantity" label="الكمية">
-                    <InputNumber
-                      placeholder="الكمية"
-                      min={0.01}
-                      step={1}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={6}>
-                  <Form.Item name="unitPrice" label="سعر الوحدة">
-                    <InputNumber
-                      placeholder="سعر الوحدة"
-                      min={0}
-                      step={0.01}
-                      style={{ width: '100%' }}
-                      formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={value => value.replace(/\$\s?|(,*)/g, '')}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
+              {selectedCustomer && !isNewSupplier && (
+                <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f' }}>
+                  <div style={{ marginBottom: 8, fontWeight: 'bold', color: '#389e0d' }}>
+                    المورد المحدد:
+                  </div>
+                  <div>الاسم: {selectedCustomer.name}</div>
+                  {selectedCustomer.phone && <div>الهاتف: {selectedCustomer.phone}</div>}
+                  {selectedCustomer.email && <div>البريد: {selectedCustomer.email}</div>}
+                </Card>
+              )}
 
-              <Button type="dashed" onClick={handleAddItem} icon={<PlusOutlined />} style={{ marginBottom: 16, width: '100%' }}>
-                إضافة بند
-              </Button>
+              <Form.Item label="البنود" required>
+                <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
+                  <Col span={12}>
+                    <Form.Item name="itemDescription" noStyle>
+                      <Input placeholder="وصف البند/المادة (مثال: 100 كيس أسمنت)" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={6}>
+                    <Form.Item name="quantity" noStyle>
+                      <InputNumber
+                        placeholder="الكمية"
+                        min={0.01}
+                        step={1}
+                        style={{ width: '100%' }}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={6}>
+                    <Form.Item name="unitPrice" noStyle>
+                      <InputNumber
+                        placeholder="سعر الوحدة"
+                        min={0}
+                        step={0.01}
+                        style={{ width: '100%' }}
+                        formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                        parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Button type="dashed" onClick={handleAddItem} icon={<PlusOutlined />} style={{ marginBottom: 16, width: '100%' }}>
+                  إضافة بند
+                </Button>
+                {selectedProducts.length === 0 && (
+                  <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 8 }}>
+                    * يجب إضافة بند واحد على الأقل
+                  </div>
+                )}
+              </Form.Item>
 
               {selectedProducts.length > 0 && (
                 <Card title="البنود المضافة" size="small" style={{ marginBottom: 16 }}>
                   <Table
                     dataSource={selectedProducts.map((item, index) => ({ ...item, key: index }))}
                     columns={[
-                      { title: 'الوصف', dataIndex: 'product' },
+                      { 
+                        title: 'وصف البند/المادة', 
+                        dataIndex: 'product',
+                        render: (product) => <span style={{ fontWeight: 500 }}>{product}</span>
+                      },
                       { title: 'الكمية', dataIndex: 'quantity' },
-                      { title: 'السعر', dataIndex: 'price', render: (p) => `${p.toLocaleString()} ريال` },
-                      { title: 'الإجمالي', dataIndex: 'total', render: (t) => `${t.toLocaleString()} ريال` },
+                      { 
+                        title: 'سعر الوحدة', 
+                        dataIndex: 'price', 
+                        render: (p) => `${p.toLocaleString()} ريال` 
+                      },
+                      { 
+                        title: 'الإجمالي', 
+                        dataIndex: 'total', 
+                        render: (t) => (
+                          <span style={{ fontWeight: 500, color: '#1890ff' }}>
+                            {t.toLocaleString()} ريال
+                          </span>
+                        )
+                      },
                       {
                         title: 'حذف',
                         render: (_, record: any) => (
@@ -1238,191 +2697,167 @@ const GeneralExpenses = () => {
             </>
           )}
 
-          {/* Category Selection */}
-          {expenseType !== 'project' || selectedProducts.length === 0 ? (
-            <Form.Item
-              name="category"
-              label="الفئة"
-              rules={[{ required: true, message: 'يرجى اختيار الفئة' }]}
-            >
-              <Select
-                placeholder="اختر الفئة"
-                size="large"
-                dropdownRender={(menu) => (
-                  <div>
-                    {menu}
-                    <Divider style={{ margin: '8px 0' }} />
-                    <div style={{ padding: '8px' }}>
-                      {!showNewCategoryInput ? (
-                        <Button
-                          type="link"
-                          icon={<PlusOutlined />}
-                          onClick={() => setShowNewCategoryInput(true)}
-                          block
-                        >
-                          إضافة فئة جديدة
-                        </Button>
-                      ) : (
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                          <Input
-                            placeholder="اسم الفئة الجديدة"
-                            value={newCategoryName}
-                            onChange={(e) => setNewCategoryName(e.target.value)}
-                            onPressEnter={handleAddCategory}
-                          />
-                          <Space>
-                            <Button type="primary" size="small" onClick={handleAddCategory}>
-                              إضافة
-                            </Button>
-                            <Button size="small" onClick={() => {
-                              setShowNewCategoryInput(false)
-                              setNewCategoryName('')
-                            }}>
-                              إلغاء
-                            </Button>
-                          </Space>
-                        </Space>
-                      )}
+          {/* Common fields for Manager Advance expenses only (Administrative expenses handled above) */}
+          {expenseType === 'manager_advance' && (
+            <>
+              {/* Single Date field - defaults to today */}
+              <Form.Item
+                name="date"
+                label="التاريخ"
+                rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
+                initialValue={dayjs()}
+              >
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="YYYY-MM-DD"
+                  size="large"
+                  placeholder="اختر التاريخ (افتراضي: اليوم)"
+                />
+              </Form.Item>
+
+              {/* Status - Only show for advances, not settlements */}
+              {transactionType !== 'settlement' && (
+                <Form.Item
+                  name="status"
+                  label="الحالة"
+                  initialValue="pending"
+                >
+                  <Select 
+                    size="large"
+                    disabled={true}
+                    title="الحالة للقراءة فقط - لا يمكن تعديلها من قبل المحاسب"
+                  >
+                    <Option value="pending">قيد المراجعة</Option>
+                    <Option value="approved">تمت الموافقة</Option>
+                    <Option value="rejected">مرفوض</Option>
+                  </Select>
+                </Form.Item>
+              )}
+
+              {/* Payment Method - Hidden for settlements, shown for advances */}
+              {transactionType !== 'settlement' && (
+                <Row gutter={16}>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="paymentMethod"
+                      label="طريقة الدفع"
+                    >
+                      <Select placeholder="اختر طريقة الدفع" size="large">
+                        <Option value="cash">نقد</Option>
+                        <Option value="bank_transfer">تحويل بنكي</Option>
+                        <Option value="check">شيك</Option>
+                        <Option value="other">أخرى</Option>
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="referenceNumber"
+                      label="رقم المرجع"
+                      tooltip={transactionType === 'advance' && !editingExpense ? "سيتم توليد الرقم تلقائياً" : undefined}
+                    >
+                      <Input 
+                        placeholder={transactionType === 'advance' && !editingExpense ? "سيتم توليد الرقم تلقائياً" : "رقم المرجع أو رقم الفاتورة"} 
+                        size="large"
+                        disabled={transactionType === 'advance' && !editingExpense}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
+
+              {/* For settlements, show a note that payment method is automatically set */}
+              {transactionType === 'settlement' && (
+                <Row gutter={16}>
+                  <Col xs={24}>
+                    <div style={{ 
+                      padding: '12px', 
+                      backgroundColor: '#f0f9ff', 
+                      border: '1px solid #91d5ff',
+                      borderRadius: '4px',
+                      marginBottom: '16px',
+                      color: '#1890ff',
+                      fontSize: '14px'
+                    }}>
+                      <strong>ملاحظة:</strong> طريقة الدفع لهذه التسوية هي "تسوية عهدة" (settlement) - يتم تعيينها تلقائياً ولا يمكن تعديلها.
                     </div>
-                  </div>
-                )}
-              >
-                {(expenseType === 'administrative' ? adminCategories : projectCategories).map((cat) => (
-                  <Option key={cat.value} value={cat.value}>
-                    {cat.label}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-          ) : (
+                  </Col>
+                  <Col xs={24} sm={12}>
+                    <Form.Item
+                      name="referenceNumber"
+                      label="رقم المرجع (اختياري)"
+                    >
+                      <Input 
+                        placeholder="رقم المرجع أو رقم الفاتورة" 
+                        size="large"
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
+            </>
+          )}
+
+          {/* Common fields for Project Related expenses */}
+          {expenseType === 'project' && (
+            <>
+              <Divider />
+              
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="status"
+                    label="حالة أمر الشراء"
+                    initialValue="pending"
+                  >
+                    <Select size="large">
+                      <Option value="pending">قيد الانتظار</Option>
+                      <Option value="processing">قيد المعالجة</Option>
+                      <Option value="completed">مكتمل</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="paymentMethod"
+                    label="طريقة الدفع"
+                    initialValue="cash"
+                  >
+                    <Select size="large">
+                      <Option value="cash">نقداً</Option>
+                      <Option value="credit_card">بطاقة ائتمان</Option>
+                      <Option value="bank_transfer">تحويل بنكي</Option>
+                      <Option value="check">شيك</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          )}
+
+          {/* Notes field - only show for non-administrative expenses (admin expenses have it above) */}
+          {expenseType !== 'administrative' && (
             <Form.Item
-              name="category"
-              label="الفئة"
-              rules={[{ required: true, message: 'يرجى اختيار الفئة' }]}
+              name="notes"
+              label="ملاحظات (اختياري)"
             >
-              <Select
-                placeholder="اختر الفئة"
+              <Input.TextArea
+                rows={3}
+                placeholder="أي ملاحظات إضافية..."
                 size="large"
-                options={projectCategories}
               />
             </Form.Item>
           )}
-
-          {/* Amount (only for non-project expenses or if no items added) */}
-          {(expenseType === 'administrative' || (expenseType === 'project' && selectedProducts.length === 0)) && (
-            <Form.Item
-              name="amount"
-              label="المبلغ (ريال)"
-              rules={[
-                { required: true, message: 'يرجى إدخال المبلغ' },
-                { type: 'number', min: 0.01, message: 'يجب أن يكون المبلغ أكبر من صفر' }
-              ]}
-            >
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                size="large"
-              />
-            </Form.Item>
-          )}
-
-          {/* Payment Frequency */}
-          <Form.Item
-            name="paymentFrequency"
-            label="دورية الصرف"
-            rules={[{ required: true, message: 'يرجى اختيار دورية الصرف' }]}
-          >
-            <Select size="large">
-              <Option value="one-time">لمرة واحدة</Option>
-              <Option value="monthly">شهري</Option>
-              <Option value="yearly">سنوي</Option>
-            </Select>
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="dueDate"
-                label="تاريخ الاستحقاق"
-                rules={[{ required: true, message: 'يرجى اختيار تاريخ الاستحقاق' }]}
-              >
-                <DatePicker
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                  size="large"
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="paidDate"
-                label="تاريخ الدفع (اختياري)"
-              >
-                <DatePicker
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                  size="large"
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="status"
-                label="الحالة"
-                rules={[{ required: true, message: 'يرجى اختيار الحالة' }]}
-              >
-                <Select size="large">
-                  <Option value="pending">معلق</Option>
-                  <Option value="paid">مدفوع</Option>
-                  <Option value="overdue">متأخر</Option>
-                  <Option value="cancelled">ملغي</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="paymentMethod"
-                label="طريقة الدفع"
-              >
-                <Select placeholder="اختر طريقة الدفع" size="large">
-                  <Option value="cash">نقد</Option>
-                  <Option value="bank_transfer">تحويل بنكي</Option>
-                  <Option value="check">شيك</Option>
-                  <Option value="other">أخرى</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="referenceNumber"
-                label="رقم المرجع (اختياري)"
-              >
-                <Input placeholder="رقم المرجع أو رقم الفاتورة" size="large" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item
-            name="notes"
-            label="ملاحظات (اختياري)"
-          >
-            <Input.TextArea
-              rows={3}
-              placeholder="أي ملاحظات إضافية..."
-              size="large"
-            />
-          </Form.Item>
 
           <Form.Item>
             <Space>
-              <Button type="primary" htmlType="submit" size="large">
+              <Button 
+                type="primary" 
+                htmlType="submit" 
+                size="large"
+                disabled={transactionType === 'settlement' && settlementType === 'expense' && settlementAmountExceedsLimit}
+                title={transactionType === 'settlement' && settlementType === 'expense' && settlementAmountExceedsLimit ? 'لا يمكن الحفظ: مجموع البنود يتجاوز المبلغ المتبقي' : undefined}
+              >
                 {editingExpense ? 'تحديث' : 'حفظ'}
               </Button>
               <Button onClick={handleCancel} size="large">
@@ -1431,6 +2866,104 @@ const GeneralExpenses = () => {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Transfer Advance Modal */}
+      <Modal
+        title="ترحيل العهدة"
+        open={transferModalVisible}
+        onOk={async () => {
+          try {
+            const values = await transferForm.validateFields()
+            if (!selectedLinkedAdvance) {
+              message.error('لم يتم العثور على تفاصيل العهدة المرتبطة')
+              return
+            }
+            
+            const result = await paymentsService.transferAdvance(
+              selectedLinkedAdvance.id,
+              values.newProjectId,
+              dayjs().format('YYYY-MM-DD')
+            )
+            
+            if (result.success) {
+              message.success('تم نقل العهدة بنجاح')
+              setTransferModalVisible(false)
+              transferForm.resetFields()
+              setSelectedLinkedAdvance(null)
+              loadExpenses()
+              if (activeTab === 'petty-cash') {
+                loadPettyCashAdvances()
+                loadOutstandingAdvances()
+                loadOpenAdvances()
+              }
+              // Close the settlement modal after successful transfer
+              handleCancel()
+            } else {
+              message.error(result.error || 'فشل في نقل العهدة')
+            }
+          } catch (error) {
+            console.error('Error transferring advance:', error)
+            if (error.errorFields) {
+              message.error('يرجى اختيار مشروع جديد')
+            } else {
+              message.error('حدث خطأ أثناء نقل العهدة')
+            }
+          }
+        }}
+        onCancel={() => {
+          setTransferModalVisible(false)
+          transferForm.resetFields()
+        }}
+        okText="ترحيل"
+        cancelText="إلغاء"
+        width={600}
+      >
+        {selectedLinkedAdvance && (
+          <Form form={transferForm} layout="vertical" style={{ marginTop: 24 }}>
+            <Card size="small" style={{ marginBottom: 16, backgroundColor: '#fff7e6', border: '1px solid #ffd591' }}>
+              <div style={{ marginBottom: 8, fontWeight: 'bold', color: '#d46b08' }}>
+                تفاصيل العهدة الحالية:
+              </div>
+              <div>المشروع الحالي: <strong>{projects.find(p => p.id === selectedLinkedAdvance.projectId)?.name || 'غير محدد'}</strong></div>
+              <div>المبلغ المتبقي: <strong>{parseFloat(selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined ? selectedLinkedAdvance.remainingAmount : selectedLinkedAdvance.amount || 0).toLocaleString()} ريال</strong></div>
+              <div>المدير: <strong>{selectedLinkedAdvance.managerName}</strong></div>
+            </Card>
+            
+            <Form.Item
+              name="newProjectId"
+              label="المشروع الجديد"
+              rules={[{ required: true, message: 'يرجى اختيار المشروع الجديد' }]}
+            >
+              <Select
+                placeholder="اختر المشروع الجديد"
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                size="large"
+              >
+                {projects
+                  .filter(p => p.id !== selectedLinkedAdvance.projectId) // Exclude current project
+                  .map((p) => (
+                    <Option key={p.id} value={p.id}>
+                      {p.name} {p.client?.name ? `- ${p.client.name}` : ''}
+                    </Option>
+                  ))}
+              </Select>
+            </Form.Item>
+            
+            <div style={{ 
+              padding: '12px', 
+              backgroundColor: '#f0f9ff', 
+              border: '1px solid #91d5ff',
+              borderRadius: '4px',
+              marginTop: 16
+            }}>
+              <strong>ملاحظة:</strong> سيتم إغلاق العهدة الحالية وإنشاء عهدة جديدة في المشروع المحدد بنفس المبلغ المتبقي.
+            </div>
+          </Form>
+        )}
       </Modal>
     </div>
   )

@@ -529,7 +529,7 @@ const OrdersPage = () => {
               dataSource={selectedProducts.map((item, index) => ({ ...item, key: index }))}
               columns={[
                 { 
-                  title: 'وصف البند/المادة', 
+                  title: 'المادة/الوصف', 
                   dataIndex: 'product',
                   render: (product) => <span style={{ fontWeight: 500 }}>{product}</span>
                 },
@@ -603,14 +603,23 @@ const OrdersPage = () => {
               ]}
               pagination={false}
               size="small"
+              summary={() => {
+                const total = selectedProducts.reduce((sum, item) => sum + (item.total || 0), 0)
+                return (
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell colSpan={3} align="right">
+                      <strong>المبلغ الإجمالي:</strong>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell>
+                      <strong style={{ color: '#1890ff', fontSize: 16, fontWeight: 'bold' }}>
+                        {total.toLocaleString()} ريال
+                      </strong>
+                    </Table.Summary.Cell>
+                    <Table.Summary.Cell />
+                  </Table.Summary.Row>
+                )
+              }}
             />
-            
-            <div style={{ marginTop: 16, textAlign: 'right' }}>
-              <strong>المبلغ الإجمالي: </strong>
-              <span style={{ fontSize: 18, color: '#1890ff', fontWeight: 'bold' }}>
-                {selectedProducts.reduce((sum, item) => sum + (item.total || 0), 0).toLocaleString()} ريال
-              </span>
-            </div>
           </Card>
         )}
       </div>
@@ -654,6 +663,7 @@ const OrdersPage = () => {
   }
 
   // البحث عن العملاء
+  // STRICT VENDOR FILTERING: Only fetch type = 'vendor' or 'supplier', exclude 'client'
   const handleCustomerSearch = async (searchText) => {
     setCustomerSearchValue(searchText)
     
@@ -665,7 +675,8 @@ const OrdersPage = () => {
     }
 
     try {
-      const searchResults = await customersService.searchCustomers(searchText)
+      // STRICT VENDOR FILTERING: Only fetch type = 'vendor' or 'supplier', exclude 'client'
+      const searchResults = await customersService.searchCustomers(searchText, 'vendor')
       const options = searchResults.map(customer => ({
         value: customer.id,
         label: `${customer.name} - ${customer.phone}${customer.email ? ` (${customer.email})` : ''}`,
@@ -1220,7 +1231,7 @@ const OrdersPage = () => {
               dataSource={Array.isArray(selectedOrder.items) ? selectedOrder.items : []}
               columns={[
                 { 
-                  title: 'وصف البند/المادة', 
+                  title: 'المادة/الوصف', 
                   dataIndex: 'product',
                   render: (product, record) => product || record?.productName || 'بند غير معروف'
                 },
@@ -1230,7 +1241,7 @@ const OrdersPage = () => {
                   render: (quantity) => quantity || 0
                 },
                 { 
-                  title: 'السعر', 
+                  title: 'سعر الوحدة', 
                   dataIndex: 'price',
                   render: (p, record) => {
                     const price = p || record?.unitPrice || 0

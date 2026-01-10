@@ -12,6 +12,13 @@ class CategoryService {
         return []
       }
 
+      // Validate type if provided
+      const validTypes = ['administrative', 'project']
+      if (type && !validTypes.includes(type)) {
+        console.warn(`Invalid category type: ${type}. Valid types are: ${validTypes.join(', ')}`)
+        return []
+      }
+
       let query = supabase
         .from('expense_categories')
         .select('*')
@@ -24,7 +31,10 @@ class CategoryService {
 
       const { data: categories, error } = await query
 
-      if (error) throw error
+      if (error) {
+        console.error('Error fetching categories from database:', error)
+        throw error
+      }
 
       return (categories || []).map(c => this.mapToCamelCase(c))
     } catch (error) {
@@ -115,7 +125,7 @@ class CategoryService {
         name_ar: categoryData.nameAr?.trim() || categoryData.name.trim(),
         type: categoryData.type,
         is_system: false, // User-created categories are not system categories
-        created_by: categoryData.createdBy || 'user'
+        created_by: categoryData.createdBy || 'user' // Always include created_by field
       }
 
       const { data: insertedCategory, error } = await supabase

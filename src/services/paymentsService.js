@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import contractsService from './contractsService'
+import ordersService from './ordersService'
 import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
@@ -9,6 +10,109 @@ class PaymentsService {
     const prefix = 'P'
     const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
     return contractNumber ? `${contractNumber}-${prefix}-${random}` : `${prefix}-${random}`
+  }
+
+  // Generate auto-reference number for administrative expenses (EXP-001, EXP-002, etc.)
+  async generateExpenseReferenceNumber() {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) {
+        // Fallback if no tenant ID
+        return `EXP-${Date.now().toString().slice(-6)}`
+      }
+
+      // Get the highest existing reference number for administrative expenses only
+      // Administrative expenses have expense_category not null and transaction_type = 'regular'
+      const { data: existingExpenses, error } = await supabase
+        .from('payments')
+        .select('reference_number')
+        .eq('tenant_id', tenantId)
+        .eq('transaction_type', 'regular') // Only regular expenses, not advances or settlements
+        .not('expense_category', 'is', null) // Only administrative expenses have categories
+        .not('reference_number', 'is', null)
+        .like('reference_number', 'EXP-%')
+        .order('reference_number', { ascending: false })
+        .limit(10)
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Error fetching existing reference numbers:', error)
+        // Fallback to timestamp-based
+        return `EXP-${Date.now().toString().slice(-6)}`
+      }
+
+      // Find the highest number
+      let maxNumber = 0
+      if (existingExpenses && existingExpenses.length > 0) {
+        existingExpenses.forEach(expense => {
+          const match = expense.reference_number?.match(/EXP-(\d+)/)
+          if (match) {
+            const num = parseInt(match[1], 10)
+            if (num > maxNumber) {
+              maxNumber = num
+            }
+          }
+        })
+      }
+
+      // Generate next number
+      const nextNumber = (maxNumber + 1).toString().padStart(3, '0')
+      return `EXP-${nextNumber}`
+    } catch (error) {
+      console.error('Error generating expense reference number:', error)
+      // Fallback to timestamp-based
+      return `EXP-${Date.now().toString().slice(-6)}`
+    }
+  }
+
+  // Generate auto-reference number for manager advances (ADV-001, ADV-002, etc.)
+  async generateAdvanceReferenceNumber() {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) {
+        // Fallback if no tenant ID
+        return `ADV-${Date.now().toString().slice(-6)}`
+      }
+
+      // Get the highest existing reference number for manager advances
+      // Manager advances have transaction_type = 'advance'
+      const { data: existingAdvances, error } = await supabase
+        .from('payments')
+        .select('reference_number')
+        .eq('tenant_id', tenantId)
+        .eq('transaction_type', 'advance')
+        .not('reference_number', 'is', null)
+        .like('reference_number', 'ADV-%')
+        .order('reference_number', { ascending: false })
+        .limit(10)
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Error fetching existing advance reference numbers:', error)
+        // Fallback to timestamp-based
+        return `ADV-${Date.now().toString().slice(-6)}`
+      }
+
+      // Find the highest number
+      let maxNumber = 0
+      if (existingAdvances && existingAdvances.length > 0) {
+        existingAdvances.forEach(advance => {
+          const match = advance.reference_number?.match(/ADV-(\d+)/)
+          if (match) {
+            const num = parseInt(match[1], 10)
+            if (num > maxNumber) {
+              maxNumber = num
+            }
+          }
+        })
+      }
+
+      // Generate next number
+      const nextNumber = (maxNumber + 1).toString().padStart(3, '0')
+      return `ADV-${nextNumber}`
+    } catch (error) {
+      console.error('Error generating advance reference number:', error)
+      // Fallback to timestamp-based
+      return `ADV-${Date.now().toString().slice(-6)}`
+    }
   }
 
   // Get all payments (filtered by current tenant)
@@ -139,26 +243,56 @@ class PaymentsService {
         }
       }
 
+      // Determine payment_frequency: required for administrative expenses, null for project expenses and manager advances
+      let paymentFrequency = null
+      if (paymentData.paymentFrequency !== null && paymentData.paymentFrequency !== undefined && paymentData.paymentFrequency !== '') {
+        paymentFrequency = paymentData.paymentFrequency
+      } else if (paymentData.isGeneralExpense && paymentData.transactionType !== 'advance' && paymentData.transactionType !== 'settlement') {
+        // Default to 'one-time' for administrative expenses if not specified
+        paymentFrequency = 'one-time'
+      }
+      // Otherwise keep as null (for project expenses or manager advances)
+
+      // Calculate is_general_expense: true if no project_id (administrative expenses or manager advances)
+      const isGeneralExpense = paymentData.isGeneralExpense !== undefined 
+        ? paymentData.isGeneralExpense 
+        : (!paymentData.projectId && (paymentData.category || paymentData.transactionType === 'advance' || paymentData.transactionType === 'settlement'))
+
+      // For advances, initialize remaining_amount = amount
+      let remainingAmount = null
+      if (paymentData.transactionType === 'advance') {
+        remainingAmount = paymentData.amount || 0
+      }
+
       const newPayment = {
         tenant_id: tenantId,
-        contract_id: paymentData.isGeneralExpense ? null : (paymentData.contractId || null),
-        project_id: paymentData.isGeneralExpense ? null : (paymentData.projectId || null),
-        work_scope: paymentData.isGeneralExpense ? null : (paymentData.workScope || null),
-        payment_type: paymentData.isGeneralExpense ? 'expense' : (paymentData.paymentType || (paymentData.contractId ? 'income' : 'expense')),
-        // Allow expense_category for all expenses (general expenses OR categorized project expenses like Labor)
+        contract_id: isGeneralExpense ? null : (paymentData.contractId || null),
+        // For manager advances, project_id can be optional (not null)
+        project_id: paymentData.transactionType === 'advance' || paymentData.transactionType === 'settlement' 
+          ? (paymentData.projectId || null) 
+          : (isGeneralExpense ? null : (paymentData.projectId || null)),
+        work_scope: isGeneralExpense ? null : (paymentData.workScope || null),
+        // expense_category is required for administrative expenses, optional for others (null for project expenses/manager advances)
         expense_category: paymentData.category || null,
         payment_number: paymentNumber,
         amount: paymentData.amount || 0,
+        remaining_amount: remainingAmount,
         due_date: paymentData.dueDate,
         paid_date: paymentData.paidDate || null,
-        status: paymentData.status || 'pending',
+        // For manager advances, status defaults to 'pending', for others use provided or 'pending'
+        status: paymentData.status || (paymentData.transactionType === 'advance' || paymentData.transactionType === 'settlement' ? 'pending' : 'pending'),
         payment_method: paymentData.paymentMethod || null,
         reference_number: paymentData.referenceNumber || null,
         notes: paymentData.notes || null,
-        payment_frequency: paymentData.paymentFrequency || 'one-time',
+        recipient_name: paymentData.recipientName || null,
+        // payment_frequency: null for project expenses/manager advances, required value for administrative expenses
+        payment_frequency: paymentFrequency,
         transaction_type: paymentData.transactionType || 'regular',
         manager_name: paymentData.managerName || null,
         linked_advance_id: paymentData.linkedAdvanceId || null,
+        // settlement_type: only for settlements, 'expense' or 'return'
+        settlement_type: paymentData.settlementType || null,
+        is_general_expense: isGeneralExpense,
         created_by: paymentData.createdBy || 'user'
       }
 
@@ -169,6 +303,26 @@ class PaymentsService {
         .single()
 
       if (error) throw error
+
+      // If this is a settlement (return-type), update the linked advance's remaining_amount
+      if (paymentData.transactionType === 'settlement' && paymentData.linkedAdvanceId) {
+        const linkedAdvance = await this.getPayment(paymentData.linkedAdvanceId)
+        if (linkedAdvance) {
+          const settlementAmount = parseFloat(paymentData.amount) || 0
+          const currentRemaining = parseFloat(linkedAdvance.remainingAmount) || parseFloat(linkedAdvance.amount) || 0
+          const newRemainingAmount = Math.max(0, currentRemaining - settlementAmount)
+          const newStatus = newRemainingAmount <= 0 ? 'settled' : 'partially_settled'
+
+          await supabase
+            .from('payments')
+            .update({ 
+              remaining_amount: newRemainingAmount,
+              status: newStatus
+            })
+            .eq('id', paymentData.linkedAdvanceId)
+            .eq('tenant_id', tenantId)
+        }
+      }
 
       return {
         success: true,
@@ -206,13 +360,35 @@ class PaymentsService {
       }
 
       const updateData = {}
-      if (paymentData.amount !== undefined) updateData.amount = paymentData.amount
+      if (paymentData.amount !== undefined) {
+        updateData.amount = paymentData.amount
+        // If updating amount for an advance, also update remaining_amount if it exists
+        if (paymentData.transactionType === 'advance') {
+          // Get current payment to check if it's an advance
+          const currentPayment = await this.getPayment(id)
+          if (currentPayment && currentPayment.transactionType === 'advance' && currentPayment.remainingAmount !== null) {
+            // Adjust remaining_amount proportionally or recalculate
+            const currentAmount = parseFloat(currentPayment.amount) || 0
+            const currentRemaining = parseFloat(currentPayment.remainingAmount) || 0
+            const newAmount = parseFloat(paymentData.amount) || 0
+            // Recalculate remaining_amount proportionally
+            if (currentAmount > 0) {
+              const ratio = currentRemaining / currentAmount
+              updateData.remaining_amount = newAmount * ratio
+            } else {
+              updateData.remaining_amount = newAmount
+            }
+          }
+        }
+      }
+      if (paymentData.remainingAmount !== undefined) updateData.remaining_amount = paymentData.remainingAmount !== null ? paymentData.remainingAmount : null
       if (paymentData.dueDate !== undefined) updateData.due_date = paymentData.dueDate
       if (paymentData.paidDate !== undefined) updateData.paid_date = paymentData.paidDate
       if (paymentData.status !== undefined) updateData.status = paymentData.status
       if (paymentData.paymentMethod !== undefined) updateData.payment_method = paymentData.paymentMethod
       if (paymentData.referenceNumber !== undefined) updateData.reference_number = paymentData.referenceNumber
       if (paymentData.notes !== undefined) updateData.notes = paymentData.notes
+      if (paymentData.recipientName !== undefined) updateData.recipient_name = paymentData.recipientName || null
       
       // Handle project_id and isGeneralExpense
       if (paymentData.isGeneralExpense !== undefined) {
@@ -227,12 +403,33 @@ class PaymentsService {
       }
       
       if (paymentData.workScope !== undefined) updateData.work_scope = paymentData.workScope || null
-      if (paymentData.paymentType !== undefined) updateData.payment_type = paymentData.paymentType
       if (paymentData.category !== undefined) updateData.expense_category = paymentData.category || null
-      if (paymentData.paymentFrequency !== undefined) updateData.payment_frequency = paymentData.paymentFrequency || 'one-time'
+      
+      // Handle payment_frequency: allow null for project expenses and manager advances
+      if (paymentData.paymentFrequency !== undefined) {
+        if (paymentData.paymentFrequency === null) {
+          updateData.payment_frequency = null
+        } else if (paymentData.paymentFrequency === '') {
+          // Empty string means null for non-administrative expenses
+          updateData.payment_frequency = null
+        } else {
+          updateData.payment_frequency = paymentData.paymentFrequency
+        }
+      }
+      
       if (paymentData.transactionType !== undefined) updateData.transaction_type = paymentData.transactionType || 'regular'
       if (paymentData.managerName !== undefined) updateData.manager_name = paymentData.managerName || null
       if (paymentData.linkedAdvanceId !== undefined) updateData.linked_advance_id = paymentData.linkedAdvanceId || null
+      if (paymentData.settlementType !== undefined) updateData.settlement_type = paymentData.settlementType || null
+      
+      // Update is_general_expense if needed
+      if (paymentData.isGeneralExpense !== undefined) {
+        updateData.is_general_expense = paymentData.isGeneralExpense
+      } else if (updateData.project_id !== undefined) {
+        // Recalculate if project_id is being updated
+        const newProjectId = updateData.project_id
+        updateData.is_general_expense = !newProjectId && (updateData.expense_category !== undefined ? updateData.expense_category : paymentData.category)
+      }
 
       // If marking as paid, set paid_date if not provided
       if (paymentData.status === 'paid' && !paymentData.paidDate) {
@@ -313,6 +510,59 @@ class PaymentsService {
     })
   }
 
+  // Update payment status only
+  async updatePaymentStatus(id, newStatus) {
+    try {
+      if (!id) {
+        return {
+          success: false,
+          error: 'معرف الدفعة مطلوب',
+          errorCode: 'INVALID_ID'
+        }
+      }
+
+      if (!newStatus) {
+        return {
+          success: false,
+          error: 'الحالة الجديدة مطلوبة',
+          errorCode: 'INVALID_STATUS'
+        }
+      }
+
+      const tenantId = tenantStore.getTenantId()
+      const tenantValidation = validateTenantId(tenantId)
+      if (!tenantValidation.valid) {
+        return {
+          success: false,
+          error: tenantValidation.error || 'Select a Company first',
+          errorCode: 'NO_TENANT_ID'
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('payments')
+        .update({ status: newStatus })
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      return {
+        success: true,
+        payment: this.mapToCamelCase(data)
+      }
+    } catch (error) {
+      console.error('Error updating payment status:', error.message)
+      return {
+        success: false,
+        error: error.message || 'فشل في تحديث حالة الدفعة',
+        errorCode: 'UPDATE_STATUS_FAILED'
+      }
+    }
+  }
+
   // Get payments by status
   async getPaymentsByStatus(status) {
     try {
@@ -372,7 +622,8 @@ class PaymentsService {
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
-        .eq('payment_type', 'income')
+        .eq('transaction_type', 'regular')
+        .is('contract_id', null)
         .order('due_date', { ascending: true })
 
       if (error) throw error
@@ -397,7 +648,7 @@ class PaymentsService {
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
-        .eq('payment_type', 'expense')
+        .eq('transaction_type', 'regular')
         .order('due_date', { ascending: true })
 
       if (error) throw error
@@ -421,7 +672,7 @@ class PaymentsService {
         .eq('tenant_id', tenantId)
         .is('project_id', null)
         .not('expense_category', 'is', null)
-        .eq('payment_type', 'expense')
+        .eq('transaction_type', 'regular')
         .order('due_date', { ascending: false })
 
       if (error) throw error
@@ -434,23 +685,33 @@ class PaymentsService {
   }
 
   // Get all expenses (both general and project-related) for the General Expenses page
+  // This includes: administrative expenses (with category), manager advances (transaction_type = 'advance' or 'settlement')
+  // Note: Project-related expenses saved from General Expenses page are handled via ordersService and shown in Orders page, not here
   async getAllExpenses() {
     try {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      // Get all expense payments that are either general expenses or categorized project expenses
+      // Get all expense payments and filter to include:
+      // 1. Administrative expenses: have expense_category (not null)
+      // 2. Manager advances: transaction_type = 'advance' or 'settlement'
       const { data, error } = await supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
-        .eq('payment_type', 'expense')
-        .not('expense_category', 'is', null)
+        .or('transaction_type.eq.regular,transaction_type.eq.advance,transaction_type.eq.settlement')
         .order('due_date', { ascending: false })
 
       if (error) throw error
 
-      return (data || []).map(p => this.mapToCamelCase(p))
+      // Filter in JavaScript: include expenses with category OR manager advances
+      const filtered = (data || []).filter(p => 
+        p.expense_category !== null || 
+        p.transaction_type === 'advance' || 
+        p.transaction_type === 'settlement'
+      )
+      
+      return filtered.map(p => this.mapToCamelCase(p))
     } catch (error) {
       console.error('Error fetching all expenses:', error.message)
       return []
@@ -471,7 +732,9 @@ class PaymentsService {
   }
 
   // Get advances (petty cash issued to managers)
-  async getAdvances(managerName = null) {
+  // Can filter by managerName and/or status (defaults to all statuses)
+  // If status is null, returns all advances (useful for filtering in UI)
+  async getAdvances(managerName = null, status = null) {
     try {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
@@ -485,6 +748,10 @@ class PaymentsService {
 
       if (managerName) {
         query = query.eq('manager_name', managerName)
+      }
+
+      if (status) {
+        query = query.eq('status', status)
       }
 
       const { data: advances, error } = await query
@@ -561,24 +828,393 @@ class PaymentsService {
         managerBalances[manager].totalAdvances += advanceAmount
         managerBalances[manager].advanceCount += 1
 
-        // Calculate settled amount for this advance
-        const settledAmount = (settlements || [])
-          .filter(s => s.linked_advance_id === advance.id)
-          .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)
+        // Use remaining_amount if available, otherwise calculate from settlements
+        const remainingAmount = advance.remaining_amount !== null && advance.remaining_amount !== undefined
+          ? parseFloat(advance.remaining_amount)
+          : null
 
-        managerBalances[manager].totalSettled += settledAmount
-      })
-
-      // Calculate outstanding balance for each manager
-      Object.keys(managerBalances).forEach(manager => {
-        managerBalances[manager].outstandingBalance = 
-          managerBalances[manager].totalAdvances - managerBalances[manager].totalSettled
+        if (remainingAmount !== null) {
+          // Use remaining_amount directly for outstanding balance
+          const settledAmount = advanceAmount - remainingAmount
+          managerBalances[manager].totalSettled += settledAmount
+          managerBalances[manager].outstandingBalance += remainingAmount
+        } else {
+          // Fallback: Calculate settled amount from settlements
+          const settledAmount = (settlements || [])
+            .filter(s => s.linked_advance_id === advance.id)
+            .reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)
+          managerBalances[manager].totalSettled += settledAmount
+          managerBalances[manager].outstandingBalance += (advanceAmount - settledAmount)
+        }
       })
 
       return Object.values(managerBalances)
     } catch (error) {
       console.error('Error calculating outstanding advances:', error.message)
       return []
+    }
+  }
+
+  // Transfer advance to a new project
+  // This method: 1) Closes current advance (remaining_amount = 0, status = 'settled')
+  //              2) Creates NEW advance for same manager in NEW project with same remaining_amount
+  //              3) Links them using source_advance_id and sets transfer_date
+  async transferAdvance(advanceId, newProjectId, transferDate = null) {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      const tenantValidation = validateTenantId(tenantId)
+      if (!tenantValidation.valid) {
+        return {
+          success: false,
+          error: tenantValidation.error || 'Select a Company first',
+          errorCode: 'NO_TENANT_ID'
+        }
+      }
+
+      // Get the current advance
+      const currentAdvance = await this.getPayment(advanceId)
+      if (!currentAdvance) {
+        return {
+          success: false,
+          error: 'العهدة غير موجودة',
+          errorCode: 'ADVANCE_NOT_FOUND'
+        }
+      }
+
+      if (currentAdvance.transactionType !== 'advance') {
+        return {
+          success: false,
+          error: 'السجل المحدد ليس عهدة',
+          errorCode: 'NOT_AN_ADVANCE'
+        }
+      }
+
+      // Get remaining amount
+      const remainingAmount = currentAdvance.remainingAmount !== null && currentAdvance.remainingAmount !== undefined
+        ? parseFloat(currentAdvance.remainingAmount)
+        : parseFloat(currentAdvance.amount || 0)
+
+      if (remainingAmount <= 0) {
+        return {
+          success: false,
+          error: 'العهدة تم تسويتها بالكامل - لا يمكن نقل عهدة مسددة',
+          errorCode: 'ADVANCE_FULLY_SETTLED'
+        }
+      }
+
+      // Use provided transfer date or current date
+      const transferDateValue = transferDate || new Date().toISOString().split('T')[0]
+
+      // Step 1: Close current advance (remaining_amount = 0, status = 'settled')
+      const { error: updateError } = await supabase
+        .from('payments')
+        .update({
+          remaining_amount: 0,
+          status: 'settled'
+        })
+        .eq('id', advanceId)
+        .eq('tenant_id', tenantId)
+
+      if (updateError) {
+        console.error('Error updating current advance:', updateError)
+        return {
+          success: false,
+          error: updateError.message || 'فشل في تحديث العهدة الحالية',
+          errorCode: 'UPDATE_ADVANCE_FAILED'
+        }
+      }
+
+      // Step 2: Create NEW advance for same manager in NEW project
+      // Generate payment number for new advance
+      const newAdvancePaymentNumber = `ADV-TRANS-${Date.now()}`
+
+      // Get original advance date or use transfer date
+      const advanceDate = currentAdvance.dueDate || transferDateValue
+
+      const newAdvance = {
+        tenant_id: tenantId,
+        contract_id: null,
+        project_id: newProjectId || null,
+        work_scope: null,
+        expense_category: null,
+        payment_number: newAdvancePaymentNumber,
+        amount: remainingAmount,
+        remaining_amount: remainingAmount, // Initialize with same remaining amount
+        due_date: advanceDate,
+        paid_date: null,
+        status: currentAdvance.status || 'pending', // Keep same status
+        payment_method: currentAdvance.paymentMethod || null,
+        reference_number: currentAdvance.referenceNumber || null,
+        notes: currentAdvance.notes ? `${currentAdvance.notes} (منقول من عهدة ${currentAdvance.referenceNumber || currentAdvance.paymentNumber})` : `منقول من عهدة ${currentAdvance.referenceNumber || currentAdvance.paymentNumber}`,
+        recipient_name: null,
+        payment_frequency: null,
+        transaction_type: 'advance',
+        manager_name: currentAdvance.managerName || null,
+        linked_advance_id: null, // No linked advance for transferred advances
+        settlement_type: null,
+        is_general_expense: true, // Manager advances are general expenses
+        source_advance_id: advanceId, // Link to original advance
+        created_by: 'user'
+      }
+
+      const { data: insertedAdvance, error: insertError } = await supabase
+        .from('payments')
+        .insert([newAdvance])
+        .select()
+        .single()
+
+      if (insertError) {
+        // Rollback: restore original advance
+        await supabase
+          .from('payments')
+          .update({
+            remaining_amount: remainingAmount,
+            status: currentAdvance.status || 'pending'
+          })
+          .eq('id', advanceId)
+          .eq('tenant_id', tenantId)
+
+        console.error('Error creating new advance:', insertError)
+        return {
+          success: false,
+          error: insertError.message || 'فشل في إنشاء العهدة الجديدة',
+          errorCode: 'CREATE_ADVANCE_FAILED'
+        }
+      }
+
+      // Step 3: Update source_advance_id and transfer_date in original advance (if columns exist)
+      // Note: These columns may not exist yet in the database, so we'll handle gracefully
+      try {
+        await supabase
+          .from('payments')
+          .update({
+            source_advance_id: advanceId, // Mark original as source
+            transfer_date: transferDateValue
+          })
+          .eq('id', advanceId)
+          .eq('tenant_id', tenantId)
+      } catch (transferFieldError) {
+        // If columns don't exist, log warning but don't fail
+        console.warn('Transfer fields (source_advance_id, transfer_date) may not exist in database:', transferFieldError)
+      }
+
+      return {
+        success: true,
+        originalAdvance: this.mapToCamelCase(await this.getPayment(advanceId)),
+        newAdvance: this.mapToCamelCase(insertedAdvance)
+      }
+    } catch (error) {
+      console.error('Error transferring advance:', error.message)
+      return {
+        success: false,
+        error: error.message || 'فشل في نقل العهدة',
+        errorCode: 'TRANSFER_ADVANCE_FAILED'
+      }
+    }
+  }
+
+  // Create settlement with Purchase Order
+  // This method: 1) Creates settlement payment, 2) Creates purchase order, 3) Updates advance status to 'settled'
+  async createSettlementWithPO(settlementData) {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      const tenantValidation = validateTenantId(tenantId)
+      if (!tenantValidation.valid) {
+        return {
+          success: false,
+          error: tenantValidation.error || 'Select a Company first',
+          errorCode: 'NO_TENANT_ID'
+        }
+      }
+
+      // Validate required fields
+      if (!settlementData.linkedAdvanceId) {
+        return {
+          success: false,
+          error: 'معرف العهدة المرتبطة مطلوب',
+          errorCode: 'LINKED_ADVANCE_ID_REQUIRED'
+        }
+      }
+
+      if (!settlementData.projectId) {
+        return {
+          success: false,
+          error: 'معرف المشروع مطلوب لأمر الشراء',
+          errorCode: 'PROJECT_ID_REQUIRED'
+        }
+      }
+
+      if (!settlementData.vendorId) {
+        return {
+          success: false,
+          error: 'معرف المورد/المستلم مطلوب',
+          errorCode: 'VENDOR_ID_REQUIRED'
+        }
+      }
+
+      if (!settlementData.poItems || settlementData.poItems.length === 0) {
+        return {
+          success: false,
+          error: 'يجب إضافة بند واحد على الأقل لأمر الشراء',
+          errorCode: 'PO_ITEMS_REQUIRED'
+        }
+      }
+
+      // Get the linked advance to validate and update
+      const linkedAdvance = await this.getPayment(settlementData.linkedAdvanceId)
+      if (!linkedAdvance) {
+        return {
+          success: false,
+          error: 'العهدة المرتبطة غير موجودة',
+          errorCode: 'ADVANCE_NOT_FOUND'
+        }
+      }
+
+      if (linkedAdvance.status !== 'approved' && linkedAdvance.status !== 'partially_settled') {
+        return {
+          success: false,
+          error: 'لا يمكن تسوية عهدة غير معتمدة أو تم تسويتها بالكامل',
+          errorCode: 'ADVANCE_NOT_APPROVED'
+        }
+      }
+
+      // Validate settlement amount <= remaining amount (not original amount)
+      const settlementAmount = parseFloat(settlementData.amount) || 0
+      const remainingAmount = parseFloat(linkedAdvance.remainingAmount) || parseFloat(linkedAdvance.amount) || 0
+      
+      if (remainingAmount <= 0) {
+        return {
+          success: false,
+          error: 'العهدة تم تسويتها بالكامل - لا يمكن إنشاء تسوية جديدة',
+          errorCode: 'ADVANCE_FULLY_SETTLED'
+        }
+      }
+
+      if (settlementAmount > remainingAmount) {
+        return {
+          success: false,
+          error: `مبلغ التسوية (${settlementAmount.toLocaleString()}) يجب أن يكون أقل من أو يساوي المبلغ المتبقي (${remainingAmount.toLocaleString()})`,
+          errorCode: 'SETTLEMENT_AMOUNT_EXCEEDS_REMAINING'
+        }
+      }
+
+      // Step 1: Create settlement payment record
+      const settlementDate = settlementData.date || new Date().toISOString().split('T')[0]
+      
+      // Generate payment number for settlement
+      const settlementPaymentNumber = `SETT-${Date.now()}`
+
+      const settlementPayment = {
+        tenant_id: tenantId,
+        contract_id: null,
+        project_id: settlementData.projectId || null,
+        work_scope: settlementData.workScope || null,
+        expense_category: null,
+        payment_number: settlementPaymentNumber,
+        amount: settlementAmount,
+        remaining_amount: null, // Settlements don't have remaining amount
+        due_date: settlementDate,
+        paid_date: settlementDate,
+        status: 'approved', // Settlements are auto-approved
+        payment_method: 'settlement', // Force payment method to 'settlement' for all settlements
+        reference_number: settlementData.referenceNumber || null,
+        notes: settlementData.notes || null,
+        recipient_name: null,
+        payment_frequency: null,
+        transaction_type: 'settlement',
+        manager_name: settlementData.managerName || null,
+        linked_advance_id: settlementData.linkedAdvanceId,
+        settlement_type: settlementData.settlementType || 'expense',
+        is_general_expense: true,
+        created_by: 'user'
+      }
+
+      const { data: insertedSettlement, error: settlementError } = await supabase
+        .from('payments')
+        .insert([settlementPayment])
+        .select()
+        .single()
+
+      if (settlementError) {
+        console.error('Error creating settlement payment:', settlementError)
+        return {
+          success: false,
+          error: settlementError.message || 'فشل في إنشاء سجل التسوية',
+          errorCode: 'CREATE_SETTLEMENT_FAILED'
+        }
+      }
+
+      // Step 2: Create purchase order using ordersService
+      // Calculate PO total from items (for display/validation)
+      const poSubtotal = settlementData.poItems.reduce((sum, item) => {
+        const itemTotal = (item.total || item.unitPrice * item.quantity) || 0
+        return sum + itemTotal
+      }, 0)
+
+      const orderData = {
+        customerId: settlementData.vendorId,
+        customerName: settlementData.vendorName,
+        customerPhone: settlementData.vendorPhone || '',
+        customerEmail: settlementData.vendorEmail || '',
+        projectId: settlementData.projectId,
+        workScope: settlementData.workScope || null,
+        items: settlementData.poItems,
+        status: 'completed', // Settlement PO is immediately completed
+        paymentMethod: settlementData.poPaymentMethod || 'cash',
+        paymentStatus: 'paid', // Settlement PO is considered paid
+        shippingAddress: '',
+        shippingMethod: 'standard',
+        notes: `تسوية عهدة رقم ${linkedAdvance.referenceNumber || linkedAdvance.paymentNumber} - ${settlementData.notes || ''}`,
+        createdBy: 'user',
+        isSettlementPO: true, // Flag to skip tax/discounts
+        exactTotal: settlementAmount // Use exact settlement amount, not calculated from items
+      }
+
+      const poResult = await ordersService.createOrder(orderData)
+
+      if (!poResult.success) {
+        // Rollback: delete settlement payment if PO creation failed
+        await supabase.from('payments').delete().eq('id', insertedSettlement.id)
+        return {
+          success: false,
+          error: poResult.error || 'فشل في إنشاء أمر الشراء',
+          errorCode: 'CREATE_PO_FAILED'
+        }
+      }
+
+      // Step 3: Update original advance remaining_amount and status
+      const newRemainingAmount = Math.max(0, remainingAmount - settlementAmount)
+      const newStatus = newRemainingAmount <= 0 ? 'settled' : 'partially_settled'
+      
+      const { error: updateError } = await supabase
+        .from('payments')
+        .update({ 
+          remaining_amount: newRemainingAmount,
+          status: newStatus
+        })
+        .eq('id', settlementData.linkedAdvanceId)
+        .eq('tenant_id', tenantId)
+
+      if (updateError) {
+        console.error('Error updating advance status:', updateError)
+        // Note: Settlement and PO are already created, so we log the error but don't fail
+        // The user can manually update the advance status if needed
+        console.warn('Warning: Settlement and PO created, but advance status update failed. Advance ID:', settlementData.linkedAdvanceId)
+      }
+
+      return {
+        success: true,
+        settlement: this.mapToCamelCase(insertedSettlement),
+        purchaseOrder: poResult.order,
+        advanceUpdated: !updateError
+      }
+    } catch (error) {
+      console.error('Error creating settlement with PO:', error.message)
+      return {
+        success: false,
+        error: error.message || 'فشل في إنشاء التسوية وأمر الشراء',
+        errorCode: 'CREATE_SETTLEMENT_WITH_PO_FAILED'
+      }
     }
   }
 
@@ -591,21 +1227,25 @@ class PaymentsService {
       contractId: payment.contract_id,
       projectId: payment.project_id || null,
       workScope: payment.work_scope || null,
-      paymentType: payment.payment_type || (payment.contract_id ? 'income' : 'expense'),
       expenseCategory: payment.expense_category || null,
-      isGeneralExpense: !payment.project_id && payment.expense_category ? true : false,
+      isGeneralExpense: payment.is_general_expense !== undefined ? payment.is_general_expense : (!payment.project_id && (payment.expense_category || payment.transaction_type === 'advance' || payment.transaction_type === 'settlement')),
       paymentNumber: payment.payment_number,
       amount: parseFloat(payment.amount) || 0,
+      remainingAmount: payment.remaining_amount !== null && payment.remaining_amount !== undefined ? parseFloat(payment.remaining_amount) : null,
       dueDate: payment.due_date,
       paidDate: payment.paid_date,
       status: payment.status,
       paymentMethod: payment.payment_method,
       referenceNumber: payment.reference_number,
       notes: payment.notes,
-      paymentFrequency: payment.payment_frequency || 'one-time',
+      recipientName: payment.recipient_name || null,
+      paymentFrequency: payment.payment_frequency !== null && payment.payment_frequency !== undefined ? payment.payment_frequency : null,
       transactionType: payment.transaction_type || 'regular',
       managerName: payment.manager_name || null,
       linkedAdvanceId: payment.linked_advance_id || null,
+      settlementType: payment.settlement_type || null,
+      sourceAdvanceId: payment.source_advance_id || null,
+      transferDate: payment.transfer_date || null,
       createdAt: payment.created_at,
       updatedAt: payment.updated_at,
       createdBy: payment.created_by

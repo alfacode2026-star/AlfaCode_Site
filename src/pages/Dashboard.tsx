@@ -41,27 +41,30 @@ const Dashboard = () => {
           const allPayments = await paymentsService.getPayments()
           
           // Calculate total projects profit: income from projects - expenses from projects
+          // Income = payments with contract_id (client payments) linked to projects
           const projectIncome = allPayments
-            .filter(p => p.paymentType === 'income' && p.projectId && p.status === 'paid')
+            .filter(p => p.contractId && p.projectId && p.status === 'paid' && p.transactionType === 'regular')
             .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
           
           // Project expenses: expenses with project_id and expense_category (categorized project expenses)
           const projectExpenses = allPayments
             .filter(p => 
-              p.paymentType === 'expense' && 
+              !p.contractId &&
               p.projectId && 
               p.expenseCategory && 
-              p.status === 'paid'
+              p.status === 'paid' &&
+              p.transactionType === 'regular'
             )
             .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
           
           // General expenses: expenses without project_id but with expense_category (administrative expenses)
           const generalExpensesTotal = allPayments
             .filter(p => 
-              p.paymentType === 'expense' && 
+              !p.contractId &&
               !p.projectId && 
               p.expenseCategory && 
-              p.status === 'paid'
+              p.status === 'paid' &&
+              p.transactionType === 'regular'
             )
             .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
           
@@ -170,7 +173,7 @@ const Dashboard = () => {
                 precision={0}
                 prefix={<RiseOutlined />}
                 suffix="ريال"
-                valueStyle={{ color: financialMetrics.totalProjectsProfit >= 0 ? '#3f8600' : '#cf1322' }}
+                styles={{ value: { color: financialMetrics.totalProjectsProfit >= 0 ? '#3f8600' : '#cf1322' } }}
               />
             </Card>
           </Col>
@@ -182,7 +185,7 @@ const Dashboard = () => {
                 precision={0}
                 prefix={<FallOutlined />}
                 suffix="ريال"
-                valueStyle={{ color: '#cf1322' }}
+                styles={{ value: { color: '#cf1322' } }}
               />
             </Card>
           </Col>
@@ -201,7 +204,7 @@ const Dashboard = () => {
                 precision={0}
                 prefix={financialMetrics.netCompanyProfit >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <FallOutlined style={{ color: 'white' }} />}
                 suffix={<span style={{ color: 'white' }}>ريال</span>}
-                valueStyle={{ color: 'white', fontSize: '28px', fontWeight: 'bold' }}
+                styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
               />
               <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
                 <div>ربح المشاريع - المصاريف العامة</div>

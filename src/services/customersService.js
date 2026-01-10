@@ -272,9 +272,20 @@ class CustomersService {
   }
 
   // Search customers (with tenant filter)
-  async searchCustomers(query) {
+  async searchCustomers(query, filterType = null) {
     try {
-      if (!query || query.trim() === '') return this.getCustomers()
+      if (!query || query.trim() === '') {
+        // If no query but filterType specified, return filtered customers
+        if (filterType) {
+          const allCustomers = await this.getCustomers()
+          if (filterType === 'vendor') {
+            return allCustomers.filter(c => c.type === 'vendor' || c.type === 'supplier')
+          } else if (filterType === 'client') {
+            return allCustomers.filter(c => c.type === 'client')
+          }
+        }
+        return this.getCustomers()
+      }
 
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) {
@@ -284,31 +295,59 @@ class CustomersService {
 
       const searchTerm = `%${query.trim()}%`
       
-      const { data, error } = await supabase
+      let queryBuilder = supabase
         .from('customers')
         .select('*')
         .eq('tenant_id', tenantId) // Filter by tenant
         .or(`name.ilike.${searchTerm},email.ilike.${searchTerm},phone.ilike.${searchTerm}`)
+      
+      // Strict vendor filtering: only include type = 'vendor' or 'supplier', exclude 'client'
+      if (filterType === 'vendor') {
+        queryBuilder = queryBuilder.in('type', ['vendor', 'supplier'])
+      } else if (filterType === 'client') {
+        queryBuilder = queryBuilder.eq('type', 'client')
+      }
+      
+      queryBuilder = queryBuilder
         .order('created_at', { ascending: false })
         .limit(50) // Limit results to prevent large responses
+
+      const { data, error } = await queryBuilder
 
       if (error) {
         console.error('Supabase search error:', error)
         throw error
       }
       
-      return (data || []).map(c => this.mapToCamelCase(c))
+      // Additional client-side filtering for strict vendor filtering
+      let filtered = (data || []).map(c => this.mapToCamelCase(c))
+      if (filterType === 'vendor') {
+        filtered = filtered.filter(c => c.type === 'vendor' || c.type === 'supplier')
+      } else if (filterType === 'client') {
+        filtered = filtered.filter(c => c.type === 'client')
+      }
+      
+      return filtered
     } catch (error) {
       console.error('Error searching customers:', error.message)
       // Fallback: return all customers and filter client-side
       try {
         const allCustomers = await this.getCustomers()
         const searchLower = query.toLowerCase()
-        return allCustomers.filter(c => 
+        let filtered = allCustomers.filter(c => 
           c.name?.toLowerCase().includes(searchLower) ||
           c.email?.toLowerCase().includes(searchLower) ||
           c.phone?.includes(query)
         )
+        
+        // Apply type filter in fallback too
+        if (filterType === 'vendor') {
+          filtered = filtered.filter(c => c.type === 'vendor' || c.type === 'supplier')
+        } else if (filterType === 'client') {
+          filtered = filtered.filter(c => c.type === 'client')
+        }
+        
+        return filtered
       } catch (fallbackError) {
         console.error('Fallback search also failed:', fallbackError)
         return []

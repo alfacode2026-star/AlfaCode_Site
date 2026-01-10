@@ -98,7 +98,7 @@ const QuotationsPage = () => {
     totalQuotations: quotations.length,
     draftQuotations: quotations.filter(q => q.status === 'draft').length,
     sentQuotations: quotations.filter(q => q.status === 'sent').length,
-    acceptedQuotations: quotations.filter(q => q.status === 'accepted').length,
+    acceptedQuotations: quotations.filter(q => q.status === 'approved' || q.status === 'accepted' || q.status === 'converted').length,
     totalAmount: quotations.reduce((sum, q) => sum + (q.totalAmount || 0), 0)
   }
 
@@ -190,8 +190,10 @@ const QuotationsPage = () => {
   const statusLabels = {
     draft: { text: 'مسودة', color: 'default' },
     sent: { text: 'تم الإرسال', color: 'blue' },
-    accepted: { text: 'مقبول', color: 'green' },
-    rejected: { text: 'مرفوض', color: 'red' }
+    approved: { text: 'معتمد', color: 'green' },
+    accepted: { text: 'مقبول', color: 'green' }, // Legacy support
+    rejected: { text: 'مرفوض', color: 'red' },
+    converted: { text: 'تم التحويل', color: 'purple' }
   }
 
   const columns = [
@@ -285,19 +287,25 @@ const QuotationsPage = () => {
           >
             عرض
           </Button>
-          {record.status !== 'accepted' && (
+          {record.status !== 'accepted' && record.status !== 'converted' && (
             <>
               <Popconfirm
                 title="اعتماد العرض"
-                description="هل تريد اعتماد هذا العرض وتحويله إلى مشروع؟"
+                description="هل تريد اعتماد هذا العرض وتحويله إلى مشروع وعقد تلقائياً؟"
                 onConfirm={async () => {
                   try {
+                    // Use 'converted' status - this will trigger Project and Contract creation in one transaction
                     const result = await quotationsService.updateQuotation(record.id, {
-                      status: 'accepted'
+                      status: 'converted'
                     })
                     if (result.success) {
-                      if (result.projectCreated) {
+                      if (result.projectCreated && result.contractCreated) {
+                        message.success('تم اعتماد العرض وتحويله إلى مشروع وعقد تلقائياً بنجاح!')
+                      } else if (result.projectCreated) {
                         message.success('تم اعتماد العرض وتحويله إلى مشروع بنجاح!')
+                        if (result.contractError) {
+                          message.warning(`تم إنشاء المشروع لكن فشل إنشاء العقد: ${result.contractError}`)
+                        }
                       } else {
                         message.success('تم اعتماد العرض بنجاح!')
                       }
@@ -779,8 +787,9 @@ const QuotationsPage = () => {
             <Option value="all">الكل</Option>
             <Option value="draft">مسودة</Option>
             <Option value="sent">تم الإرسال</Option>
-            <Option value="accepted">مقبول</Option>
+            <Option value="approved">معتمد</Option>
             <Option value="rejected">مرفوض</Option>
+            <Option value="converted">تم التحويل</Option>
           </Select>
         </div>
       </Card>
@@ -951,7 +960,7 @@ const QuotationsPage = () => {
                   setCategorySelectValue(null)
                 }
               }}
-              dropdownRender={(menu) => (
+              popupRender={(menu) => (
                 <div>
                   {menu}
                   <Divider style={{ margin: '8px 0' }} />
@@ -1020,8 +1029,9 @@ const QuotationsPage = () => {
                 <Select>
                   <Option value="draft">مسودة</Option>
                   <Option value="sent">تم الإرسال</Option>
-                  <Option value="accepted">مقبول</Option>
+                  <Option value="approved">معتمد</Option>
                   <Option value="rejected">مرفوض</Option>
+                  <Option value="converted">تم التحويل</Option>
                 </Select>
               </Form.Item>
             </Col>
@@ -1047,14 +1057,14 @@ const QuotationsPage = () => {
             type="primary"
             icon={<FileProtectOutlined />}
             onClick={() => {
-              if (selectedQuotation?.status === 'accepted') {
+              if (selectedQuotation?.status === 'approved' || selectedQuotation?.status === 'accepted') {
                 convertForm.setFieldsValue({ contractType: 'original' })
                 setConvertModalVisible(true)
               } else {
-                message.warning('يمكن تحويل العروض المقبولة فقط إلى عقود')
+                message.warning('يمكن تحويل العروض المعتمدة فقط إلى عقود')
               }
             }}
-            disabled={selectedQuotation?.status !== 'accepted'}
+            disabled={selectedQuotation?.status !== 'approved' && selectedQuotation?.status !== 'accepted'}
           >
             تحويل إلى عقد
           </Button>,

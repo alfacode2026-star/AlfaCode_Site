@@ -89,21 +89,36 @@ class OrdersService {
   // Create new order with items and inventory adjustment
   async createOrder(orderData) {
     try {
+      // For settlement POs, skip tax/discounts and use exact amount
+      const isSettlementPO = orderData.isSettlementPO === true
+      const exactTotal = orderData.exactTotal !== undefined ? parseFloat(orderData.exactTotal) : null
+
       // Calculate totals
       const subtotal = orderData.items.reduce((sum, item) => {
         const itemTotal = (item.total || item.unitPrice * item.quantity) || 0
         return sum + itemTotal
       }, 0)
 
-      // Apply discount if provided (can be percentage or fixed amount)
-      const discount = orderData.discount || 0
-      const discountAmount = discount > 0 && discount < 1 
-        ? subtotal * discount  // Percentage (e.g., 0.1 = 10%)
-        : discount  // Fixed amount
+      let discountAmount = 0
+      let tax = 0
+      let total = subtotal
 
-      const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount)
-      const tax = subtotalAfterDiscount * 0.05 // 5% tax
-      const total = subtotalAfterDiscount + tax
+      if (!isSettlementPO && exactTotal === null) {
+        // Apply discount if provided (can be percentage or fixed amount)
+        const discount = orderData.discount || 0
+        discountAmount = discount > 0 && discount < 1 
+          ? subtotal * discount  // Percentage (e.g., 0.1 = 10%)
+          : discount  // Fixed amount
+
+        const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount)
+        tax = subtotalAfterDiscount * 0.05 // 5% tax
+        total = subtotalAfterDiscount + tax
+      } else if (isSettlementPO && exactTotal !== null) {
+        // For settlement POs, use exact total (no tax, no discount)
+        total = exactTotal
+        discountAmount = 0
+        tax = 0
+      }
 
       // Generate UUID if not provided (let Supabase handle it or use crypto.randomUUID())
       const orderId = orderData.id || crypto.randomUUID()

@@ -14,6 +14,7 @@ import {
   FileProtectOutlined,
   TeamOutlined,
   BankOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useTenant } from '../contexts/TenantContext'
@@ -71,6 +72,12 @@ const Navigation = () => {
       icon: <BankOutlined />,
       label: 'المصاريف العامة والإدارية',
     }] : []),
+    // Admin Approvals - available for all (for now, just make the link available)
+    {
+      key: '/admin-approvals',
+      icon: <SafetyOutlined />,
+      label: 'اعتمادات الإدارة',
+    },
     {
       key: '/customers',
       icon: <UserOutlined />,

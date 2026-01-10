@@ -18,6 +18,7 @@ import QuotationsPage from './pages/QuotationsPage';
 import ContractsPage from './pages/ContractsPage';
 import LaborPage from './pages/LaborPage';
 import GeneralExpenses from './pages/GeneralExpenses';
+import AdminApprovals from './pages/AdminApprovals';
 
 // Import Navigation component
 import Navigation from './components/Navigation';
@@ -112,6 +113,7 @@ function AppContent() {
             <Route path="/projects/:id" element={<ProjectDetails />} />
             <Route path="/labor" element={<LaborPage />} />
             <Route path="/general-expenses" element={<GeneralExpenses />} />
+            <Route path="/admin-approvals" element={<AdminApprovals />} />
             <Route path="/customers" element={<CustomersPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/reports" element={<ReportsPage />} />

@@ -3,6 +3,7 @@ import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import paymentsService from './paymentsService'
 import workersService from './workersService'
+import categoryService from './categoryService'
 
 class AttendanceService {
   // Get all daily records (filtered by current tenant)
@@ -123,6 +124,12 @@ class AttendanceService {
         }
       }
 
+      // Get Labor category from expense_categories table once (fallback to 'Labor' if not found)
+      const projectCategories = await categoryService.getProjectCategories()
+      const laborCategory = projectCategories.find(cat => 
+        cat.name.toLowerCase() === 'labor' || cat.nameAr?.toLowerCase().includes('عمال')
+      ) || { name: 'Labor' } // Fallback to 'Labor' if category not found
+
       // Prepare records to insert
       const recordsToInsert = []
       const paymentPromises = []
@@ -163,7 +170,7 @@ class AttendanceService {
             projectId: attendanceData.projectId,
             workScope: attendanceData.workScope || null,
             paymentType: 'expense',
-            category: 'Labor/أجور عمال',
+            category: laborCategory.name, // Use dynamic category from database
             amount: paymentAmount,
             dueDate: dateStr,
             paidDate: dateStr, // Mark as paid immediately (labor is typically paid daily)

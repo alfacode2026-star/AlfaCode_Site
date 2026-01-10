@@ -3,6 +3,7 @@ import customersService from './customersService'
 import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import projectsService from './projectsService'
+import contractsService from './contractsService'
 
 class QuotationsService {
   // Generate quote number
@@ -318,27 +319,40 @@ class QuotationsService {
 
       if (error) throw error
 
-      // Check if status changed to 'accepted' and automatically convert to project
-      const wasAccepted = currentQuotation?.status === 'accepted'
-      const isNowAccepted = quotationData.status === 'accepted'
+      // Check if status changed to 'converted' and automatically convert to project and contract in one transaction
+      const wasConverted = currentQuotation?.status === 'converted'
+      const isNowConverted = quotationData.status === 'converted'
       
-      if (!wasAccepted && isNowAccepted) {
-        // Automatically convert to project
+      if (!wasConverted && isNowConverted) {
+        // Automatically convert to project (which also creates contract in one transaction)
+        // Update quotation status to 'converted' first before conversion
         const convertedProject = await this.convertToProject(this.mapToCamelCase(data))
         if (convertedProject.success) {
           return {
             success: true,
             quotation: this.mapToCamelCase(data),
             projectCreated: true,
-            project: convertedProject.project
+            contractCreated: convertedProject.contractCreated || false,
+            project: convertedProject.project,
+            contract: convertedProject.contract || null,
+            contractError: convertedProject.contractCreated === false ? 'Failed to create contract' : null
           }
         } else {
-          // Still return success for quotation update, but log the project creation error
-          console.error('Failed to auto-create project:', convertedProject.error)
+          // Rollback: revert status if conversion failed
+          try {
+            await supabase
+              .from('quotations')
+              .update({ status: currentQuotation?.status || 'draft' })
+              .eq('id', id)
+              .eq('tenant_id', tenantId)
+          } catch (rollbackError) {
+            console.error('Failed to rollback quotation status:', rollbackError)
+          }
           return {
-            success: true,
-            quotation: this.mapToCamelCase(data),
+            success: false,
+            error: convertedProject.error || 'فشل في تحويل العرض إلى مشروع وعقد',
             projectCreated: false,
+            contractCreated: false,
             projectError: convertedProject.error
           }
         }
@@ -423,14 +437,15 @@ class QuotationsService {
     }
   }
 
-  // Convert quotation to project when status is 'accepted'
+  // Convert quotation to project when status is 'converted'
+  // Creates both Project AND Contract in one transaction
   async convertToProject(quotationData) {
     try {
-      if (!quotationData || quotationData.status !== 'accepted') {
+      if (!quotationData || quotationData.status !== 'converted') {
         return {
           success: false,
-          error: 'Quotation must be accepted to convert to project',
-          errorCode: 'QUOTATION_NOT_ACCEPTED'
+          error: 'Quotation must be set to converted status to create project and contract',
+          errorCode: 'QUOTATION_NOT_CONVERTED'
         }
       }
 
@@ -471,8 +486,58 @@ class QuotationsService {
         completionPercentage: 0
       }
 
-      const result = await projectsService.addProject(projectData)
-      return result
+      // Step 1: Create project from quotation data
+      const projectResult = await projectsService.addProject(projectData)
+      if (!projectResult.success) {
+        return projectResult
+      }
+
+      // Step 2: AUTOMATICALLY create Contract record in the 'contracts' table
+      // Get quotation items if they exist (quotations may have items stored separately)
+      const contractData = {
+        quotationId: quotationData.id,
+        customerId: quotationData.customerId || null,
+        customerName: quotationData.customerName,
+        customerPhone: quotationData.customerPhone,
+        customerEmail: quotationData.customerEmail || null,
+        contractType: quotationData.documentType === 'addendum' ? 'amendment' : 'original',
+        workType: quotationData.workType || 'civil_works',
+        totalAmount: quotationData.totalAmount || 0,
+        projectId: projectResult.project.id,
+        projectName: quotationData.projectName || projectResult.project.name,
+        status: 'in_progress',
+        notes: `تم إنشاء هذا العقد من العرض ${quotationData.quoteNumber}`,
+        createdBy: 'user'
+        // Note: contract_items would need to be added separately if quotations have items
+      }
+
+      // Step 2: AUTOMATICALLY create Contract record in one transaction
+      // If contract creation fails, rollback the project creation
+      const contractResult = await contractsService.createContract(contractData)
+      if (!contractResult.success) {
+        // Rollback: Delete the project if contract creation failed
+        try {
+          await projectsService.deleteProject(projectResult.project.id)
+          console.error('Rolled back project creation due to contract creation failure')
+        } catch (rollbackError) {
+          console.error('Failed to rollback project creation:', rollbackError)
+        }
+        return {
+          success: false,
+          error: contractResult.error || 'فشل في إنشاء العقد',
+          contractCreated: false,
+          errorCode: 'CONTRACT_CREATION_FAILED'
+        }
+      }
+
+      // Step 3: Status is already set to 'converted' in updateQuotation, no need to update again
+
+      return {
+        success: true,
+        project: projectResult.project,
+        contract: contractResult.success ? contractResult.contract : null,
+        contractCreated: contractResult.success
+      }
     } catch (error) {
       console.error('Error converting quotation to project:', error.message)
       return {
@@ -499,7 +564,7 @@ class QuotationsService {
       workType: quotation.work_type,
       workScopes: quotation.work_scopes || [],
       totalAmount: parseFloat(quotation.total_amount) || 0,
-      status: quotation.status,
+      status: quotation.status === 'converted' ? 'converted' : quotation.status, // Support 'converted' status
       validUntil: quotation.valid_until,
       notes: quotation.notes,
       createdAt: quotation.created_at,
