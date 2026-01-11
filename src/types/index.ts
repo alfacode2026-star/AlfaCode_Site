@@ -119,7 +119,7 @@ export interface Quotation {
   workType: 'civil_works' | 'finishing' | 'mep' | 'low_current' | 'infrastructure' | 'special'
   workScopes?: string[]
   totalAmount: number
-  status: 'draft' | 'sent' | 'accepted' | 'rejected'
+  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'converted'
   validUntil?: string
   notes?: string
   createdAt: string

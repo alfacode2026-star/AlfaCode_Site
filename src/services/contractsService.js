@@ -13,6 +13,51 @@ class ContractsService {
     return `${prefix}-${year}-${random}`
   }
 
+  // Generate contract number from quote number (inheriting numeric ID)
+  // Q-YYYY-XXXX -> C-YYYY-XXXX for original
+  // Q-YYYY-XXXX -> C-YYYY-XXXX-A1, C-YYYY-XXXX-A2, etc. for amendments
+  async generateContractNumberFromQuote(quoteNumber, contractType = 'original', quotationId = null) {
+    try {
+      // Extract numeric part from quote number (e.g., Q-2024-1001 -> 2024-1001)
+      const numericPart = quoteNumber.replace(/^Q-/, '') // Remove Q- prefix
+      
+      if (contractType === 'original') {
+        // For original: Q-2024-1001 -> C-2024-1001
+        return `C-${numericPart}`
+      } else {
+        // For amendment: find the highest addendum number and increment
+        // First, get the original contract number (without addendum suffix)
+        const baseContractNumber = `C-${numericPart}`
+        
+        // Get all contracts for this quotation (to find existing addendums)
+        let existingContracts = []
+        if (quotationId) {
+          existingContracts = await this.getContractsByQuotation(quotationId)
+        }
+        
+        // Find all addendums for this base contract number
+        const addendumPattern = new RegExp(`^${baseContractNumber}-A(\\d+)$`)
+        const addendumNumbers = existingContracts
+          .map(contract => {
+            const match = contract.contractNumber.match(addendumPattern)
+            return match ? parseInt(match[1], 10) : 0
+          })
+          .filter(num => num > 0)
+        
+        // Get the next addendum number
+        const nextAddendumNumber = addendumNumbers.length > 0 
+          ? Math.max(...addendumNumbers) + 1 
+          : 1
+        
+        return `${baseContractNumber}-A${nextAddendumNumber}`
+      }
+    } catch (error) {
+      console.error('Error generating contract number from quote:', error)
+      // Fallback to regular generation
+      return this.generateContractNumber()
+    }
+  }
+
   // Convert Quotation to Contract
   async convertQuotationToContract(quotationId, contractType = 'original') {
     try {
@@ -74,8 +119,12 @@ class ContractsService {
         }
       }
 
-      // Create contract from quotation
-      const contractNumber = this.generateContractNumber()
+      // Create contract from quotation (inherit numeric ID from quote number)
+      const contractNumber = await this.generateContractNumberFromQuote(
+        quotation.quoteNumber,
+        contractType,
+        quotationId
+      )
       
       const newContract = {
         tenant_id: tenantId,

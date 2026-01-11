@@ -258,9 +258,12 @@ class PaymentsService {
         ? paymentData.isGeneralExpense 
         : (!paymentData.projectId && (paymentData.category || paymentData.transactionType === 'advance' || paymentData.transactionType === 'settlement'))
 
-      // For advances, initialize remaining_amount = amount
+      // For new advances, initialize remaining_amount = amount (skip validation, set equal to amount)
+      // For settlements and administrative expenses, remaining_amount is null
       let remainingAmount = null
       if (paymentData.transactionType === 'advance') {
+        // For new advances: remaining_amount is set equal to the amount entered by the user
+        // This allows tracking how much of the advance remains to be settled
         remainingAmount = paymentData.amount || 0
       }
 
@@ -813,6 +816,18 @@ class PaymentsService {
       const managerBalances = {}
 
       advances.forEach(advance => {
+        // CRITICAL: Skip settled advances (remaining_amount = 0) to prevent double-counting
+        // When an advance is transferred, the old advance is marked as settled (remaining_amount = 0, status = 'settled')
+        // Only count advances with remaining_amount > 0 to avoid adding the amount again
+        const remainingAmount = advance.remaining_amount !== null && advance.remaining_amount !== undefined
+          ? parseFloat(advance.remaining_amount)
+          : null
+        
+        // Skip if remaining_amount is explicitly 0 (settled/closed advance)
+        if (remainingAmount === 0) {
+          return // Don't add settled advances to manager balance
+        }
+
         const manager = advance.managerName || 'غير محدد'
         if (!managerBalances[manager]) {
           managerBalances[manager] = {
@@ -829,10 +844,6 @@ class PaymentsService {
         managerBalances[manager].advanceCount += 1
 
         // Use remaining_amount if available, otherwise calculate from settlements
-        const remainingAmount = advance.remaining_amount !== null && advance.remaining_amount !== undefined
-          ? parseFloat(advance.remaining_amount)
-          : null
-
         if (remainingAmount !== null) {
           // Use remaining_amount directly for outstanding balance
           const settledAmount = advanceAmount - remainingAmount

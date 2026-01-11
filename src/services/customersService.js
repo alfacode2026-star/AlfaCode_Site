@@ -282,6 +282,8 @@ class CustomersService {
             return allCustomers.filter(c => c.type === 'vendor' || c.type === 'supplier')
           } else if (filterType === 'client') {
             return allCustomers.filter(c => c.type === 'client')
+          } else if (filterType === 'client_or_investor') {
+            return allCustomers.filter(c => c.type === 'client' || c.type === 'investor')
           }
         }
         return this.getCustomers()
@@ -306,6 +308,9 @@ class CustomersService {
         queryBuilder = queryBuilder.in('type', ['vendor', 'supplier'])
       } else if (filterType === 'client') {
         queryBuilder = queryBuilder.eq('type', 'client')
+      } else if (filterType === 'client_or_investor') {
+        // Filter for client or investor types
+        queryBuilder = queryBuilder.in('type', ['client', 'investor'])
       }
       
       queryBuilder = queryBuilder
@@ -325,6 +330,8 @@ class CustomersService {
         filtered = filtered.filter(c => c.type === 'vendor' || c.type === 'supplier')
       } else if (filterType === 'client') {
         filtered = filtered.filter(c => c.type === 'client')
+      } else if (filterType === 'client_or_investor') {
+        filtered = filtered.filter(c => c.type === 'client' || c.type === 'investor')
       }
       
       return filtered
@@ -345,6 +352,8 @@ class CustomersService {
           filtered = filtered.filter(c => c.type === 'vendor' || c.type === 'supplier')
         } else if (filterType === 'client') {
           filtered = filtered.filter(c => c.type === 'client')
+        } else if (filterType === 'client_or_investor') {
+          filtered = filtered.filter(c => c.type === 'client' || c.type === 'investor')
         }
         
         return filtered

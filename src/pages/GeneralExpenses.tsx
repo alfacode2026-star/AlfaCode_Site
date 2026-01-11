@@ -22,7 +22,8 @@ import {
   Statistic,
   Tabs,
   InputNumber,
-  AutoComplete
+  AutoComplete,
+  Alert
 } from 'antd'
 import {
   PlusOutlined,
@@ -40,6 +41,7 @@ import projectsService from '../services/projectsService'
 import categoryService from '../services/categoryService'
 import customersService from '../services/customersService'
 import ordersService from '../services/ordersService'
+import treasuryService from '../services/treasuryService'
 import { useTenant } from '../contexts/TenantContext'
 import dayjs from 'dayjs'
 
@@ -93,6 +95,7 @@ const GeneralExpenses = () => {
   const [settlementAmountError, setSettlementAmountError] = useState<string | null>(null)
   const [transferModalVisible, setTransferModalVisible] = useState(false)
   const [transferForm] = Form.useForm()
+  const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([])
 
   const isEngineering = industryType === 'engineering'
 
@@ -108,8 +111,8 @@ const GeneralExpenses = () => {
   useEffect(() => {
     // Only validate for expense-type settlements with a linked advance
     if (transactionType === 'settlement' && settlementType === 'expense' && selectedLinkedAdvance) {
-      const total = calculateSettlementTotal()
-      const remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
+      let total = calculateSettlementTotal()
+      let remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
         ? parseFloat(selectedLinkedAdvance.remainingAmount) 
         : parseFloat(selectedLinkedAdvance.amount || 0)
       
@@ -138,6 +141,7 @@ const GeneralExpenses = () => {
       loadProjects()
     }
     loadOutstandingAdvances()
+    loadTreasuryAccounts()
   }, [industryType])
 
   useEffect(() => {
@@ -279,6 +283,16 @@ const GeneralExpenses = () => {
     }
   }
 
+  const loadTreasuryAccounts = async () => {
+    try {
+      const accounts = await treasuryService.getAccounts()
+      setTreasuryAccounts(accounts || [])
+    } catch (error) {
+      console.error('Error loading treasury accounts:', error)
+      setTreasuryAccounts([])
+    }
+  }
+
   const handleAddExpense = () => {
     setEditingExpense(null)
     setExpenseType('administrative')
@@ -313,7 +327,9 @@ const GeneralExpenses = () => {
       transactionType: 'regular',
       quantity: 1,
       unitPrice: 0,
-      date: dayjs() // Default to today for administrative expenses
+      date: dayjs(), // Default to today for administrative expenses
+      linkedAdvanceId: undefined, // Clear any previous linkedAdvanceId
+      remainingAmount: undefined // Clear any previous remainingAmount (if it exists)
     })
     setIsModalVisible(true)
   }
@@ -651,7 +667,7 @@ const GeneralExpenses = () => {
     form.setFieldsValue({ settlementPoItemDescription: '', settlementPoQuantity: 1, settlementPoUnitPrice: 0 })
     
     // Calculate and update amount field
-    const total = updatedItems.reduce((sum, item) => sum + (item.total || 0), 0)
+    let total = updatedItems.reduce((sum, item) => sum + (item.total || 0), 0)
     form.setFieldsValue({ amount: total })
     message.success('تم إضافة البند')
   }
@@ -662,7 +678,7 @@ const GeneralExpenses = () => {
     setSettlementPoItems(updated)
     
     // Calculate and update amount field
-    const total = updated.reduce((sum, item) => sum + (item.total || 0), 0)
+    let total = updated.reduce((sum, item) => sum + (item.total || 0), 0)
     form.setFieldsValue({ amount: total })
   }
 
@@ -750,7 +766,7 @@ const GeneralExpenses = () => {
           workScope: isEngineering ? (values.workScope || null) : null,
           items: orderItems,
           status: values.status || 'pending',
-          paymentMethod: values.paymentMethod || 'cash',
+          paymentMethod: values.paymentMethod ? (values.paymentMethod === 'cash' ? 'Cash' : values.paymentMethod) : 'Cash',
           shippingAddress: '',
           shippingMethod: 'standard',
           notes: values.notes || '',
@@ -833,14 +849,16 @@ const GeneralExpenses = () => {
             }
 
             // Calculate amount from PO items for expense-type settlements
-            const calculatedAmount = calculateSettlementTotal()
+            let calculatedAmount = calculateSettlementTotal()
             if (calculatedAmount <= 0) {
               message.error('يجب أن يكون مجموع البنود أكبر من صفر')
               return
             }
 
             // Validate calculated amount against remaining amount
-            const remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
+            // NOTE: This validation ONLY runs for settlements (transactionType === 'settlement')
+            // For new advances or administrative expenses, this validation is skipped
+            let remainingAmount = selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined 
               ? parseFloat(selectedLinkedAdvance.remainingAmount) 
               : parseFloat(selectedLinkedAdvance.amount || 0)
 
@@ -912,6 +930,13 @@ const GeneralExpenses = () => {
             // Get manager name from linked advance
             const managerName = selectedLinkedAdvance.managerName
 
+            // Validate treasury account for settlements - ensure it's not empty string or null
+            const treasuryAccountId = values.treasuryAccountId?.trim() || null
+            if (!treasuryAccountId || treasuryAccountId === '') {
+              message.error('يرجى اختيار حساب الخزينة للصرف')
+              return
+            }
+
             const result = await paymentsService.createSettlementWithPO({
               linkedAdvanceId: values.linkedAdvanceId,
               amount: amountValue,
@@ -923,6 +948,7 @@ const GeneralExpenses = () => {
               managerName: managerName,
               projectId: selectedLinkedAdvance.projectId,
               workScope: values.workScope || null,
+              treasuryAccountId: treasuryAccountId, // Use validated treasury account ID (not empty string)
               // PO data
               vendorId: finalVendorId,
               vendorName: finalVendorName,
@@ -935,6 +961,28 @@ const GeneralExpenses = () => {
 
             if (result.success) {
               message.success('تم حفظ التسوية وأمر الشراء بنجاح')
+              
+              // Create treasury transaction for settlement - ensure it's not empty string or null
+              if (treasuryAccountId && treasuryAccountId !== '' && result.settlement?.id) {
+                try {
+                  const treasuryResult = await treasuryService.createTransaction({
+                    accountId: treasuryAccountId,
+                    transactionType: 'outflow',
+                    amount: amountValue,
+                    referenceType: 'expense',
+                    referenceId: result.settlement.id,
+                    description: `تسوية عهدة: ${selectedLinkedAdvance.referenceNumber || selectedLinkedAdvance.paymentNumber} - ${values.notes || ''}`
+                  })
+                  if (!treasuryResult.success) {
+                    console.error('Failed to update treasury:', treasuryResult.error)
+                    // Don't show error to user - settlement is already saved
+                  }
+                } catch (error) {
+                  console.error('Error updating treasury:', error)
+                  // Don't show error to user - settlement is already saved
+                }
+              }
+              
               setIsModalVisible(false)
               form.resetFields()
               setSelectedProducts([])
@@ -947,6 +995,7 @@ const GeneralExpenses = () => {
               setSettlementPoVendorSearch('')
               setIsSettlementPoNewVendor(false)
               loadExpenses()
+              loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
               if (activeTab === 'petty-cash') {
                 loadPettyCashAdvances()
                 loadOutstandingAdvances()
@@ -964,10 +1013,19 @@ const GeneralExpenses = () => {
             return
           } else {
             // For return-type settlements, validate manually entered amount
+            // NOTE: This validation ONLY runs for settlements (transactionType === 'settlement')
+            // For new advances or administrative expenses, this validation is skipped
             // Re-parse amountValue from form for return-type settlements
             amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
             if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
               message.error('يرجى إدخال مبلغ صحيح')
+              return
+            }
+            
+            // Validate treasury account for return-type settlements - ensure it's not empty string or null
+            const treasuryAccountId = values.treasuryAccountId?.trim() || null
+            if (!treasuryAccountId || treasuryAccountId === '') {
+              message.error('يرجى اختيار حساب الخزينة للصرف')
               return
             }
             
@@ -988,12 +1046,16 @@ const GeneralExpenses = () => {
         }
 
         // Regular advance (no PO creation, no settlement validation needed)
+        // For new advances: Skip remaining_amount validation, remaining_amount will be set equal to amount in the service
+        // For administrative expenses: No remaining_amount validation needed
         if (transactionType !== 'settlement') {
           const amountValueCheck = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
           if (!values.amount || isNaN(amountValueCheck) || amountValueCheck <= 0) {
             message.error('يرجى إدخال مبلغ صحيح')
             return
           }
+          // Note: For new advances, remaining_amount validation is skipped.
+          // The service will set remaining_amount = amount for new advances.
         }
 
         // Auto-generate reference number for new advances
@@ -1024,7 +1086,7 @@ const GeneralExpenses = () => {
           dueDate: expenseDate, // Use single date field
           paidDate: expenseDate, // Same as dueDate for manager advances
           status: editingExpense ? values.status : 'pending', // Default to pending for new entries, use existing for edits
-          paymentMethod: transactionType === 'settlement' ? 'settlement' : (values.paymentMethod || null), // Force 'settlement' for settlements
+          paymentMethod: transactionType === 'settlement' ? 'settlement' : (values.paymentMethod ? (values.paymentMethod === 'cash' ? 'Cash' : values.paymentMethod) : null), // Force 'settlement' for settlements, normalize 'cash' to 'Cash'
           referenceNumber: referenceNumber,
           notes: values.notes || null,
           paymentFrequency: null, // No frequency for manager advances
@@ -1043,11 +1105,35 @@ const GeneralExpenses = () => {
 
         if (result.success) {
           message.success(transactionType === 'settlement' ? 'تم حفظ التسوية بنجاح' : 'تم حفظ العهدة بنجاح')
+          
+          // Create treasury transaction for return-type settlements - ensure it's not empty string or null
+          const treasuryAccountIdForReturn = values.treasuryAccountId?.trim() || null
+          if (transactionType === 'settlement' && settlementType === 'return' && treasuryAccountIdForReturn && treasuryAccountIdForReturn !== '' && result.payment?.id) {
+            try {
+              const treasuryResult = await treasuryService.createTransaction({
+                accountId: treasuryAccountIdForReturn,
+                transactionType: 'outflow',
+                amount: amountValue,
+                referenceType: 'expense',
+                referenceId: result.payment.id,
+                description: `تسوية عهدة (مرتجع): ${selectedLinkedAdvance?.referenceNumber || selectedLinkedAdvance?.paymentNumber || ''} - ${values.notes || ''}`
+              })
+              if (!treasuryResult.success) {
+                console.error('Failed to update treasury:', treasuryResult.error)
+                // Don't show error to user - settlement is already saved
+              }
+            } catch (error) {
+              console.error('Error updating treasury:', error)
+              // Don't show error to user - settlement is already saved
+            }
+          }
+          
           setIsModalVisible(false)
           form.resetFields()
           setSelectedProducts([])
           setEditingExpense(null)
           setTransactionType('advance')
+          loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
           setSettlementType('expense')
           setSelectedLinkedAdvance(null)
           setSettlementPoItems([])
@@ -1087,10 +1173,21 @@ const GeneralExpenses = () => {
           message.error('يرجى اختيار دورية الصرف')
           return
         }
-        if (!values.paymentMethod) {
-          message.error('يرجى اختيار طريقة الدفع')
+        // Validate treasury account for administrative expenses - ensure it's not empty string or null
+        const treasuryAccountId = values.treasuryAccountId?.trim() || null
+        if (!treasuryAccountId || treasuryAccountId === '') {
+          message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
           return
         }
+
+        // Derive payment method from treasury account type
+        const selectedAccount = treasuryAccounts.find(acc => acc.id === treasuryAccountId)
+        if (!selectedAccount) {
+          message.error('حساب الخزينة المحدد غير موجود')
+          return
+        }
+        // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
+        const derivedPaymentMethod = selectedAccount.type === 'bank' ? 'bank_transfer' : 'cash'
 
         // Generate auto-reference number if empty (EXP-001, EXP-002, etc.)
         let referenceNumber = values.referenceNumber?.trim() || null
@@ -1112,7 +1209,7 @@ const GeneralExpenses = () => {
           dueDate: expenseDate,
           paidDate: expenseDate, // Same as dueDate since status is auto-set to 'paid'
           status: 'paid', // Auto-set to 'paid' for administrative expenses
-          paymentMethod: values.paymentMethod || null,
+          paymentMethod: derivedPaymentMethod === 'cash' ? 'Cash' : derivedPaymentMethod,
           referenceNumber: referenceNumber,
           notes: values.notes || null,
           recipientName: values.recipientName || null, // Maps to recipient_name in DB via paymentsService
@@ -1137,11 +1234,34 @@ const GeneralExpenses = () => {
 
         if (result.success) {
           message.success('تم حفظ المصروف بنجاح')
+          
+          // Update treasury if account selected - ensure it's not empty string or null
+          if (treasuryAccountId && treasuryAccountId !== '' && result.payment?.id) {
+            try {
+              const treasuryResult = await treasuryService.createTransaction({
+                accountId: treasuryAccountId,
+                transactionType: 'outflow',
+                amount: amountValue,
+                referenceType: 'expense',
+                referenceId: result.payment.id,
+                description: `مصروف إداري: ${values.category || ''} - ${values.notes || ''}`
+              })
+              if (!treasuryResult.success) {
+                console.error('Failed to update treasury:', treasuryResult.error)
+                // Don't show error to user - expense is already saved
+              }
+            } catch (error) {
+              console.error('Error updating treasury:', error)
+              // Don't show error to user - expense is already saved
+            }
+          }
+          
           setIsModalVisible(false)
           form.resetFields()
           setSelectedProducts([])
           setEditingExpense(null)
           loadExpenses()
+          loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
         } else {
           const errorMsg = result.error || result.errorCode || 'فشل في حفظ المصروف'
           console.error('Payment save failed:', {
@@ -1199,9 +1319,9 @@ const GeneralExpenses = () => {
   }
 
   // Calculate statistics
-  const totalExpenses = expenses.filter(e => e.transactionType !== 'advance' && e.transactionType !== 'settlement').reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0)
-  const paidExpenses = expenses.filter(e => e.status === 'paid' && e.transactionType !== 'advance' && e.transactionType !== 'settlement').reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0)
-  const pendingExpenses = expenses.filter(e => e.status === 'pending' && e.transactionType !== 'advance' && e.transactionType !== 'settlement').reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0)
+  let totalExpenses = expenses.filter(e => e.transactionType !== 'advance' && e.transactionType !== 'settlement').reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0)
+  let paidExpenses = expenses.filter(e => e.status === 'paid' && e.transactionType !== 'advance' && e.transactionType !== 'settlement').reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0)
+  let pendingExpenses = expenses.filter(e => e.status === 'pending' && e.transactionType !== 'advance' && e.transactionType !== 'settlement').reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0)
 
   // Filter expenses based on search
   const filteredExpenses = expenses.filter((expense) => {
@@ -1479,6 +1599,18 @@ const GeneralExpenses = () => {
       }
     },
     {
+      title: 'اسم المشروع',
+      dataIndex: 'projectName',
+      key: 'projectName',
+      width: 200,
+      render: (projectName: string | null, record: any) => {
+        if (projectName) {
+          return <Tag color="green">{projectName}</Tag>
+        }
+        return <span style={{ color: '#999' }}>-</span>
+      }
+    },
+    {
       title: 'العهدة المرتبطة',
       dataIndex: 'linkedAdvanceId',
       key: 'linkedAdvanceId',
@@ -1492,6 +1624,32 @@ const GeneralExpenses = () => {
             </Tag>
           ) : (
             <Tag>{linkedId.substring(0, 8)}...</Tag>
+          )
+        }
+        return '-'
+      }
+    },
+    {
+      title: 'منقول من',
+      dataIndex: 'sourceAdvanceId',
+      key: 'sourceAdvanceId',
+      width: 150,
+      render: (sourceId: string | null, record: any) => {
+        // Show transfer link for advances that were transferred (have sourceAdvanceId)
+        if (record.transactionType === 'advance' && sourceId) {
+          const sourceAdvance = pettyCashAdvances.find(a => a.id === sourceId)
+          if (sourceAdvance) {
+            return (
+              <Tag color="orange">
+                منقول من: {sourceAdvance.referenceNumber || sourceAdvance.paymentNumber}
+              </Tag>
+            )
+          }
+          // If source advance not found in current list, show truncated ID
+          return (
+            <Tag color="orange">
+              منقول من: {sourceId.substring(0, 8)}...
+            </Tag>
           )
         }
         return '-'
@@ -1625,6 +1783,9 @@ const GeneralExpenses = () => {
                       showSizeChanger: true,
                       showTotal: (total) => `إجمالي ${total} مصروف`
                     }}
+                    locale={{
+                      emptyText: loading ? 'جاري التحميل...' : 'لا توجد مصاريف'
+                    }}
                   />
                 </>
               )
@@ -1659,6 +1820,9 @@ const GeneralExpenses = () => {
                       pageSize: 20,
                       showSizeChanger: true,
                       showTotal: (total) => `إجمالي ${total} عملية`
+                    }}
+                    locale={{
+                      emptyText: loading ? 'جاري التحميل...' : 'لا توجد عُهد أو تسويات'
                     }}
                   />
                 </>
@@ -2111,8 +2275,8 @@ const GeneralExpenses = () => {
                             pagination={false}
                             size="small"
                             summary={() => {
-                              const total = settlementPoItems.reduce((sum, item) => sum + (item.total || 0), 0)
-                              const remainingAmount = selectedLinkedAdvance?.remainingAmount !== null && selectedLinkedAdvance?.remainingAmount !== undefined 
+                              let total = settlementPoItems.reduce((sum, item) => sum + (item.total || 0), 0)
+                              let remainingAmount = selectedLinkedAdvance?.remainingAmount !== null && selectedLinkedAdvance?.remainingAmount !== undefined 
                                 ? parseFloat(selectedLinkedAdvance.remainingAmount) 
                                 : parseFloat(selectedLinkedAdvance?.amount || 0)
                               const exceedsLimit = total > remainingAmount && total > 0
@@ -2186,7 +2350,7 @@ const GeneralExpenses = () => {
                         if (settlementPoItems.length === 0) {
                           return Promise.reject(new Error('يرجى إضافة بند واحد على الأقل'))
                         }
-                        const total = calculateSettlementTotal()
+                        let total = calculateSettlementTotal()
                         if (total <= 0) {
                           return Promise.reject(new Error('يجب أن يكون المبلغ أكبر من صفر'))
                         }
@@ -2272,11 +2436,64 @@ const GeneralExpenses = () => {
                 </div>
               )}
             </>
-          )}
+              )}
+
+              {/* Treasury Account Selection for Settlements */}
+              {transactionType === 'settlement' && (
+                <>
+                  {/* Alert if no treasury accounts */}
+                  {treasuryAccounts.length === 0 && (
+                    <Alert
+                      type="error"
+                      message="تنبيه: لا يوجد حسابات خزينة معرفة. يرجى إنشاء حساب في صفحة الخزينة أولاً"
+                      style={{ marginBottom: 16 }}
+                      showIcon
+                    />
+                  )}
+
+                  <Form.Item
+                    name="treasuryAccountId"
+                    label="حساب الخزينة"
+                    rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة للصرف' }]}
+                    tooltip="اختر الحساب الذي سيتم خصم مبلغ التسوية منه"
+                  >
+                    <Select 
+                      size="large" 
+                      placeholder="اختر حساب الخزينة" 
+                      disabled={treasuryAccounts.length === 0}
+                      notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+                    >
+                      {treasuryAccounts.map(acc => (
+                        <Option key={acc.id} value={acc.id}>
+                          {acc.name} ({acc.type === 'bank' ? 'بنك' : 'صندوق نقدي'}) - الرصيد: {acc.currentBalance.toLocaleString()} ريال
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+
+                  {/* Reference Number for Settlements */}
+                  <Form.Item
+                    name="referenceNumber"
+                    label="رقم المرجع (اختياري)"
+                  >
+                    <Input placeholder="رقم المرجع" size="large" />
+                  </Form.Item>
+                </>
+              )}
 
           {/* Administrative Form: Simplified - Category, Frequency, Amount, Description, Date */}
           {expenseType === 'administrative' && (
             <>
+              {/* Alert if no treasury accounts */}
+              {treasuryAccounts.length === 0 && (
+                <Alert
+                  type="error"
+                  message="تنبيه: لا يوجد حسابات خزينة معرفة. يرجى إنشاء حساب في صفحة الخزينة أولاً"
+                  style={{ marginBottom: 16 }}
+                  showIcon
+                />
+              )}
+
               {/* Category Selection */}
               <Form.Item
                 name="category"
@@ -2346,55 +2563,57 @@ const GeneralExpenses = () => {
                 </Select>
               </Form.Item>
 
-              <Row gutter={16}>
-                {/* Amount */}
-                <Col xs={24} sm={12}>
-                  <Form.Item
-                    name="amount"
-                    label="المبلغ (ريال) / Amount"
-                    rules={[
-                      { required: true, message: 'يرجى إدخال المبلغ' },
-                      {
-                        validator: (_, value) => {
-                          if (!value || value === null || value === undefined) {
-                            return Promise.reject(new Error('يرجى إدخال المبلغ'))
-                          }
-                          const numValue = typeof value === 'number' ? value : parseFloat(value)
-                          if (isNaN(numValue) || numValue <= 0) {
-                            return Promise.reject(new Error('يجب أن يكون المبلغ أكبر من صفر'))
-                          }
-                          return Promise.resolve()
-                        }
+              {/* Amount */}
+              <Form.Item
+                name="amount"
+                label="المبلغ (ريال) / Amount"
+                rules={[
+                  { required: true, message: 'يرجى إدخال المبلغ' },
+                  {
+                    validator: (_, value) => {
+                      if (!value || value === null || value === undefined) {
+                        return Promise.reject(new Error('يرجى إدخال المبلغ'))
                       }
-                    ]}
-                  >
-                    <InputNumber
-                      min={0.01}
-                      step={0.01}
-                      placeholder="0.00"
-                      size="large"
-                      style={{ width: '100%' }}
-                      formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-                      parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
-                    />
-                  </Form.Item>
-                </Col>
+                      const numValue = typeof value === 'number' ? value : parseFloat(value)
+                      if (isNaN(numValue) || numValue <= 0) {
+                        return Promise.reject(new Error('يجب أن يكون المبلغ أكبر من صفر'))
+                      }
+                      return Promise.resolve()
+                    }
+                  }
+                ]}
+              >
+                <InputNumber
+                  min={0.01}
+                  step={0.01}
+                  placeholder="0.00"
+                  size="large"
+                  style={{ width: '100%' }}
+                  formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                  parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                />
+              </Form.Item>
 
-                {/* Payment Method */}
-                <Col xs={24} sm={12}>
-                  <Form.Item
-                    name="paymentMethod"
-                    label="طريقة الدفع / Payment Method"
-                    rules={[{ required: true, message: 'يرجى اختيار طريقة الدفع' }]}
-                  >
-                    <Select size="large" placeholder="اختر طريقة الدفع">
-                      <Option value="cash">نقدي (Cash)</Option>
-                      <Option value="bank_transfer">تحويل بنكي (Bank Transfer)</Option>
-                      <Option value="check">شيك (Check)</Option>
-                    </Select>
-                  </Form.Item>
-                </Col>
-              </Row>
+              {/* Treasury Account Selection */}
+              <Form.Item
+                name="treasuryAccountId"
+                label="حساب الخزينة / Treasury Account"
+                rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة/البنك للصرف' }]}
+                tooltip="اختر الحساب الذي سيتم خصم المصروف منه"
+              >
+                <Select 
+                  size="large" 
+                  placeholder="اختر حساب الخزينة" 
+                  disabled={treasuryAccounts.length === 0}
+                  notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+                >
+                  {treasuryAccounts.map(acc => (
+                    <Option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
 
               {/* Description */}
               <Form.Item
@@ -2676,7 +2895,7 @@ const GeneralExpenses = () => {
                     pagination={false}
                     size="small"
                     summary={() => {
-                      const total = selectedProducts.reduce((sum, item) => sum + (item.total || 0), 0)
+                      let total = selectedProducts.reduce((sum, item) => sum + (item.total || 0), 0)
                       return (
                         <Table.Summary.Row>
                           <Table.Summary.Cell colSpan={3} align="right">
@@ -2855,8 +3074,17 @@ const GeneralExpenses = () => {
                 type="primary" 
                 htmlType="submit" 
                 size="large"
-                disabled={transactionType === 'settlement' && settlementType === 'expense' && settlementAmountExceedsLimit}
-                title={transactionType === 'settlement' && settlementType === 'expense' && settlementAmountExceedsLimit ? 'لا يمكن الحفظ: مجموع البنود يتجاوز المبلغ المتبقي' : undefined}
+                disabled={
+                  (transactionType === 'settlement' && settlementType === 'expense' && settlementAmountExceedsLimit) ||
+                  (expenseType === 'administrative' && treasuryAccounts.length === 0)
+                }
+                title={
+                  transactionType === 'settlement' && settlementType === 'expense' && settlementAmountExceedsLimit 
+                    ? 'لا يمكن الحفظ: مجموع البنود يتجاوز المبلغ المتبقي'
+                    : expenseType === 'administrative' && treasuryAccounts.length === 0
+                    ? 'لا يمكن الحفظ: لا يوجد حسابات خزينة'
+                    : undefined
+                }
               >
                 {editingExpense ? 'تحديث' : 'حفظ'}
               </Button>

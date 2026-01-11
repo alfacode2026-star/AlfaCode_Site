@@ -68,16 +68,13 @@ const CustomersPage = () => {
     try {
       const data = await customersService.loadCustomers()
       
-      // Ensure data is an array before mapping
-      if (Array.isArray(data) && data.length > 0) {
-        setCustomers(data.map(c => ({ ...c, key: c.id || c.key || `customer-${Date.now()}-${Math.random()}` })))
-      } else if (Array.isArray(data)) {
-        // Empty array is valid
-        setCustomers([])
-      } else {
-        console.warn('loadCustomers returned non-array data:', data)
-        setCustomers([])
-      }
+      // Filter to only customers (type = 'customer' or null for debugging)
+      // Include null type temporarily for debugging, but prefer 'customer' type
+      const customersData = (Array.isArray(data) ? data : [])
+        .filter(c => c.type === 'customer' || c.type === null || c.type === undefined)
+        .map(c => ({ ...c, key: c.id || c.key || `customer-${Date.now()}-${Math.random()}` }))
+      
+      setCustomers(customersData)
     } catch (error) {
       console.error('Error loading customers:', error)
       message.error('فشل في تحميل بيانات العملاء')
@@ -507,18 +504,9 @@ const CustomersPage = () => {
           </Form.Item>
 
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="type"
-                label="نوع العميل"
-                initialValue="individual"
-              >
-                <Select>
-                  <Option value="individual">فردي</Option>
-                  <Option value="corporate">شركة</Option>
-                </Select>
-              </Form.Item>
-            </Col>
+            <Form.Item name="type" hidden initialValue="customer">
+              <Input />
+            </Form.Item>
             <Col span={12}>
               <Form.Item
                 name="status"

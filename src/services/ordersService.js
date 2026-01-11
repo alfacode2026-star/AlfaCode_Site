@@ -5,6 +5,61 @@ import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
 class OrdersService {
+  // Generate PO number in format PO-YYYY-XXXX
+  async generateOrderNumber() {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) {
+        console.warn('No tenant ID set. Cannot generate PO number.')
+        // Fallback to timestamp-based
+        const year = new Date().getFullYear()
+        const timestamp = Date.now().toString().slice(-4)
+        return `PO-${year}-${timestamp}`
+      }
+
+      const year = new Date().getFullYear()
+      const prefix = `PO-${year}-`
+
+      // Get all orders for this tenant in the current year
+      const { data: orders, error } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .like('id', `${prefix}%`)
+
+      if (error) {
+        console.error('Error fetching orders for PO number generation:', error)
+        // Fallback to timestamp-based
+        const timestamp = Date.now().toString().slice(-4)
+        return `${prefix}${timestamp}`
+      }
+
+      // Extract sequence numbers from existing PO numbers (PO-YYYY-XXXX -> XXXX)
+      const sequenceNumbers = (orders || [])
+        .map(order => {
+          const match = order.id.match(/^PO-\d{4}-(\d{4})$/)
+          return match ? parseInt(match[1], 10) : 0
+        })
+        .filter(num => num > 0)
+
+      // Get the next sequence number
+      const nextSequence = sequenceNumbers.length > 0
+        ? Math.max(...sequenceNumbers) + 1
+        : 1
+
+      // Format with 4 digits (0001, 0002, etc.)
+      const formattedSequence = nextSequence.toString().padStart(4, '0')
+
+      return `${prefix}${formattedSequence}`
+    } catch (error) {
+      console.error('Error generating PO number:', error)
+      // Fallback to timestamp-based
+      const year = new Date().getFullYear()
+      const timestamp = Date.now().toString().slice(-4)
+      return `PO-${year}-${timestamp}`
+    }
+  }
+
   // Get all orders with their items (filtered by current tenant)
   async getOrders() {
     try {
@@ -120,8 +175,8 @@ class OrdersService {
         tax = 0
       }
 
-      // Generate UUID if not provided (let Supabase handle it or use crypto.randomUUID())
-      const orderId = orderData.id || crypto.randomUUID()
+      // Generate PO number in format PO-YYYY-XXXX if not provided
+      const orderId = orderData.id || await this.generateOrderNumber()
 
       // Try to find existing customer by email or phone
       let customerId = orderData.customerId || null

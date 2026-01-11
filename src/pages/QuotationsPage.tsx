@@ -444,7 +444,8 @@ const QuotationsPage = () => {
     }
 
     try {
-      const searchResults = await customersService.searchCustomers(searchText)
+      // Filter to only show 'client' or 'investor' types
+      const searchResults = await customersService.searchCustomers(searchText, 'client_or_investor')
       const options = searchResults.map(customer => ({
         value: customer.name, // Display the name as value, not UUID
         label: `${customer.name} - ${customer.phone}${customer.email ? ` (${customer.email})` : ''}`,

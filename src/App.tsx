@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { ConfigProvider } from 'antd';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import arEG from 'antd/locale/ar_EG';
@@ -8,6 +8,7 @@ import './App.css';
 import Dashboard from './pages/Dashboard';
 import OrdersPage from './pages/OrdersPage';
 import CustomersPage from './pages/CustomersPage';
+import SuppliersPage from './pages/SuppliersPage';
 import InventoryPage from './pages/InventoryPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
@@ -19,6 +20,7 @@ import ContractsPage from './pages/ContractsPage';
 import LaborPage from './pages/LaborPage';
 import GeneralExpenses from './pages/GeneralExpenses';
 import AdminApprovals from './pages/AdminApprovals';
+import TreasuryPage from './pages/TreasuryPage';
 
 // Import Navigation component
 import Navigation from './components/Navigation';
@@ -33,6 +35,61 @@ import transactionManager from './services/transactionManager';
 import { TenantProvider, useTenant } from './contexts/TenantContext';
 
 const { Sider, Content } = Layout;
+
+// Error Boundary Component
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ 
+          padding: 24, 
+          textAlign: 'center',
+          direction: 'rtl'
+        }}>
+          <h2>حدث خطأ في تحميل الصفحة</h2>
+          <p style={{ color: '#666', marginTop: 16 }}>
+            {this.state.error?.message || 'خطأ غير معروف'}
+          </p>
+          <button 
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              window.location.reload();
+            }}
+            style={{
+              marginTop: 16,
+              padding: '8px 16px',
+              backgroundColor: '#1890ff',
+              color: 'white',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer'
+            }}
+          >
+            إعادة تحميل الصفحة
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 // Component to handle onboarding redirect logic
 function OnboardingGuard({ children }: { children: React.ReactNode }) {
@@ -104,22 +161,26 @@ function AppContent() {
       {/* Main Content */}
       <Layout>
         <Content>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/orders" element={<OrdersPage />} />
-            <Route path="/quotations" element={<QuotationsPage />} />
-            <Route path="/contracts" element={<ContractsPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/projects/:id" element={<ProjectDetails />} />
-            <Route path="/labor" element={<LaborPage />} />
-            <Route path="/general-expenses" element={<GeneralExpenses />} />
-            <Route path="/admin-approvals" element={<AdminApprovals />} />
-            <Route path="/customers" element={<CustomersPage />} />
-            <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/setup" element={<SetupPage />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/quotations" element={<QuotationsPage />} />
+              <Route path="/contracts" element={<ContractsPage />} />
+              <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/projects/:id" element={<ProjectDetails />} />
+              <Route path="/labor" element={<LaborPage />} />
+              <Route path="/general-expenses" element={<GeneralExpenses />} />
+              <Route path="/admin-approvals" element={<AdminApprovals />} />
+              <Route path="/treasury" element={<TreasuryPage />} />
+              <Route path="/customers" element={<CustomersPage />} />
+              <Route path="/suppliers" element={<SuppliersPage />} />
+              <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/setup" element={<SetupPage />} />
+            </Routes>
+          </ErrorBoundary>
         </Content>
       </Layout>
     </Layout>

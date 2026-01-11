@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import ordersService from '../services/ordersService'
 import customersService from '../services/customersService'
 import projectsService from '../services/projectsService'
+import treasuryService from '../services/treasuryService'
 import { useTenant } from '../contexts/TenantContext'
 import { 
   Card, 
@@ -27,7 +28,8 @@ import {
   Divider,
   Tabs,
   InputNumber,
-  AutoComplete
+  AutoComplete,
+  Alert
 } from 'antd'
 import { 
   SearchOutlined, 
@@ -78,6 +80,7 @@ const OrdersPage = () => {
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState(null)
   const [availableWorkScopes, setAvailableWorkScopes] = useState([])
+  const [treasuryAccounts, setTreasuryAccounts] = useState([])
 
   // Load orders on mount
   useEffect(() => {
@@ -86,6 +89,7 @@ const OrdersPage = () => {
     if (isEngineering) {
       loadProjects()
     }
+    loadTreasuryAccounts()
   }, [isEngineering])
 
   const loadCustomers = async () => {
@@ -106,6 +110,16 @@ const OrdersPage = () => {
     } catch (error) {
       console.error('Error loading projects:', error)
       setProjects([])
+    }
+  }
+
+  const loadTreasuryAccounts = async () => {
+    try {
+      const accounts = await treasuryService.getAccounts()
+      setTreasuryAccounts(accounts || [])
+    } catch (error) {
+      console.error('Error loading treasury accounts:', error)
+      setTreasuryAccounts([])
     }
   }
 
@@ -432,8 +446,8 @@ const OrdersPage = () => {
   // مكون إضافة البنود (Manual Entry)
   const ItemSelector = () => {
     const [itemDescription, setItemDescription] = useState('')
-    const [quantity, setQuantity] = useState(1)
-    const [unitPrice, setUnitPrice] = useState(0)
+    const [quantity, setQuantity] = useState(undefined)
+    const [unitPrice, setUnitPrice] = useState(undefined)
     
     const handleAddItem = () => {
       if (!itemDescription || itemDescription.trim() === '') {
@@ -441,13 +455,13 @@ const OrdersPage = () => {
         return
       }
 
-      if (quantity <= 0) {
-        message.error('الكمية يجب أن تكون أكبر من صفر')
+      if (quantity === undefined || quantity === null || quantity <= 0) {
+        message.error('يرجى إدخال كمية صحيحة أكبر من صفر')
         return
       }
 
-      if (unitPrice < 0) {
-        message.error('سعر الوحدة يجب أن يكون أكبر من أو يساوي صفر')
+      if (unitPrice === undefined || unitPrice === null || unitPrice < 0) {
+        message.error('يرجى إدخال سعر الوحدة بشكل صحيح')
         return
       }
       
@@ -463,8 +477,8 @@ const OrdersPage = () => {
       
       setSelectedProducts([...selectedProducts, newItem])
       setItemDescription('')
-      setQuantity(1)
-      setUnitPrice(0)
+      setQuantity(undefined)
+      setUnitPrice(undefined)
       message.success('تم إضافة البند')
     }
     
@@ -515,7 +529,7 @@ const OrdersPage = () => {
           <Button 
             type="primary" 
             onClick={handleAddItem}
-            disabled={!itemDescription || quantity <= 0}
+            disabled={!itemDescription || !quantity || quantity <= 0 || unitPrice === undefined || unitPrice === null || unitPrice < 0}
             icon={<PlusOutlined />}
           >
             إضافة بند
@@ -538,8 +552,8 @@ const OrdersPage = () => {
                   dataIndex: 'quantity',
                   render: (quantity, record) => (
                     <InputNumber
-                      min={0.01}
-                      step={1}
+                      placeholder="الكمية"
+                      min={1}
                       value={quantity}
                       onChange={(value) => {
                         const updated = [...selectedProducts]
@@ -550,7 +564,7 @@ const OrdersPage = () => {
                         }
                         setSelectedProducts(updated)
                       }}
-                      style={{ width: 100 }}
+                      style={{ width: '100%' }}
                     />
                   )
                 },
@@ -559,8 +573,9 @@ const OrdersPage = () => {
                   dataIndex: 'price', 
                   render: (p, record) => (
                     <InputNumber
+                      placeholder="سعر الوحدة"
                       min={0}
-                      step={0.01}
+                      precision={2}
                       value={p}
                       onChange={(value) => {
                         const updated = [...selectedProducts]
@@ -571,9 +586,7 @@ const OrdersPage = () => {
                         }
                         setSelectedProducts(updated)
                       }}
-                      style={{ width: 120 }}
-                      formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={value => value.replace(/\$\s?|(,*)/g, '')}
+                      style={{ width: '100%' }}
                     />
                   )
                 },
@@ -678,7 +691,7 @@ const OrdersPage = () => {
       // STRICT VENDOR FILTERING: Only fetch type = 'vendor' or 'supplier', exclude 'client'
       const searchResults = await customersService.searchCustomers(searchText, 'vendor')
       const options = searchResults.map(customer => ({
-        value: customer.id,
+        value: customer.name, // Use name as value to display name instead of UUID
         label: `${customer.name} - ${customer.phone}${customer.email ? ` (${customer.email})` : ''}`,
         customer: customer
       }))
@@ -716,9 +729,12 @@ const OrdersPage = () => {
       setNewSupplierEmail('')
     } else {
       // Existing customer selected
-      const customer = option?.customer || customers.find(c => c.id === value)
+      // Find customer by name (value is now the name) or from option
+      const customer = option?.customer || customerSearchOptions.find(opt => opt.value === value || opt.customer?.name === value)?.customer || customers.find(c => c.name === value)
       if (customer) {
         setSelectedCustomer(customer)
+        setCustomerSearchValue(customer.name) // Show vendor NAME instead of ID
+        form.setFieldsValue({ customerSearch: customer.name }) // Update form field to display name
         setIsNewSupplier(false)
         setNewSupplierName('')
         setNewSupplierPhone('')
@@ -808,6 +824,21 @@ const OrdersPage = () => {
         }
       })
 
+      // Validate treasury account selection
+      if (!values.treasuryAccountId) {
+        message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
+        return
+      }
+
+      // Derive payment method from treasury account type
+      const selectedAccount = treasuryAccounts.find(acc => acc.id === values.treasuryAccountId)
+      if (!selectedAccount) {
+        message.error('حساب الخزينة المحدد غير موجود')
+        return
+      }
+      // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
+      const derivedPaymentMethod = selectedAccount.type === 'bank' ? 'bank_transfer' : 'cash'
+
       // إنشاء بيانات الطلب
       const orderData = {
         customerId: finalCustomerId,
@@ -818,7 +849,7 @@ const OrdersPage = () => {
         workScope: isEngineering ? (values.workScope || null) : null,
         items: orderItems,
         status: values.status || 'pending',
-        paymentMethod: values.paymentMethod || 'cash',
+        paymentMethod: derivedPaymentMethod,
         shippingAddress: values.shippingAddress || '',
         shippingMethod: 'standard',
         notes: values.notes || '',
@@ -829,6 +860,30 @@ const OrdersPage = () => {
       
       if (result.success) {
         message.success('تم إضافة أمر الشراء بنجاح!')
+        
+        // Update treasury if account selected
+        if (values.treasuryAccountId && result.order?.id) {
+          try {
+            // Use order total (includes tax and discount) instead of items total
+            const totalAmount = parseFloat(result.order.total) || 0
+            const treasuryResult = await treasuryService.createTransaction({
+              accountId: values.treasuryAccountId,
+              transactionType: 'outflow',
+              amount: totalAmount,
+              referenceType: 'order',
+              referenceId: result.order.id,
+              description: `أمر شراء: ${finalCustomerName} - ${values.notes || ''}`
+            })
+            if (!treasuryResult.success) {
+              console.error('Failed to update treasury:', treasuryResult.error)
+              // Don't show error to user - order is already saved
+            }
+          } catch (error) {
+            console.error('Error updating treasury:', error)
+            // Don't show error to user - order is already saved
+          }
+        }
+        
         setIsModalVisible(false)
         setSelectedProducts([])
         setSelectedCustomer(null)
@@ -840,6 +895,7 @@ const OrdersPage = () => {
         setCustomerSearchOptions([])
         form.resetFields()
         loadOrders() // Refresh the list
+        loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
       } else {
         message.error(result.error || 'فشل في إضافة أمر الشراء')
       }
@@ -959,6 +1015,9 @@ const OrdersPage = () => {
         title="إنشاء أمر شراء جديد"
         open={isModalVisible}
         onOk={handleSave}
+        okButtonProps={{ disabled: treasuryAccounts.length === 0 }}
+        okText="إنشاء"
+        cancelText="إلغاء"
         onCancel={() => {
           setIsModalVisible(false)
           setSelectedProducts([])
@@ -978,6 +1037,16 @@ const OrdersPage = () => {
         width={800}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 24 }}>
+          {/* Alert if no treasury accounts */}
+          {treasuryAccounts.length === 0 && (
+            <Alert
+              type="error"
+              message="تنبيه: لا يوجد حسابات خزينة معرفة. يرجى إنشاء حساب في صفحة الخزينة أولاً"
+              style={{ marginBottom: 16 }}
+              showIcon
+            />
+          )}
+
           {/* Project and Work Scope - Prominent at top for engineering mode */}
           {isEngineering && (
             <>
@@ -1059,6 +1128,7 @@ const OrdersPage = () => {
               style={{ width: '100%' }}
               filterOption={false}
               notFoundContent={customerSearchOptions.length === 0 && customerSearchValue ? 'لا توجد نتائج - يمكنك إضافة مورد جديد' : null}
+              size="large"
             />
           </Form.Item>
 
@@ -1134,35 +1204,37 @@ const OrdersPage = () => {
           
           <Divider />
           
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="status"
-                label="حالة أمر الشراء"
-                initialValue="pending"
-              >
-                <Select>
-                  <Option value="pending">قيد الانتظار</Option>
-                  <Option value="processing">قيد المعالجة</Option>
-                  <Option value="completed">مكتمل</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="paymentMethod"
-                label="طريقة الدفع"
-                initialValue="cash"
-              >
-                <Select>
-                  <Option value="cash">نقداً</Option>
-                  <Option value="credit_card">بطاقة ائتمان</Option>
-                  <Option value="bank_transfer">تحويل بنكي</Option>
-                  <Option value="check">شيك</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="status"
+            label="حالة أمر الشراء"
+            initialValue="pending"
+          >
+            <Select>
+              <Option value="pending">قيد الانتظار</Option>
+              <Option value="processing">قيد المعالجة</Option>
+              <Option value="completed">مكتمل</Option>
+            </Select>
+          </Form.Item>
+
+          {/* Treasury Account Selection */}
+          <Form.Item
+            name="treasuryAccountId"
+            label="حساب الخزينة"
+            rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة/البنك للصرف' }]}
+            tooltip="اختر الحساب الذي سيتم خصم قيمة أمر الشراء منه"
+          >
+            <Select 
+              placeholder="اختر حساب الخزينة" 
+              disabled={treasuryAccounts.length === 0}
+              notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+            >
+              {treasuryAccounts.map(acc => (
+                <Option key={acc.id} value={acc.id}>
+                  {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
 
           <Form.Item
             name="shippingAddress"

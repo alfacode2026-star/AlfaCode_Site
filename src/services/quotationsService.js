@@ -494,13 +494,22 @@ class QuotationsService {
 
       // Step 2: AUTOMATICALLY create Contract record in the 'contracts' table
       // Get quotation items if they exist (quotations may have items stored separately)
+      // Generate contract number from quote number (inherit numeric ID)
+      const contractType = quotationData.documentType === 'addendum' ? 'amendment' : 'original'
+      const contractNumber = await contractsService.generateContractNumberFromQuote(
+        quotationData.quoteNumber,
+        contractType,
+        quotationData.id
+      )
+      
       const contractData = {
         quotationId: quotationData.id,
+        contractNumber: contractNumber, // Use inherited contract number
         customerId: quotationData.customerId || null,
         customerName: quotationData.customerName,
         customerPhone: quotationData.customerPhone,
         customerEmail: quotationData.customerEmail || null,
-        contractType: quotationData.documentType === 'addendum' ? 'amendment' : 'original',
+        contractType: contractType,
         workType: quotationData.workType || 'civil_works',
         totalAmount: quotationData.totalAmount || 0,
         projectId: projectResult.project.id,
