@@ -205,6 +205,8 @@ class TreasuryService {
   }
 
   // Create treasury transaction and update account balance
+  // ROBUST: Uses direct database UPDATE on current_balance field
+  // IGNORES TYPE: Works with ANY account ID as long as it's valid
   async createTransaction(transactionData) {
     try {
       const tenantId = tenantStore.getTenantId()
@@ -217,13 +219,16 @@ class TreasuryService {
         }
       }
 
-      if (!transactionData.accountId) {
+      // Validate accountId - MUST be provided and valid
+      if (!transactionData.accountId || (typeof transactionData.accountId === 'string' && transactionData.accountId.trim() === '')) {
         return {
           success: false,
-          error: 'Account ID is required',
+          error: 'Account ID is required and cannot be empty',
           errorCode: 'NO_ACCOUNT_ID'
         }
       }
+
+      const accountId = transactionData.accountId
 
       const amount = parseFloat(transactionData.amount) || 0
       if (amount <= 0) {
@@ -237,20 +242,39 @@ class TreasuryService {
       const transactionType = transactionData.transactionType || 'outflow' // 'inflow' or 'outflow'
       const balanceChange = transactionType === 'inflow' ? amount : -amount
 
-      // Verify account exists
-      const account = await this.getAccount(transactionData.accountId)
-      if (!account) {
+      // STEP 1: Verify account exists (IGNORE TYPE - check ANY account with this ID)
+      const { data: accountData, error: accountCheckError } = await supabase
+        .from('treasury_accounts')
+        .select('id, current_balance, name, type')
+        .eq('id', accountId)
+        .eq('tenant_id', tenantId)
+        .single()
+
+      if (accountCheckError || !accountData) {
+        console.error('Account ID not found:', { accountId, tenantId, error: accountCheckError })
         return {
           success: false,
-          error: 'Account not found',
+          error: `Account ID not found: ${accountId}. ${accountCheckError?.message || 'Database error'}`,
           errorCode: 'ACCOUNT_NOT_FOUND'
         }
       }
 
-      // Store account ID before insert to avoid variable shadowing
-      const accountId = transactionData.accountId
+      // STEP 2: Get current balance
+      const currentBalance = parseFloat(accountData.current_balance) || 0
+      const newBalance = currentBalance + balanceChange
 
-      // Create transaction record
+      console.log('Treasury Transaction:', {
+        accountId,
+        accountName: accountData.name,
+        accountType: accountData.type,
+        currentBalance,
+        balanceChange,
+        newBalance,
+        transactionType,
+        amount
+      })
+
+      // STEP 3: Create transaction record FIRST
       const transactionId = transactionData.id || crypto.randomUUID()
       const newTransaction = {
         id: transactionId,
@@ -264,57 +288,76 @@ class TreasuryService {
         created_at: new Date().toISOString()
       }
 
-      // Create transaction record FIRST
       const { data: insertedTransaction, error: transactionError } = await supabase
         .from('treasury_transactions')
         .insert([newTransaction])
         .select()
         .single()
 
-      if (transactionError) throw transactionError
-
-      // CRITICAL: After successful transaction insert, perform explicit UPDATE on treasury_accounts
-      // Use atomic SQL expression: current_balance = current_balance + balanceChange
-      // Since Supabase JS client doesn't support SQL expressions directly, we fetch current balance
-      // and update it explicitly to ensure consistency
-      const { data: currentAccount, error: fetchError } = await supabase
-        .from('treasury_accounts')
-        .select('current_balance')
-        .eq('id', accountId)
-        .eq('tenant_id', tenantId)
-        .single()
-
-      if (fetchError) {
-        console.error('Failed to fetch current balance for update:', fetchError)
-        throw new Error(`Failed to fetch account balance: ${fetchError.message}`)
+      if (transactionError) {
+        console.error('Failed to create transaction record:', transactionError)
+        return {
+          success: false,
+          error: `Database update error: Failed to create transaction. ${transactionError.message}`,
+          errorCode: 'TRANSACTION_INSERT_FAILED'
+        }
       }
 
-      // Calculate new balance explicitly: current_balance + balanceChange
-      const currentBalance = parseFloat(currentAccount.current_balance) || 0
-      const newBalance = currentBalance + balanceChange
-
-      // Update account balance with explicit calculation
+      // STEP 4: CRITICAL - Update account balance directly
+      // Use direct UPDATE targeting current_balance field
       const { data: updatedAccount, error: balanceError } = await supabase
         .from('treasury_accounts')
-        .update({ current_balance: newBalance })
+        .update({ 
+          current_balance: newBalance,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', accountId)
         .eq('tenant_id', tenantId)
-        .select()
+        .select('id, current_balance, name')
         .single()
 
-      if (balanceError) {
-        // If balance update fails, the transaction creation is incomplete
-        console.error('Balance update failed:', balanceError)
-        throw new Error(`Failed to update account balance: ${balanceError.message}`)
+      if (balanceError || !updatedAccount) {
+        console.error('❌ Balance update failed:', { accountId, tenantId, error: balanceError })
+        // Transaction was created but balance update failed - this is a critical error
+        return {
+          success: false,
+          error: `Database update error: Failed to update account balance. Account ID: ${accountId}. ${balanceError?.message || 'Unknown error'}`,
+          errorCode: 'BALANCE_UPDATE_FAILED'
+        }
       }
+
+      // Verify the balance was actually updated
+      if (parseFloat(updatedAccount.current_balance) !== newBalance) {
+        console.error('❌ Balance mismatch after update:', {
+          expected: newBalance,
+          actual: updatedAccount.current_balance,
+          accountId
+        })
+        return {
+          success: false,
+          error: `Database update error: Balance mismatch. Expected ${newBalance}, got ${updatedAccount.current_balance}`,
+          errorCode: 'BALANCE_MISMATCH'
+        }
+      }
+
+      console.log('✅ Treasury transaction created successfully:', {
+        transactionId: insertedTransaction.id,
+        accountId,
+        accountName: updatedAccount.name,
+        oldBalance: currentBalance,
+        newBalance,
+        amount,
+        transactionType
+      })
 
       return {
         success: true,
         transaction: this.mapTransactionToCamelCase(insertedTransaction),
-        newBalance: newBalance
+        newBalance: newBalance,
+        accountName: updatedAccount.name
       }
     } catch (error) {
-      console.error('Error creating treasury transaction:', error.message)
+      console.error('❌ Error creating treasury transaction:', error)
       return {
         success: false,
         error: error.message || 'فشل في إنشاء المعاملة',

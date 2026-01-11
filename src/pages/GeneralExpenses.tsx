@@ -118,7 +118,7 @@ const GeneralExpenses = () => {
       
       if (total > remainingAmount && total > 0) {
         setSettlementAmountExceedsLimit(true)
-        setSettlementAmountError(`مجموع البنود (${total.toLocaleString()}) يتجاوز المبلغ المتبقي في العهدة (${remainingAmount.toLocaleString()})`)
+        setSettlementAmountError('المبلغ المدخل أكبر من الرصيد المتاح في العهدة')
       } else {
         setSettlementAmountExceedsLimit(false)
         setSettlementAmountError(null)
@@ -325,8 +325,8 @@ const GeneralExpenses = () => {
       expenseType: 'administrative',
       paymentFrequency: 'one-time',
       transactionType: 'regular',
-      quantity: 1,
-      unitPrice: 0,
+      quantity: undefined, // Don't set initial value - let placeholder show
+      unitPrice: undefined, // Don't set initial value - let placeholder show
       date: dayjs(), // Default to today for administrative expenses
       linkedAdvanceId: undefined, // Clear any previous linkedAdvanceId
       remainingAmount: undefined // Clear any previous remainingAmount (if it exists)
@@ -529,8 +529,10 @@ const GeneralExpenses = () => {
 
   const handleAddItem = () => {
     const itemDescription = form.getFieldValue('itemDescription')
-    const quantity = form.getFieldValue('quantity') || 1
-    const unitPrice = form.getFieldValue('unitPrice') || 0
+    const quantityValue = form.getFieldValue('quantity')
+    const unitPriceValue = form.getFieldValue('unitPrice')
+    const quantity = quantityValue !== null && quantityValue !== undefined ? quantityValue : 1
+    const unitPrice = unitPriceValue !== null && unitPriceValue !== undefined ? unitPriceValue : 0
 
     if (!itemDescription || itemDescription.trim() === '') {
       message.error('يرجى إدخال وصف البند')
@@ -558,7 +560,7 @@ const GeneralExpenses = () => {
     }
     
     setSelectedProducts([...selectedProducts, newItem])
-    form.setFieldsValue({ itemDescription: '', quantity: 1, unitPrice: 0 })
+    form.setFieldsValue({ itemDescription: '', quantity: undefined, unitPrice: undefined })
     message.success('تم إضافة البند')
   }
 
@@ -747,6 +749,21 @@ const GeneralExpenses = () => {
           return
         }
 
+        // Validate treasury account selection
+        if (!values.treasuryAccountId) {
+          message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
+          return
+        }
+
+        // Derive payment method from treasury account type
+        const selectedAccount = treasuryAccounts.find(acc => acc.id === values.treasuryAccountId)
+        if (!selectedAccount) {
+          message.error('حساب الخزينة المحدد غير موجود')
+          return
+        }
+        // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
+        const derivedPaymentMethod = selectedAccount.type === 'bank' ? 'bank_transfer' : 'cash'
+
         // Create order for project expense - EXACT same as OrdersPage
         const orderItems = selectedProducts.map(p => ({
           productId: p.productId || null,
@@ -766,7 +783,7 @@ const GeneralExpenses = () => {
           workScope: isEngineering ? (values.workScope || null) : null,
           items: orderItems,
           status: values.status || 'pending',
-          paymentMethod: values.paymentMethod ? (values.paymentMethod === 'cash' ? 'Cash' : values.paymentMethod) : 'Cash',
+          paymentMethod: derivedPaymentMethod,
           shippingAddress: '',
           shippingMethod: 'standard',
           notes: values.notes || '',
@@ -777,6 +794,53 @@ const GeneralExpenses = () => {
         
         if (orderResult.success) {
           message.success('تم إضافة أمر الشراء بنجاح')
+          
+          // Update treasury if account selected - must succeed
+          if (values.treasuryAccountId && orderResult.order?.id) {
+            try {
+              // Use order total (includes tax and discount) instead of items total
+              const totalAmount = parseFloat(orderResult.order.total) || 0
+              
+              if (totalAmount <= 0) {
+                message.warning('⚠️ تحذير: المبلغ الإجمالي صفر أو سالب، لن يتم خصم من الخزينة')
+              } else {
+                const treasuryResult = await treasuryService.createTransaction({
+                  accountId: values.treasuryAccountId,
+                  transactionType: 'outflow',
+                  amount: totalAmount,
+                  referenceType: 'order',
+                  referenceId: orderResult.order.id,
+                  description: `أمر شراء: ${finalCustomerName} - ${values.notes || ''}`
+                })
+                
+                if (treasuryResult.success) {
+                  console.log('✅ GeneralExpenses: Treasury transaction created successfully for project expense', {
+                    transactionId: treasuryResult.transaction?.id,
+                    accountId: values.treasuryAccountId,
+                    accountName: treasuryResult.accountName,
+                    newBalance: treasuryResult.newBalance
+                  })
+                  message.success(`✅ تم خصم ${totalAmount.toLocaleString()} ريال من حساب الخزينة (${treasuryResult.accountName || 'غير محدد'})`)
+                  loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
+                } else {
+                  console.error('❌ GeneralExpenses: Failed to update treasury for project expense:', treasuryResult.error)
+                  message.error({
+                    content: `❌ فشل خصم المبلغ من الخزينة: ${treasuryResult.error || 'خطأ غير معروف'}`,
+                    duration: 10,
+                    style: { marginTop: '10vh' }
+                  })
+                }
+              }
+            } catch (error) {
+              console.error('❌ GeneralExpenses: Exception during treasury update for project expense:', error)
+              message.error({
+                content: `❌ خطأ أثناء خصم المبلغ من الخزينة: ${error.message || 'خطأ غير معروف'}`,
+                duration: 10,
+                style: { marginTop: '10vh' }
+              })
+            }
+          }
+          
           setIsModalVisible(false)
           form.resetFields()
           setSelectedProducts([])
@@ -808,11 +872,18 @@ const GeneralExpenses = () => {
         // Use 'let' instead of 'const' because amountValue may be reassigned for expense-type settlements
         let amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
         
-        // For non-settlement advances, validate amount immediately
+        // For non-settlement advances, validate amount and treasury account immediately
         // For settlements, validation happens later (expense-type: from PO items, return-type: after checking remaining amount)
         if (transactionType !== 'settlement') {
           if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
             message.error('يرجى إدخال مبلغ صحيح')
+            return
+          }
+          
+          // Validate treasury account for advances - ensure it's not empty string or null
+          const treasuryAccountId = values.treasuryAccountId?.trim() || null
+          if (!treasuryAccountId || treasuryAccountId === '') {
+            message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
             return
           }
         }
@@ -868,7 +939,7 @@ const GeneralExpenses = () => {
             }
 
             if (calculatedAmount > remainingAmount) {
-              message.error(`مجموع البنود (${calculatedAmount.toLocaleString()}) يتجاوز المبلغ المتبقي في العهدة (${remainingAmount.toLocaleString()})`)
+              message.error('المبلغ المدخل أكبر من الرصيد المتاح في العهدة')
               return
             }
 
@@ -930,12 +1001,9 @@ const GeneralExpenses = () => {
             // Get manager name from linked advance
             const managerName = selectedLinkedAdvance.managerName
 
-            // Validate treasury account for settlements - ensure it's not empty string or null
-            const treasuryAccountId = values.treasuryAccountId?.trim() || null
-            if (!treasuryAccountId || treasuryAccountId === '') {
-              message.error('يرجى اختيار حساب الخزينة للصرف')
-              return
-            }
+            // For expense-type settlements, do NOT require treasury account
+            // The money already left the bank when the advance was first issued
+            // No treasury transaction should be created for expense-type settlements
 
             const result = await paymentsService.createSettlementWithPO({
               linkedAdvanceId: values.linkedAdvanceId,
@@ -948,7 +1016,7 @@ const GeneralExpenses = () => {
               managerName: managerName,
               projectId: selectedLinkedAdvance.projectId,
               workScope: values.workScope || null,
-              treasuryAccountId: treasuryAccountId, // Use validated treasury account ID (not empty string)
+              treasuryAccountId: null, // Expense-type settlements don't use treasury account
               // PO data
               vendorId: finalVendorId,
               vendorName: finalVendorName,
@@ -962,26 +1030,9 @@ const GeneralExpenses = () => {
             if (result.success) {
               message.success('تم حفظ التسوية وأمر الشراء بنجاح')
               
-              // Create treasury transaction for settlement - ensure it's not empty string or null
-              if (treasuryAccountId && treasuryAccountId !== '' && result.settlement?.id) {
-                try {
-                  const treasuryResult = await treasuryService.createTransaction({
-                    accountId: treasuryAccountId,
-                    transactionType: 'outflow',
-                    amount: amountValue,
-                    referenceType: 'expense',
-                    referenceId: result.settlement.id,
-                    description: `تسوية عهدة: ${selectedLinkedAdvance.referenceNumber || selectedLinkedAdvance.paymentNumber} - ${values.notes || ''}`
-                  })
-                  if (!treasuryResult.success) {
-                    console.error('Failed to update treasury:', treasuryResult.error)
-                    // Don't show error to user - settlement is already saved
-                  }
-                } catch (error) {
-                  console.error('Error updating treasury:', error)
-                  // Don't show error to user - settlement is already saved
-                }
-              }
+              // DO NOT create treasury transaction for expense-type settlements
+              // The money already left the bank when the advance was first issued
+              // Only record the expense in Project Ledger and update Advance status
               
               setIsModalVisible(false)
               form.resetFields()
@@ -1025,7 +1076,7 @@ const GeneralExpenses = () => {
             // Validate treasury account for return-type settlements - ensure it's not empty string or null
             const treasuryAccountId = values.treasuryAccountId?.trim() || null
             if (!treasuryAccountId || treasuryAccountId === '') {
-              message.error('يرجى اختيار حساب الخزينة للصرف')
+              message.error('يرجى اختيار حساب الخزينة للإرجاع')
               return
             }
             
@@ -1039,7 +1090,7 @@ const GeneralExpenses = () => {
             }
 
             if (amountValue > remainingAmount) {
-              message.error(`المبلغ يجب أن يكون أقل من أو يساوي المبلغ المتبقي (${remainingAmount.toLocaleString()} ريال)`)
+              message.error('المبلغ المدخل أكبر من الرصيد المتاح في العهدة')
               return
             }
           }
@@ -1077,6 +1128,22 @@ const GeneralExpenses = () => {
 
         const expenseDate = values.date ? values.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
 
+        // For advances, derive payment method from treasury account type
+        let derivedPaymentMethod = null
+        if (transactionType === 'settlement') {
+          derivedPaymentMethod = 'settlement' // Force 'settlement' for settlements
+        } else {
+          // For advances, derive from treasury account
+          const treasuryAccountId = values.treasuryAccountId?.trim() || null
+          if (treasuryAccountId) {
+            const selectedAccount = treasuryAccounts.find(acc => acc.id === treasuryAccountId)
+            if (selectedAccount) {
+              // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
+              derivedPaymentMethod = selectedAccount.type === 'bank' ? 'bank_transfer' : 'cash'
+            }
+          }
+        }
+
         const paymentData = {
           isGeneralExpense: true, // Manager advances are general expenses
           projectId: values.projectId || null, // Optional project_id
@@ -1086,7 +1153,7 @@ const GeneralExpenses = () => {
           dueDate: expenseDate, // Use single date field
           paidDate: expenseDate, // Same as dueDate for manager advances
           status: editingExpense ? values.status : 'pending', // Default to pending for new entries, use existing for edits
-          paymentMethod: transactionType === 'settlement' ? 'settlement' : (values.paymentMethod ? (values.paymentMethod === 'cash' ? 'Cash' : values.paymentMethod) : null), // Force 'settlement' for settlements, normalize 'cash' to 'Cash'
+          paymentMethod: derivedPaymentMethod === 'cash' ? 'Cash' : derivedPaymentMethod, // Derive from treasury account or use 'settlement'
           referenceNumber: referenceNumber,
           notes: values.notes || null,
           paymentFrequency: null, // No frequency for manager advances
@@ -1106,24 +1173,83 @@ const GeneralExpenses = () => {
         if (result.success) {
           message.success(transactionType === 'settlement' ? 'تم حفظ التسوية بنجاح' : 'تم حفظ العهدة بنجاح')
           
+          // Create treasury transaction for advances (non-settlement) - ensure it's not empty string or null
+          if (transactionType !== 'settlement') {
+            const treasuryAccountIdForAdvance = values.treasuryAccountId?.trim() || null
+            if (treasuryAccountIdForAdvance && treasuryAccountIdForAdvance !== '' && result.payment?.id) {
+              try {
+                // Console log to trace account_id value
+                console.log('GeneralExpenses: Creating treasury transaction for advance', {
+                  paymentId: result.payment.id,
+                  accountId: treasuryAccountIdForAdvance,
+                  accountIdType: typeof treasuryAccountIdForAdvance,
+                  accountIdLength: treasuryAccountIdForAdvance?.length
+                })
+                
+                const treasuryResult = await treasuryService.createTransaction({
+                  accountId: treasuryAccountIdForAdvance,
+                  transactionType: 'outflow',
+                  amount: amountValue,
+                  referenceType: 'expense',
+                  referenceId: result.payment.id,
+                  description: `عهدة مدير: ${managerName || ''} - ${referenceNumber || ''} - ${values.notes || ''}`
+                })
+                
+                if (treasuryResult.success) {
+                  console.log('GeneralExpenses: Treasury transaction created successfully for advance', {
+                    transactionId: treasuryResult.transaction?.id,
+                    accountId: treasuryAccountIdForAdvance,
+                    accountName: treasuryResult.accountName,
+                    newBalance: treasuryResult.newBalance
+                  })
+                  message.success(`✅ تم خصم ${amountValue.toLocaleString()} ريال من حساب الخزينة (${treasuryResult.accountName || 'غير محدد'})`)
+                } else {
+                  console.error('GeneralExpenses: Failed to update treasury for advance:', treasuryResult.error)
+                  message.error({
+                    content: `❌ فشل خصم المبلغ من الخزينة: ${treasuryResult.error || 'خطأ غير معروف'}`,
+                    duration: 10,
+                  })
+                }
+              } catch (error) {
+                console.error('GeneralExpenses: Error updating treasury for advance:', error)
+                message.error('حدث خطأ أثناء خصم المبلغ من الخزينة')
+              }
+            }
+          }
+          
           // Create treasury transaction for return-type settlements - ensure it's not empty string or null
           const treasuryAccountIdForReturn = values.treasuryAccountId?.trim() || null
           if (transactionType === 'settlement' && settlementType === 'return' && treasuryAccountIdForReturn && treasuryAccountIdForReturn !== '' && result.payment?.id) {
             try {
+              // Console log to trace account_id value
+              console.log('GeneralExpenses: Creating treasury transaction for return settlement', {
+                paymentId: result.payment.id,
+                accountId: treasuryAccountIdForReturn,
+                accountIdType: typeof treasuryAccountIdForReturn,
+                accountIdLength: treasuryAccountIdForReturn?.length
+              })
+              
               const treasuryResult = await treasuryService.createTransaction({
                 accountId: treasuryAccountIdForReturn,
-                transactionType: 'outflow',
+                transactionType: 'inflow', // Return/deposit back to treasury
                 amount: amountValue,
                 referenceType: 'expense',
                 referenceId: result.payment.id,
                 description: `تسوية عهدة (مرتجع): ${selectedLinkedAdvance?.referenceNumber || selectedLinkedAdvance?.paymentNumber || ''} - ${values.notes || ''}`
               })
-              if (!treasuryResult.success) {
-                console.error('Failed to update treasury:', treasuryResult.error)
+              
+              if (treasuryResult.success) {
+                console.log('GeneralExpenses: Treasury transaction created successfully for return settlement', {
+                  transactionId: treasuryResult.transaction?.id,
+                  accountId: treasuryAccountIdForReturn,
+                  newBalance: treasuryResult.newBalance
+                })
+              } else {
+                console.error('GeneralExpenses: Failed to update treasury for return settlement:', treasuryResult.error)
                 // Don't show error to user - settlement is already saved
               }
             } catch (error) {
-              console.error('Error updating treasury:', error)
+              console.error('GeneralExpenses: Error updating treasury for return settlement:', error)
               // Don't show error to user - settlement is already saved
             }
           }
@@ -1238,6 +1364,14 @@ const GeneralExpenses = () => {
           // Update treasury if account selected - ensure it's not empty string or null
           if (treasuryAccountId && treasuryAccountId !== '' && result.payment?.id) {
             try {
+              // Console log to trace account_id value
+              console.log('GeneralExpenses: Creating treasury transaction for general expense', {
+                paymentId: result.payment.id,
+                accountId: treasuryAccountId,
+                accountIdType: typeof treasuryAccountId,
+                accountIdLength: treasuryAccountId?.length
+              })
+              
               const treasuryResult = await treasuryService.createTransaction({
                 accountId: treasuryAccountId,
                 transactionType: 'outflow',
@@ -1246,12 +1380,19 @@ const GeneralExpenses = () => {
                 referenceId: result.payment.id,
                 description: `مصروف إداري: ${values.category || ''} - ${values.notes || ''}`
               })
-              if (!treasuryResult.success) {
-                console.error('Failed to update treasury:', treasuryResult.error)
+              
+              if (treasuryResult.success) {
+                console.log('GeneralExpenses: Treasury transaction created successfully for general expense', {
+                  transactionId: treasuryResult.transaction?.id,
+                  accountId: treasuryAccountId,
+                  newBalance: treasuryResult.newBalance
+                })
+              } else {
+                console.error('GeneralExpenses: Failed to update treasury for general expense:', treasuryResult.error)
                 // Don't show error to user - expense is already saved
               }
             } catch (error) {
-              console.error('Error updating treasury:', error)
+              console.error('GeneralExpenses: Error updating treasury for general expense:', error)
               // Don't show error to user - expense is already saved
             }
           }
@@ -1312,8 +1453,8 @@ const GeneralExpenses = () => {
       expenseType: 'administrative',
       paymentFrequency: 'one-time',
       transactionType: 'regular',
-      quantity: 1,
-      unitPrice: 0,
+      quantity: undefined, // Don't set initial value - let placeholder show
+      unitPrice: undefined, // Don't set initial value - let placeholder show
       date: dayjs() // Reset date to today for administrative expenses
     })
   }
@@ -2376,7 +2517,7 @@ const GeneralExpenses = () => {
                         }
                         
                         if (numValue > remainingAmount) {
-                          return Promise.reject(new Error(`المبلغ يجب أن يكون أقل من أو يساوي المبلغ المتبقي (${remainingAmount.toLocaleString()} ريال)`))
+                          return Promise.reject(new Error('المبلغ المدخل أكبر من الرصيد المتاح في العهدة'))
                         }
                       }
                       return Promise.resolve()
@@ -2438,8 +2579,8 @@ const GeneralExpenses = () => {
             </>
               )}
 
-              {/* Treasury Account Selection for Settlements */}
-              {transactionType === 'settlement' && (
+              {/* Treasury Account Selection for Settlements - Only show for Return type */}
+              {transactionType === 'settlement' && settlementType === 'return' && (
                 <>
                   {/* Alert if no treasury accounts */}
                   {treasuryAccounts.length === 0 && (
@@ -2454,8 +2595,8 @@ const GeneralExpenses = () => {
                   <Form.Item
                     name="treasuryAccountId"
                     label="حساب الخزينة"
-                    rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة للصرف' }]}
-                    tooltip="اختر الحساب الذي سيتم خصم مبلغ التسوية منه"
+                    rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة للإرجاع' }]}
+                    tooltip="اختر الحساب الذي سيتم إرجاع المبلغ إليه"
                   >
                     <Select 
                       size="large" 
@@ -2465,7 +2606,7 @@ const GeneralExpenses = () => {
                     >
                       {treasuryAccounts.map(acc => (
                         <Option key={acc.id} value={acc.id}>
-                          {acc.name} ({acc.type === 'bank' ? 'بنك' : 'صندوق نقدي'}) - الرصيد: {acc.currentBalance.toLocaleString()} ريال
+                          {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
                         </Option>
                       ))}
                     </Select>
@@ -2820,7 +2961,11 @@ const GeneralExpenses = () => {
                     </Form.Item>
                   </Col>
                   <Col span={6}>
-                    <Form.Item name="quantity" noStyle>
+                    <Form.Item 
+                      name="quantity" 
+                      label="الكمية"
+                      style={{ marginBottom: 0 }}
+                    >
                       <InputNumber
                         placeholder="الكمية"
                         min={0.01}
@@ -2830,7 +2975,11 @@ const GeneralExpenses = () => {
                     </Form.Item>
                   </Col>
                   <Col span={6}>
-                    <Form.Item name="unitPrice" noStyle>
+                    <Form.Item 
+                      name="unitPrice" 
+                      label="سعر الوحدة"
+                      style={{ marginBottom: 0 }}
+                    >
                       <InputNumber
                         placeholder="سعر الوحدة"
                         min={0}
@@ -2953,36 +3102,56 @@ const GeneralExpenses = () => {
                 </Form.Item>
               )}
 
-              {/* Payment Method - Hidden for settlements, shown for advances */}
+              {/* Treasury Account Selection - Hidden for settlements, shown for advances */}
               {transactionType !== 'settlement' && (
-                <Row gutter={16}>
-                  <Col xs={24} sm={12}>
-                    <Form.Item
-                      name="paymentMethod"
-                      label="طريقة الدفع"
-                    >
-                      <Select placeholder="اختر طريقة الدفع" size="large">
-                        <Option value="cash">نقد</Option>
-                        <Option value="bank_transfer">تحويل بنكي</Option>
-                        <Option value="check">شيك</Option>
-                        <Option value="other">أخرى</Option>
-                      </Select>
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={12}>
-                    <Form.Item
-                      name="referenceNumber"
-                      label="رقم المرجع"
-                      tooltip={transactionType === 'advance' && !editingExpense ? "سيتم توليد الرقم تلقائياً" : undefined}
-                    >
-                      <Input 
-                        placeholder={transactionType === 'advance' && !editingExpense ? "سيتم توليد الرقم تلقائياً" : "رقم المرجع أو رقم الفاتورة"} 
-                        size="large"
-                        disabled={transactionType === 'advance' && !editingExpense}
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
+                <>
+                  {/* Alert if no treasury accounts */}
+                  {treasuryAccounts.length === 0 && (
+                    <Alert
+                      type="error"
+                      message="تنبيه: لا يوجد حسابات خزينة معرفة. يرجى إنشاء حساب في صفحة الخزينة أولاً"
+                      style={{ marginBottom: 16 }}
+                      showIcon
+                    />
+                  )}
+                  
+                  <Row gutter={16}>
+                    <Col xs={24} sm={12}>
+                      <Form.Item
+                        name="treasuryAccountId"
+                        label="حساب الخزينة"
+                        rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة/البنك للصرف' }]}
+                        tooltip="اختر الحساب الذي سيتم خصم مبلغ العهدة منه"
+                      >
+                        <Select 
+                          size="large" 
+                          placeholder="اختر حساب الخزينة" 
+                          disabled={treasuryAccounts.length === 0}
+                          notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+                        >
+                          {treasuryAccounts.map(acc => (
+                            <Option key={acc.id} value={acc.id}>
+                              {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                            </Option>
+                          ))}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} sm={12}>
+                      <Form.Item
+                        name="referenceNumber"
+                        label="رقم المرجع"
+                        tooltip={transactionType === 'advance' && !editingExpense ? "سيتم توليد الرقم تلقائياً" : undefined}
+                      >
+                        <Input 
+                          placeholder={transactionType === 'advance' && !editingExpense ? "سيتم توليد الرقم تلقائياً" : "رقم المرجع أو رقم الفاتورة"} 
+                          size="large"
+                          disabled={transactionType === 'advance' && !editingExpense}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </>
               )}
 
               {/* For settlements, show a note that payment method is automatically set */}
@@ -3038,15 +3207,22 @@ const GeneralExpenses = () => {
                 </Col>
                 <Col xs={24} sm={12}>
                   <Form.Item
-                    name="paymentMethod"
-                    label="طريقة الدفع"
-                    initialValue="cash"
+                    name="treasuryAccountId"
+                    label="حساب الخزينة"
+                    rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة/البنك للصرف' }]}
+                    tooltip="اختر الحساب الذي سيتم خصم قيمة أمر الشراء منه"
                   >
-                    <Select size="large">
-                      <Option value="cash">نقداً</Option>
-                      <Option value="credit_card">بطاقة ائتمان</Option>
-                      <Option value="bank_transfer">تحويل بنكي</Option>
-                      <Option value="check">شيك</Option>
+                    <Select 
+                      size="large"
+                      placeholder="اختر حساب الخزينة" 
+                      disabled={treasuryAccounts.length === 0}
+                      notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+                    >
+                      {treasuryAccounts.map(acc => (
+                        <Option key={acc.id} value={acc.id}>
+                          {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                        </Option>
+                      ))}
                     </Select>
                   </Form.Item>
                 </Col>

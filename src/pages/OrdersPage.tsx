@@ -81,6 +81,7 @@ const OrdersPage = () => {
   const [selectedProject, setSelectedProject] = useState(null)
   const [availableWorkScopes, setAvailableWorkScopes] = useState([])
   const [treasuryAccounts, setTreasuryAccounts] = useState([])
+  const [selectedOrderTreasuryAccount, setSelectedOrderTreasuryAccount] = useState(null)
 
   // Load orders on mount
   useEffect(() => {
@@ -383,9 +384,25 @@ const OrdersPage = () => {
           <Button 
             type="link" 
             icon={<EyeOutlined />}
-            onClick={() => {
+            onClick={async () => {
               setSelectedOrder(record)
               setViewModalVisible(true)
+              // Fetch treasury account for this order
+              try {
+                const allTransactions = await treasuryService.getTransactions()
+                const orderTransaction = allTransactions.find(txn => 
+                  txn.referenceType === 'order' && txn.referenceId === record.id
+                )
+                if (orderTransaction) {
+                  const account = treasuryAccounts.find(acc => acc.id === orderTransaction.accountId)
+                  setSelectedOrderTreasuryAccount(account || null)
+                } else {
+                  setSelectedOrderTreasuryAccount(null)
+                }
+              } catch (error) {
+                console.error('Error fetching treasury transaction for order:', error)
+                setSelectedOrderTreasuryAccount(null)
+              }
             }}
             title="عرض التفاصيل"
           />
@@ -861,27 +878,74 @@ const OrdersPage = () => {
       if (result.success) {
         message.success('تم إضافة أمر الشراء بنجاح!')
         
-        // Update treasury if account selected
+        // CRITICAL: Update treasury if account selected - must succeed
         if (values.treasuryAccountId && result.order?.id) {
           try {
+            // Console log to trace account_id value
+            console.log('OrdersPage: Creating treasury transaction for order', {
+              orderId: result.order.id,
+              accountId: values.treasuryAccountId,
+              accountIdType: typeof values.treasuryAccountId,
+              accountIdLength: values.treasuryAccountId?.length
+            })
+            
             // Use order total (includes tax and discount) instead of items total
             const totalAmount = parseFloat(result.order.total) || 0
-            const treasuryResult = await treasuryService.createTransaction({
-              accountId: values.treasuryAccountId,
-              transactionType: 'outflow',
-              amount: totalAmount,
-              referenceType: 'order',
-              referenceId: result.order.id,
-              description: `أمر شراء: ${finalCustomerName} - ${values.notes || ''}`
-            })
-            if (!treasuryResult.success) {
-              console.error('Failed to update treasury:', treasuryResult.error)
-              // Don't show error to user - order is already saved
+            
+            if (totalAmount <= 0) {
+              message.warning('⚠️ تحذير: المبلغ الإجمالي صفر أو سالب، لن يتم خصم من الخزينة')
+            } else {
+              const treasuryResult = await treasuryService.createTransaction({
+                accountId: values.treasuryAccountId,
+                transactionType: 'outflow',
+                amount: totalAmount,
+                referenceType: 'order',
+                referenceId: result.order.id,
+                description: `أمر شراء: ${finalCustomerName} - ${values.notes || ''}`
+              })
+              
+              if (treasuryResult.success) {
+                console.log('✅ OrdersPage: Treasury transaction created successfully', {
+                  transactionId: treasuryResult.transaction?.id,
+                  accountId: values.treasuryAccountId,
+                  accountName: treasuryResult.accountName,
+                  newBalance: treasuryResult.newBalance
+                })
+                message.success(`✅ تم خصم ${totalAmount.toLocaleString()} ريال من حساب الخزينة (${treasuryResult.accountName || 'غير محدد'})`)
+              } else {
+                // VISIBLE UI ERROR: Show detailed error to user
+                console.error('❌ OrdersPage: Failed to update treasury:', treasuryResult.error)
+                const errorMessage = treasuryResult.error || 'خطأ غير معروف'
+                const errorCode = treasuryResult.errorCode || 'UNKNOWN_ERROR'
+                
+                message.error({
+                  content: `❌ فشل خصم المبلغ من الخزينة: ${errorMessage}`,
+                  duration: 10, // Show for 10 seconds
+                  style: { marginTop: '10vh' }
+                })
+                
+                // Also show a more detailed error in console for debugging
+                console.error('Treasury deduction failed details:', {
+                  errorCode,
+                  errorMessage,
+                  accountId: values.treasuryAccountId,
+                  amount: totalAmount,
+                  orderId: result.order.id
+                })
+              }
             }
           } catch (error) {
-            console.error('Error updating treasury:', error)
-            // Don't show error to user - order is already saved
+            // VISIBLE UI ERROR: Show exception error to user
+            console.error('❌ OrdersPage: Exception during treasury update:', error)
+            message.error({
+              content: `❌ خطأ أثناء خصم المبلغ من الخزينة: ${error.message || 'خطأ غير معروف'}`,
+              duration: 10, // Show for 10 seconds
+              style: { marginTop: '10vh' }
+            })
           }
+        } else if (!values.treasuryAccountId) {
+          // Warning if no account was selected
+          message.warning('⚠️ لم يتم اختيار حساب خزينة، لن يتم خصم المبلغ')
         }
         
         setIsModalVisible(false)
@@ -1032,8 +1096,6 @@ const OrdersPage = () => {
           setAvailableWorkScopes([])
           form.resetFields()
         }}
-        okText="إنشاء"
-        cancelText="إلغاء"
         width={800}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 24 }}>
@@ -1256,7 +1318,10 @@ const OrdersPage = () => {
       <Modal
         title={`تفاصيل أمر الشراء PO-${selectedOrder?.id}`}
         open={viewModalVisible}
-        onCancel={() => setViewModalVisible(false)}
+        onCancel={() => {
+          setViewModalVisible(false)
+          setSelectedOrderTreasuryAccount(null)
+        }}
         footer={[
           <Button key="close" onClick={() => setViewModalVisible(false)}>
             إغلاق
@@ -1295,6 +1360,11 @@ const OrdersPage = () => {
               <Descriptions.Item label="طريقة الدفع">
                 {selectedOrder.payment?.method === 'credit_card' ? 'بطاقة ائتمان' : selectedOrder.paymentMethod === 'credit_card' ? 'بطاقة ائتمان' : selectedOrder.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : selectedOrder.paymentMethod === 'check' ? 'شيك' : 'نقداً'}
               </Descriptions.Item>
+              {selectedOrderTreasuryAccount && (
+                <Descriptions.Item label="حساب الخزينة">
+                  {selectedOrderTreasuryAccount.name} ({selectedOrderTreasuryAccount.type === 'bank' ? 'Bank' : selectedOrderTreasuryAccount.type === 'cash_box' ? 'Cash' : selectedOrderTreasuryAccount.type})
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <Divider />

@@ -1252,6 +1252,7 @@ class PaymentsService {
       recipientName: payment.recipient_name || null,
       paymentFrequency: payment.payment_frequency !== null && payment.payment_frequency !== undefined ? payment.payment_frequency : null,
       transactionType: payment.transaction_type || 'regular',
+      paymentType: payment.payment_type || null,
       managerName: payment.manager_name || null,
       linkedAdvanceId: payment.linked_advance_id || null,
       settlementType: payment.settlement_type || null,

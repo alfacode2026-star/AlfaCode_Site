@@ -6,6 +6,8 @@ import projectsService from '../services/projectsService'
 import ordersService from '../services/ordersService'
 import contractsService from '../services/contractsService'
 import paymentsService from '../services/paymentsService'
+import incomesService from '../services/incomesService'
+import treasuryService from '../services/treasuryService'
 import {
   Card,
   Table,
@@ -27,7 +29,8 @@ import {
   InputNumber,
   DatePicker,
   Select,
-  Tabs
+  Tabs,
+  Alert
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -62,10 +65,12 @@ const ProjectDetails = () => {
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
   const [invoiceModalVisible, setInvoiceModalVisible] = useState(false)
+  const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([])
 
   useEffect(() => {
     if (id) {
       loadProjectDetails()
+      loadTreasuryAccounts()
     }
   }, [id])
 
@@ -96,6 +101,16 @@ const ProjectDetails = () => {
       message.error('فشل في تحميل بيانات المشروع')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadTreasuryAccounts = async () => {
+    try {
+      const accounts = await treasuryService.getAccounts()
+      setTreasuryAccounts(accounts || [])
+    } catch (error) {
+      console.error('Error loading treasury accounts:', error)
+      setTreasuryAccounts([])
     }
   }
 
@@ -305,8 +320,8 @@ const ProjectDetails = () => {
       })
     })
 
-    // Add payments to ledger (income or expense based on paymentType)
-    // Exclude general expenses from project ledger
+    // Add payments to ledger (expense only - exclude income payments, advances, and milestone payments)
+    // Exclude general expenses and income payments from project ledger
     payments.forEach(payment => {
       // Skip general expenses (those without project_id or with isGeneralExpense flag)
       const isGeneralExpense = payment.isGeneralExpense || (!payment.projectId && payment.expenseCategory)
@@ -314,18 +329,28 @@ const ProjectDetails = () => {
         return // Skip general expenses in project ledger
       }
 
-      // Determine if income: explicit type or has contractId (backward compatibility)
-      const isIncome = payment.paymentType === 'income' || (payment.paymentType === undefined && payment.contractId)
-      const paymentType = payment.paymentType || (payment.contractId ? 'income' : 'expense')
+      // Determine if income/advance/milestone payment: exclude these from expense ledger
+      // These should ONLY appear in the "واردات أو سلف" section
+      const isIncome = payment.paymentType === 'income'
+      const isAdvance = payment.transactionType === 'advance'
+      const isMilestonePayment = payment.contractId // Milestone payments have contractId
+      
+      // CRITICAL: Exclude income payments, advances, and milestone payments from expense/procurement ledger
+      if (isIncome || isAdvance || isMilestonePayment) {
+        return // Skip income payments, advances, and milestone payments - they belong in the incomes section only
+      }
+
+      // Only add expense payments
+      const paymentType = payment.paymentType || 'expense'
       ledger.push({
         key: `payment-${payment.id}`,
         id: payment.id,
         type: 'payment',
         paymentType: paymentType,
-        typeLabel: isIncome ? 'مستخلص (محصل)' : 'دفعة (مصروف)',
+        typeLabel: 'دفعة (مصروف)',
         date: payment.paidDate || payment.dueDate,
-        description: `${isIncome ? 'مستخلص' : 'دفعة'} ${payment.paymentNumber}${payment.workScope ? ` - ${payment.workScope}` : ''}`,
-        customer: isIncome ? 'العميل' : 'المورد',
+        description: `دفعة ${payment.paymentNumber}${payment.workScope ? ` - ${payment.workScope}` : ''}`,
+        customer: 'المورد',
         amount: parseFloat(payment.amount) || 0,
         status: payment.status,
         reference: payment.paymentNumber,
@@ -343,44 +368,46 @@ const ProjectDetails = () => {
 
   const unifiedLedger = prepareUnifiedLedger()
 
-  // Handle invoice/milestone creation
+  // Handle income/advance creation
   const handleCreateInvoice = async (values: any) => {
     try {
-      // Find the first contract for this project to link the payment
-      const projectContract = contracts.length > 0 ? contracts[0] : null
-      
-      if (!projectContract) {
-        message.error('لا يوجد عقد مرتبط بهذا المشروع. يرجى إنشاء عقد أولاً')
+      // Validate treasury account
+      if (!values.treasuryAccountId) {
+        message.error('يرجى اختيار حساب الخزينة')
         return
       }
 
-      const paymentData = {
-        contractId: projectContract.id,
+      // Use paidDate if status is paid, otherwise use dueDate (but incomes are always paid)
+      const incomeDate = values.status === 'paid' && values.paidDate
+        ? moment(values.paidDate).format('YYYY-MM-DD')
+        : (values.dueDate ? moment(values.dueDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'))
+
+      const incomeData = {
         projectId: id,
-        workScope: values.workScope || null,
-        paymentType: 'income', // Income payment from client
+        projectName: project?.name || '',
+        date: incomeDate,
         amount: values.amount,
-        dueDate: values.dueDate ? moment(values.dueDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
-        paidDate: values.status === 'paid' ? (values.paidDate ? moment(values.paidDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')) : null,
-        status: values.status || 'pending',
-        notes: values.description || null,
-        paymentMethod: values.paymentMethod || null,
+        incomeType: 'milestone', // Default to milestone, can be extended
+        treasuryAccountId: values.treasuryAccountId,
+        description: values.description || null,
         referenceNumber: values.referenceNumber || null,
+        workScope: values.workScope || null
       }
 
-      const result = await paymentsService.createPayment(paymentData)
+      const result = await incomesService.createIncome(incomeData)
       
       if (result.success) {
-        message.success('تم إنشاء المستخلص بنجاح')
+        message.success('تم إنشاء الوارد/السلفة بنجاح')
         setInvoiceModalVisible(false)
         form.resetFields()
         await loadProjectDetails() // Reload data
+        loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
       } else {
-        message.error(result.error || 'فشل في إنشاء المستخلص')
+        message.error(result.error || 'فشل في إنشاء الوارد/السلفة')
       }
     } catch (error) {
-      console.error('Error creating invoice:', error)
-      message.error('حدث خطأ أثناء إنشاء المستخلص')
+      console.error('Error creating income:', error)
+      message.error('حدث خطأ أثناء إنشاء الوارد/السلفة')
     }
   }
 
@@ -778,20 +805,20 @@ const ProjectDetails = () => {
         </Card>
       )}
 
-      {/* Invoicing & Collection Section */}
+      {/* Incomes & Advances Section */}
       <Card 
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <InboxOutlined />
-              <Title level={4} style={{ margin: 0 }}>المستخلصات والتحصيل</Title>
+              <Title level={4} style={{ margin: 0 }}>واردات أو سلف</Title>
             </div>
             <Button 
               type="primary" 
               icon={<PlusOutlined />}
               onClick={() => setInvoiceModalVisible(true)}
             >
-              إضافة مستخلص/مرحلة
+              إضافة وارد/سلفة
             </Button>
           </div>
         }
@@ -930,7 +957,7 @@ const ProjectDetails = () => {
 
       {/* Invoice/Milestone Creation Modal */}
       <Modal
-        title="إضافة مستخلص/مرحلة جديدة"
+        title="إضافة وارد/سلفة جديدة"
         open={invoiceModalVisible}
         onOk={() => form.submit()}
         onCancel={() => {
@@ -1031,32 +1058,40 @@ const ProjectDetails = () => {
             }
           </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="paymentMethod"
-                label="طريقة الدفع (اختياري)"
-              >
-                <Select placeholder="اختر طريقة الدفع" allowClear>
-                  <Option value="cash">نقدي</Option>
-                  <Option value="bank_transfer">تحويل بنكي</Option>
-                  <Option value="check">شيك</Option>
-                  <Option value="other">أخرى</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="referenceNumber"
-                label="رقم المرجع (اختياري)"
-              >
-                <Input placeholder="رقم المرجع أو رقم الإيصال" />
-              </Form.Item>
-            </Col>
-          </Row>
+          {/* Treasury Account Selection */}
+          {treasuryAccounts.length === 0 && (
+            <Alert
+              type="error"
+              message="تنبيه: لا يوجد حسابات خزينة معرفة. يرجى إنشاء حساب في صفحة الخزينة أولاً"
+              style={{ marginBottom: 16 }}
+              showIcon
+            />
+          )}
 
-          <Form.Item name="notes" label="ملاحظات (اختياري)">
-            <TextArea rows={3} placeholder="ملاحظات إضافية..." />
+          <Form.Item
+            name="treasuryAccountId"
+            label="حساب الخزينة"
+            rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة' }]}
+            tooltip="اختر الحساب الذي سيتم إيداع المبلغ فيه"
+          >
+            <Select
+              placeholder="اختر حساب الخزينة"
+              disabled={treasuryAccounts.length === 0}
+              notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+            >
+              {treasuryAccounts.map(acc => (
+                <Option key={acc.id} value={acc.id}>
+                  {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="referenceNumber"
+            label="رقم المرجع (اختياري)"
+          >
+            <Input placeholder="رقم المرجع أو رقم الإيصال" />
           </Form.Item>
         </Form>
       </Modal>

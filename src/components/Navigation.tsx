@@ -17,6 +17,7 @@ import {
   WalletOutlined,
   SafetyOutlined,
   ShopOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useTenant } from '../contexts/TenantContext'
@@ -79,6 +80,12 @@ const Navigation = () => {
       icon: <WalletOutlined />,
       label: 'إدارة الخزينة',
     },
+    // Show Incomes page only for engineering companies
+    ...(isEngineering ? [{
+      key: '/incomes',
+      icon: <DollarOutlined />,
+      label: 'الواردات والسلف المستلمة',
+    }] : []),
     // Admin Approvals - available for all (for now, just make the link available)
     {
       key: '/admin-approvals',

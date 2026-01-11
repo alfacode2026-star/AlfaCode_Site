@@ -21,6 +21,7 @@ import LaborPage from './pages/LaborPage';
 import GeneralExpenses from './pages/GeneralExpenses';
 import AdminApprovals from './pages/AdminApprovals';
 import TreasuryPage from './pages/TreasuryPage';
+import IncomesPage from './pages/IncomesPage';
 
 // Import Navigation component
 import Navigation from './components/Navigation';
@@ -173,6 +174,7 @@ function AppContent() {
               <Route path="/general-expenses" element={<GeneralExpenses />} />
               <Route path="/admin-approvals" element={<AdminApprovals />} />
               <Route path="/treasury" element={<TreasuryPage />} />
+              <Route path="/incomes" element={<IncomesPage />} />
               <Route path="/customers" element={<CustomersPage />} />
               <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/inventory" element={<InventoryPage />} />

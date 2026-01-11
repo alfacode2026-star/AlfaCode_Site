@@ -319,14 +319,98 @@ class QuotationsService {
 
       if (error) throw error
 
-      // Check if status changed to 'converted' and automatically convert to project and contract in one transaction
+      // Check if status changed to 'approved' or 'converted' and auto-create customer if needed
+      const wasApproved = currentQuotation?.status === 'approved'
       const wasConverted = currentQuotation?.status === 'converted'
+      const isNowApproved = quotationData.status === 'approved'
       const isNowConverted = quotationData.status === 'converted'
       
+      // STRICT CUSTOMER CREATION: When quotation is approved, MUST trigger INSERT if customer_name doesn't exist
+      // Do not just link them; create a full record with type: 'customer'
+      if ((!wasApproved && isNowApproved) || (!wasConverted && isNowConverted)) {
+        const mappedQuotation = this.mapToCamelCase(data)
+        const customerName = mappedQuotation.customerName
+        const customerPhone = mappedQuotation.customerPhone
+        const customerEmail = mappedQuotation.customerEmail
+        
+        if (customerName) {
+          try {
+            // STRICT CHECK: Only check if a customer with this exact name AND type='customer' exists
+            // We MUST create a new customer record if it doesn't exist, regardless of other types
+            let existingCustomerWithType = null
+            if (customerName) {
+              const allCustomers = await customersService.getCustomers()
+              // Only match if name matches AND type is 'customer' or 'client'
+              existingCustomerWithType = allCustomers.find(c => 
+                c.name?.toLowerCase() === customerName.toLowerCase() &&
+                (c.type === 'customer' || c.type === 'client')
+              )
+            }
+            
+            // If customer with type='customer' doesn't exist, MUST create it
+            if (!existingCustomerWithType) {
+              // Generate email if missing
+              const finalEmail = customerEmail || `${customerName.replace(/\s/g, '').toLowerCase()}@customer.local`
+              
+              const newCustomerData = {
+                name: customerName,
+                phone: customerPhone || '',
+                email: finalEmail,
+                type: 'customer', // MUST be type: 'customer'
+                status: 'active'
+              }
+              
+              console.log('STRICT CUSTOMER CREATION: Creating customer record for approved quotation:', newCustomerData)
+              
+              const createResult = await customersService.addCustomer(newCustomerData)
+              if (createResult.success && createResult.customer) {
+                // Update quotation with new customer_id
+                const { error: updateError } = await supabase
+                  .from('quotations')
+                  .update({ customer_id: createResult.customer.id })
+                  .eq('id', id)
+                  .eq('tenant_id', tenantId)
+                
+                if (updateError) {
+                  console.error('Failed to link customer_id to quotation:', updateError)
+                } else {
+                  // Update the mapped quotation data to include customer_id
+                  mappedQuotation.customerId = createResult.customer.id
+                  console.log('✅ STRICT CUSTOMER CREATION: Created customer record:', createResult.customer.id, 'for quotation:', id)
+                }
+              } else {
+                console.error('❌ STRICT CUSTOMER CREATION: Failed to create customer:', createResult.error)
+                throw new Error(`Failed to create customer record: ${createResult.error || 'Unknown error'}`)
+              }
+            } else {
+              // Customer with type='customer' exists - link it to quotation
+              if (!mappedQuotation.customerId || mappedQuotation.customerId !== existingCustomerWithType.id) {
+                const { error: updateError } = await supabase
+                  .from('quotations')
+                  .update({ customer_id: existingCustomerWithType.id })
+                  .eq('id', id)
+                  .eq('tenant_id', tenantId)
+                
+                if (!updateError) {
+                  mappedQuotation.customerId = existingCustomerWithType.id
+                  console.log('✅ Linked existing customer (type=customer) to quotation:', existingCustomerWithType.id)
+                }
+              }
+            }
+          } catch (customerError) {
+            console.error('❌ STRICT CUSTOMER CREATION: Error creating customer for quotation:', customerError)
+            // Throw error to fail the quotation update if customer creation fails
+            throw new Error(`Failed to create customer record for approved quotation: ${customerError.message}`)
+          }
+        }
+      }
+      
+      // Check if status changed to 'converted' and automatically convert to project and contract in one transaction
       if (!wasConverted && isNowConverted) {
         // Automatically convert to project (which also creates contract in one transaction)
         // Update quotation status to 'converted' first before conversion
-        const convertedProject = await this.convertToProject(this.mapToCamelCase(data))
+        const mappedQuotationForConversion = this.mapToCamelCase(data)
+        const convertedProject = await this.convertToProject(mappedQuotationForConversion)
         if (convertedProject.success) {
           return {
             success: true,
