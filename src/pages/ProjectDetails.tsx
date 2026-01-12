@@ -8,6 +8,9 @@ import contractsService from '../services/contractsService'
 import paymentsService from '../services/paymentsService'
 import incomesService from '../services/incomesService'
 import treasuryService from '../services/treasuryService'
+import laborGroupsService from '../services/laborGroupsService'
+import { supabase } from '../services/supabaseClient'
+import tenantStore from '../services/tenantStore'
 import {
   Card,
   Table,
@@ -63,16 +66,36 @@ const ProjectDetails = () => {
   const [orders, setOrders] = useState([])
   const [contracts, setContracts] = useState([])
   const [payments, setPayments] = useState([])
+  const [laborGroups, setLaborGroups] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [invoiceModalVisible, setInvoiceModalVisible] = useState(false)
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([])
+  const [hasExistingIncomes, setHasExistingIncomes] = useState<boolean>(false)
+  const [loadingProjectIncomes, setLoadingProjectIncomes] = useState(false)
+  const [paymentsWithTreasuryAccounts, setPaymentsWithTreasuryAccounts] = useState<any[]>([])
 
   useEffect(() => {
     if (id) {
       loadProjectDetails()
       loadTreasuryAccounts()
+      checkExistingIncomes()
     }
   }, [id])
+
+  // Check if project has existing incomes
+  const checkExistingIncomes = async () => {
+    if (!id) return
+    setLoadingProjectIncomes(true)
+    try {
+      const hasIncomes = await incomesService.hasExistingIncomes(id)
+      setHasExistingIncomes(hasIncomes)
+    } catch (error) {
+      console.error('Error checking existing incomes:', error)
+      setHasExistingIncomes(false)
+    } finally {
+      setLoadingProjectIncomes(false)
+    }
+  }
 
   const loadProjectDetails = async () => {
     setLoading(true)
@@ -87,15 +110,20 @@ const ProjectDetails = () => {
       setProject(projectData)
 
       // Load all related data
-      const [projectOrders, projectContracts, projectPayments] = await Promise.all([
+      const [projectOrders, projectContracts, projectPayments, paidLaborGroups] = await Promise.all([
         ordersService.getOrdersByProject(id),
         contractsService.getContractsByProject(id),
-        paymentsService.getPaymentsByProject(id)
+        paymentsService.getPaymentsByProject(id),
+        laborGroupsService.getPaidLaborGroupsByProject(id)
       ])
 
       setOrders(projectOrders || [])
       setContracts(projectContracts || [])
       setPayments(projectPayments || [])
+      setLaborGroups(paidLaborGroups || [])
+      
+      // Fetch treasury account names for income payments (async, don't await)
+      loadTreasuryAccountNamesForPayments(projectPayments || [])
     } catch (error) {
       console.error('Error loading project details:', error)
       message.error('فشل في تحميل بيانات المشروع')
@@ -111,6 +139,77 @@ const ProjectDetails = () => {
     } catch (error) {
       console.error('Error loading treasury accounts:', error)
       setTreasuryAccounts([])
+    }
+  }
+
+  // Load treasury account names for payments (for Inflows/Advances table)
+  const loadTreasuryAccountNamesForPayments = async (paymentsList: any[]) => {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId || !paymentsList || paymentsList.length === 0) {
+        setPaymentsWithTreasuryAccounts([])
+        return
+      }
+
+      // Get income payment IDs (payments that are income/advances)
+      // Include both investor inflows and employee advances
+      const incomePaymentIds = paymentsList
+        .filter(p => {
+          const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
+          if (isGeneralExpense) return false
+          const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
+          const isEmployeeAdvance = p.transactionType === 'advance' && p.managerName && p.projectId
+          return isIncome || isEmployeeAdvance
+        })
+        .map(p => p.id)
+
+      if (incomePaymentIds.length === 0) {
+        setPaymentsWithTreasuryAccounts([])
+        return
+      }
+
+      // Fetch treasury transactions for these payments
+      // Employee advances use reference_type = 'expense', investor inflows use 'income'
+      const { data: treasuryTransactions, error } = await supabase
+        .from('treasury_transactions')
+        .select(`
+          reference_id,
+          account_id,
+          treasury_accounts:account_id (
+            id,
+            name
+          )
+        `)
+        .eq('tenant_id', tenantId)
+        .in('reference_type', ['income', 'expense'])
+        .in('reference_id', incomePaymentIds)
+
+      if (error) {
+        console.error('Error fetching treasury transactions:', error)
+        setPaymentsWithTreasuryAccounts([])
+        return
+      }
+
+      // Create a map of payment ID -> account name
+      const treasuryAccountMap: Record<string, string> = {}
+      if (treasuryTransactions) {
+        treasuryTransactions.forEach((txn: any) => {
+          if (txn.reference_id && txn.treasury_accounts) {
+            treasuryAccountMap[txn.reference_id] = txn.treasury_accounts.name
+          }
+        })
+      }
+
+      // Enrich payments with treasury account names
+      const enrichedPayments = paymentsList.map(payment => ({
+        ...payment,
+        treasuryAccountName: treasuryAccountMap[payment.id] || null
+      }))
+
+      setPaymentsWithTreasuryAccounts(enrichedPayments)
+    } catch (error) {
+      console.error('Error loading treasury account names for payments:', error)
+      setPaymentsWithTreasuryAccounts([])
     }
   }
 
@@ -151,16 +250,32 @@ const ProjectDetails = () => {
       return sum
     }, 0)
 
-    return ordersTotal + expensePaymentsTotal
+    // Add paid labor groups total
+    const laborGroupsTotal = laborGroups.reduce((sum, group) => {
+      return sum + (parseFloat(group.totalAmount) || 0)
+    }, 0)
+
+    return ordersTotal + expensePaymentsTotal + laborGroupsTotal
+  }
+
+  // Calculate Total Labor Cost: Sum of all paid labor groups
+  const calculateTotalLaborCost = () => {
+    return laborGroups.reduce((sum, group) => {
+      return sum + (parseFloat(group.totalAmount) || 0)
+    }, 0)
   }
 
   // Calculate Total Collected (Income): Sum of all Income Payments (client payments)
+  // CRITICAL: Only count Investor Inflows, NOT Employee Advances
   const calculateTotalCollected = () => {
     return payments.reduce((sum, payment) => {
-      // Only count income payments (client payments) that are paid
-      // If paymentType is undefined but contractId exists, treat as income (backward compatibility)
+      // Only count income payments (client payments/investor inflows) that are paid
+      // Exclude employee advances (transaction_type = 'advance' with manager_name)
       const isIncome = payment.paymentType === 'income' || (payment.paymentType === undefined && payment.contractId)
-      if (isIncome && payment.status === 'paid') {
+      const isEmployeeAdvance = payment.transactionType === 'advance' && payment.managerName
+      
+      // Count only investor inflows, exclude employee advances
+      if (isIncome && !isEmployeeAdvance && payment.status === 'paid') {
         return sum + (parseFloat(payment.amount) || 0)
       }
       return sum
@@ -234,7 +349,7 @@ const ProjectDetails = () => {
     }
 
     // Group orders and payments by work scope
-    const scopeBreakdown = project.workScopes.map(scope => {
+    const scopeBreakdown = project.workScopes?.map(scope => {
       // Calculate spent from orders for this scope
       const ordersForScope = orders.filter(order => order.workScope === scope)
       const ordersSpent = ordersForScope.reduce((sum, order) => {
@@ -331,13 +446,20 @@ const ProjectDetails = () => {
 
       // Determine if income/advance/milestone payment: exclude these from expense ledger
       // These should ONLY appear in the "واردات أو سلف" section
-      const isIncome = payment.paymentType === 'income'
-      const isAdvance = payment.transactionType === 'advance'
-      const isMilestonePayment = payment.contractId // Milestone payments have contractId
+      // CRITICAL: Explicitly check for ALL possible income indicators
+      const isIncome = payment.paymentType === 'income' || payment.payment_type === 'income'
+      const isAdvance = payment.transactionType === 'advance' || payment.transaction_type === 'advance'
+      const isMilestonePayment = payment.contractId || payment.contract_id // Milestone payments have contractId
       
       // CRITICAL: Exclude income payments, advances, and milestone payments from expense/procurement ledger
+      // Double-check: if payment_type is 'income' OR transaction_type is 'advance' OR has contractId, it's an income
       if (isIncome || isAdvance || isMilestonePayment) {
         return // Skip income payments, advances, and milestone payments - they belong in the incomes section only
+      }
+      
+      // Additional safety check: if paymentType is undefined/null but contractId exists, it's likely an income
+      if (!payment.paymentType && !payment.payment_type && (payment.contractId || payment.contract_id)) {
+        return // Skip - this is a client payment (income), not an expense
       }
 
       // Only add expense payments
@@ -377,37 +499,112 @@ const ProjectDetails = () => {
         return
       }
 
-      // Use paidDate if status is paid, otherwise use dueDate (but incomes are always paid)
-      const incomeDate = values.status === 'paid' && values.paidDate
+      // Validate transaction type
+      if (!values.transactionType) {
+        message.error('يرجى اختيار نوع المعاملة')
+        return
+      }
+
+      // Use paidDate if status is paid, otherwise use dueDate
+      const transactionDate = values.status === 'paid' && values.paidDate
         ? moment(values.paidDate).format('YYYY-MM-DD')
         : (values.dueDate ? moment(values.dueDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'))
 
-      const incomeData = {
-        projectId: id,
-        projectName: project?.name || '',
-        date: incomeDate,
-        amount: values.amount,
-        incomeType: 'milestone', // Default to milestone, can be extended
-        treasuryAccountId: values.treasuryAccountId,
-        description: values.description || null,
-        referenceNumber: values.referenceNumber || null,
-        workScope: values.workScope || null
-      }
+      // Route to correct service based on transaction type
+      if (values.transactionType === 'investor_inflow') {
+        // Type A: Investor Inflow - use incomesService
+        const incomeData = {
+          projectId: id,
+          projectName: project?.name || '',
+          date: transactionDate,
+          amount: values.amount,
+          incomeType: values.incomeType || 'down_payment',
+          treasuryAccountId: values.treasuryAccountId,
+          description: values.description || null,
+          referenceNumber: values.referenceNumber || null,
+          workScope: values.workScope || null,
+          completionPercentage: values.incomeType === 'advance' ? values.completionPercentage : null
+        }
 
-      const result = await incomesService.createIncome(incomeData)
-      
-      if (result.success) {
-        message.success('تم إنشاء الوارد/السلفة بنجاح')
-        setInvoiceModalVisible(false)
-        form.resetFields()
-        await loadProjectDetails() // Reload data
-        loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
-      } else {
-        message.error(result.error || 'فشل في إنشاء الوارد/السلفة')
+        const result = await incomesService.createIncome(incomeData)
+        
+        if (result.success) {
+          // Update project completion percentage if milestone advance
+          if (values.incomeType === 'advance' && values.completionPercentage !== null && values.completionPercentage !== undefined) {
+            try {
+              await projectsService.updateProject(id, {
+                completionPercentage: values.completionPercentage
+              })
+            } catch (error) {
+              console.error('Error updating project completion percentage:', error)
+              // Don't show error to user - income was saved successfully
+            }
+          }
+
+          message.success('تم إنشاء وارد المستثمر بنجاح')
+          setInvoiceModalVisible(false)
+          form.resetFields()
+          await loadProjectDetails() // Reload data
+          loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
+        } else {
+          message.error(result.error || 'فشل في إنشاء وارد المستثمر')
+        }
+      } else if (values.transactionType === 'employee_advance') {
+        // Type B: Employee Advance - use paymentsService
+        if (!values.managerName || values.managerName.trim() === '') {
+          message.error('يرجى إدخال اسم المهندس/الموظف')
+          return
+        }
+
+        // Generate advance reference number
+        const advanceRefNumber = await paymentsService.generateAdvanceReferenceNumber()
+
+        const advanceData = {
+          projectId: id, // Link to project
+          transactionType: 'advance',
+          managerName: values.managerName.trim(),
+          amount: values.amount,
+          dueDate: transactionDate,
+          paidDate: values.status === 'paid' ? transactionDate : null,
+          status: values.status || 'pending',
+          referenceNumber: values.referenceNumber || advanceRefNumber,
+          notes: values.description || null,
+          workScope: values.workScope || null,
+          isGeneralExpense: false, // Linked to project, not general expense
+          treasuryAccountId: values.treasuryAccountId // Will be used to create treasury transaction
+        }
+
+        const result = await paymentsService.createPayment(advanceData)
+        
+        if (result.success) {
+          // Create treasury transaction for employee advance (outflow - money going out)
+          const treasuryResult = await treasuryService.createTransaction({
+            accountId: values.treasuryAccountId,
+            transactionType: 'outflow', // Outflow - money going out to employee
+            amount: values.amount,
+            referenceType: 'expense', // Employee advances are expenses
+            referenceId: result.payment.id,
+            description: `صرف عهدة لمهندس: ${values.managerName} - مشروع: ${project?.name || ''}`
+          })
+
+          if (!treasuryResult.success) {
+            console.error('Error creating treasury transaction for advance:', treasuryResult.error)
+            // Don't fail the whole operation, but log the error
+            message.warning('تم إنشاء العهدة بنجاح، لكن حدث خطأ في تحديث الخزينة')
+          }
+
+          message.success('تم إنشاء عهدة الموظف بنجاح')
+          setInvoiceModalVisible(false)
+          form.resetFields()
+          await loadProjectDetails() // Reload data
+          loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
+        } else {
+          message.error(result.error || 'فشل في إنشاء عهدة الموظف')
+        }
       }
     } catch (error) {
-      console.error('Error creating income:', error)
-      message.error('حدث خطأ أثناء إنشاء الوارد/السلفة')
+      console.error('Error creating transaction:', error)
+      message.error('حدث خطأ أثناء إنشاء المعاملة')
     }
   }
 
@@ -662,7 +859,7 @@ const ProjectDetails = () => {
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-              <div>{orders.length} أمر شراء + {payments.filter(p => (p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)) && p.status === 'paid').length} دفعة مصروف</div>
+              <div>{orders.length} أمر شراء + {payments.filter(p => (p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)) && p.status === 'paid').length} دفعة مصروف + {laborGroups.length} مجموعة عمالة</div>
             </div>
           </Card>
         </Col>
@@ -691,6 +888,33 @@ const ProjectDetails = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* Total Labor Cost Card */}
+      {calculateTotalLaborCost() > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24} sm={12} lg={8}>
+            <Card 
+              style={{
+                background: 'linear-gradient(135deg, #fa8c16 0%, #ffa940 100%)',
+                border: 'none',
+                height: '100%'
+              }}
+              bodyStyle={{ padding: 24 }}
+            >
+              <Statistic
+                title={<span style={{ color: 'white', fontSize: '16px' }}>إجمالي تكلفة العمالة</span>}
+                value={calculateTotalLaborCost()}
+                prefix={<UserOutlined style={{ color: 'white' }} />}
+                suffix={<span style={{ color: 'white' }}>ريال</span>}
+                styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
+              />
+              <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
+                <div>{laborGroups.length} مجموعة عمالة مدفوعة</div>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* Budget Usage Progress */}
       <Row gutter={[16, 16]}>
@@ -770,7 +994,7 @@ const ProjectDetails = () => {
       {scopeBreakdown.length > 0 && (
         <Card title={<Title level={4} style={{ margin: 0 }}>توزيع الإنفاق حسب نطاق العمل</Title>}>
           <Space orientation="vertical" size="large" style={{ width: '100%' }}>
-            {scopeBreakdown.map((scope) => (
+            {scopeBreakdown?.map((scope) => (
               <div key={scope.scope}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <div>
@@ -816,7 +1040,10 @@ const ProjectDetails = () => {
             <Button 
               type="primary" 
               icon={<PlusOutlined />}
-              onClick={() => setInvoiceModalVisible(true)}
+              onClick={async () => {
+                await checkExistingIncomes()
+                setInvoiceModalVisible(true)
+              }}
             >
               إضافة وارد/سلفة
             </Button>
@@ -825,6 +1052,25 @@ const ProjectDetails = () => {
       >
         <Table
           columns={[
+            {
+              title: 'نوع المعاملة',
+              dataIndex: 'transactionType',
+              key: 'transactionType',
+              width: 150,
+              render: (transactionType: string, record: any) => {
+                // Check if it's an employee advance
+                const isEmployeeAdvance = transactionType === 'advance' && record.managerName
+                const isInvestorInflow = record.paymentType === 'income' || (record.paymentType === undefined && record.contractId)
+                
+                if (isEmployeeAdvance) {
+                  return <Tag color="orange">عهدة مهندس</Tag>
+                } else if (isInvestorInflow) {
+                  return <Tag color="green">وارد مستثمر</Tag>
+                } else {
+                  return <Tag color="blue">مستخلص</Tag>
+                }
+              },
+            },
             {
               title: 'رقم المستخلص',
               dataIndex: 'paymentNumber',
@@ -838,6 +1084,9 @@ const ProjectDetails = () => {
               render: (notes: string, record: any) => (
                 <div>
                   <div style={{ fontWeight: 500 }}>{notes || 'مستخلص'}</div>
+                  {record.managerName && (
+                    <Tag color="orange" style={{ marginTop: 4 }}>المهندس: {record.managerName}</Tag>
+                  )}
                   {record.workScope && (
                     <Tag color="cyan" style={{ marginTop: 4 }}>{record.workScope}</Tag>
                   )}
@@ -871,6 +1120,17 @@ const ProjectDetails = () => {
               width: 120,
             },
             {
+              title: 'الخزينة/الحساب',
+              dataIndex: 'treasuryAccountName',
+              key: 'treasuryAccountName',
+              render: (accountName: string | null) => (
+                <span style={{ fontWeight: 500 }}>
+                  {accountName || '-'}
+                </span>
+              ),
+              width: 150,
+            },
+            {
               title: 'الحالة',
               dataIndex: 'status',
               key: 'status',
@@ -887,17 +1147,21 @@ const ProjectDetails = () => {
               width: 100,
             },
           ]}
-          dataSource={payments
-            .filter(p => {
+          dataSource={(paymentsWithTreasuryAccounts.length > 0 ? paymentsWithTreasuryAccounts : payments)
+            ?.filter((p: any) => {
               // Exclude general expenses
               const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
               if (isGeneralExpense) return false
               
-              // If paymentType is undefined but contractId exists, treat as income
+              // Include investor inflows (income payments)
               const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
-              return isIncome
+              
+              // Include employee advances (transaction_type = 'advance' with manager_name and project_id)
+              const isEmployeeAdvance = p.transactionType === 'advance' && p.managerName && p.projectId
+              
+              return isIncome || isEmployeeAdvance
             })
-            .map(p => ({ ...p, key: `income-${p.id}` }))}
+            ?.map((p: any) => ({ ...p, key: `income-${p.id}` })) || []}
           pagination={{ 
             pageSize: 5, 
             showSizeChanger: true, 
@@ -967,6 +1231,20 @@ const ProjectDetails = () => {
         okText="حفظ"
         cancelText="إلغاء"
         width={600}
+        afterOpenChange={(open) => {
+          if (open) {
+            // Reset form when modal opens
+            form.resetFields()
+            // Set default transaction type to investor_inflow
+            form.setFieldsValue({ transactionType: 'investor_inflow' })
+            // Set default income type when modal opens
+            if (hasExistingIncomes) {
+              form.setFieldsValue({ incomeType: 'advance' })
+            } else {
+              form.setFieldsValue({ incomeType: 'down_payment' })
+            }
+          }
+        }}
       >
         <Form
           form={form}
@@ -974,6 +1252,120 @@ const ProjectDetails = () => {
           onFinish={handleCreateInvoice}
           style={{ marginTop: 24 }}
         >
+          {/* Transaction Type Selector - FIRST FIELD */}
+          <Form.Item
+            name="transactionType"
+            label="نوع المعاملة"
+            rules={[{ required: true, message: 'يرجى اختيار نوع المعاملة' }]}
+            initialValue="investor_inflow"
+          >
+            <Select 
+              placeholder="اختر نوع المعاملة"
+              onChange={(value) => {
+                // Reset dependent fields when transaction type changes
+                if (value === 'employee_advance') {
+                  form.setFieldsValue({ 
+                    incomeType: undefined,
+                    completionPercentage: undefined 
+                  })
+                } else {
+                  // Reset manager name when switching to investor inflow
+                  form.setFieldsValue({ managerName: undefined })
+                }
+              }}
+            >
+              <Option value="investor_inflow">وارد من مستثمر</Option>
+              <Option value="employee_advance">سلفة عهدة لموظف</Option>
+            </Select>
+          </Form.Item>
+
+          {/* Conditional: Show income type only for investor inflows */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.transactionType !== currentValues.transactionType}
+          >
+            {({ getFieldValue }) => {
+              const transactionType = getFieldValue('transactionType')
+              
+              if (transactionType === 'investor_inflow') {
+                return (
+                  <Form.Item
+                    name="incomeType"
+                    label="نوع الوارد"
+                    rules={[{ required: true, message: 'يرجى اختيار نوع الوارد' }]}
+                    initialValue="down_payment"
+                  >
+                    <Select 
+                      placeholder="اختر نوع الوارد"
+                      disabled={hasExistingIncomes ? false : true}
+                      loading={loadingProjectIncomes}
+                      onChange={(value) => {
+                        if (value !== 'advance') {
+                          form.setFieldsValue({ completionPercentage: undefined })
+                        }
+                      }}
+                    >
+                      <Option value="down_payment" disabled={hasExistingIncomes}>
+                        عربون مقدم
+                        {hasExistingIncomes && ' (غير متاح - يوجد واردات سابقة)'}
+                      </Option>
+                      <Option value="advance" disabled={!hasExistingIncomes}>
+                        سلفة مرحلة
+                        {!hasExistingIncomes && ' (غير متاح - لا يوجد واردات سابقة)'}
+                      </Option>
+                    </Select>
+                  </Form.Item>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
+
+          {/* Conditional: Show helper text only for investor inflows */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.transactionType !== currentValues.transactionType}
+          >
+            {({ getFieldValue }) => {
+              const transactionType = getFieldValue('transactionType')
+              
+              if (transactionType === 'investor_inflow' && id) {
+                return (
+                  <div style={{ fontSize: '12px', color: '#666', marginTop: -16, marginBottom: 8 }}>
+                    {hasExistingIncomes 
+                      ? 'يوجد واردات سابقة - يجب اختيار "سلفة مرحلة"'
+                      : 'لا يوجد واردات سابقة - يجب اختيار "عربون مقدم"'
+                    }
+                  </div>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
+
+          {/* Conditional: Show manager name field only for employee advances */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.transactionType !== currentValues.transactionType}
+          >
+            {({ getFieldValue }) => {
+              const transactionType = getFieldValue('transactionType')
+              
+              if (transactionType === 'employee_advance') {
+                return (
+                  <Form.Item
+                    name="managerName"
+                    label="اسم المهندس/الموظف"
+                    rules={[{ required: true, message: 'يرجى إدخال اسم المهندس/الموظف' }]}
+                  >
+                    <Input placeholder="مثال: أحمد محمد" />
+                  </Form.Item>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
+
           <Form.Item
             name="description"
             label="الوصف/اسم المرحلة"
@@ -995,7 +1387,7 @@ const ProjectDetails = () => {
                   (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
                 }
               >
-                {availableWorkScopes.map(scope => (
+                {availableWorkScopes?.map(scope => (
                   <Option key={scope} value={scope}>
                     {scope}
                   </Option>
@@ -1015,6 +1407,41 @@ const ProjectDetails = () => {
               placeholder="0"
               formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             />
+          </Form.Item>
+
+          {/* Completion Percentage - Only show for milestone advance */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.incomeType !== currentValues.incomeType}
+          >
+            {({ getFieldValue }) => {
+              const incomeType = getFieldValue('incomeType')
+              
+              // Show completion percentage if advance is selected AND project has existing incomes
+              if (incomeType === 'advance' && id) {
+                return (
+                  <Form.Item
+                    name="completionPercentage"
+                    label="نسبة الإنجاز السابقة (%)"
+                    rules={[
+                      { required: true, message: 'يرجى إدخال نسبة الإنجاز السابقة' },
+                      { type: 'number', min: 0, max: 100, message: 'يجب أن تكون النسبة بين 0 و 100' }
+                    ]}
+                    tooltip="نسبة الإنجاز السابقة للمشروع قبل استلام هذه السلفة"
+                  >
+                    <InputNumber
+                      min={0}
+                      max={100}
+                      style={{ width: '100%' }}
+                      placeholder="0"
+                      formatter={value => `${value}%`}
+                      parser={value => value!.replace('%', '')}
+                    />
+                  </Form.Item>
+                )
+              }
+              return null
+            }}
           </Form.Item>
 
           <Row gutter={16}>
@@ -1079,7 +1506,7 @@ const ProjectDetails = () => {
               disabled={treasuryAccounts.length === 0}
               notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
             >
-              {treasuryAccounts.map(acc => (
+              {treasuryAccounts?.map(acc => (
                 <Option key={acc.id} value={acc.id}>
                   {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
                 </Option>

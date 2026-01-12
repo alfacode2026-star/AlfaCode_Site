@@ -67,7 +67,7 @@ const Navigation = () => {
     ...(isEngineering ? [{
       key: '/labor',
       icon: <TeamOutlined />,
-      label: 'يوميات العمال',
+      label: 'إدارة الموظفين والعمالة اليومية',
     }] : []),
     // Show General Expenses only for engineering companies
     ...(isEngineering ? [{

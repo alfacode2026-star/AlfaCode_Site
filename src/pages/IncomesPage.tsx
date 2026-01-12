@@ -50,6 +50,10 @@ const IncomesPage = () => {
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([])
   const [searchText, setSearchText] = useState('')
   const [availableWorkScopes, setAvailableWorkScopes] = useState<string[]>([])
+  const [completionPercentage, setCompletionPercentage] = useState<number | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [hasExistingIncomes, setHasExistingIncomes] = useState<boolean>(false)
+  const [loadingProjectIncomes, setLoadingProjectIncomes] = useState(false)
 
   const isEngineering = industryType === 'engineering'
 
@@ -102,25 +106,79 @@ const IncomesPage = () => {
     }
   }
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     setEditingIncome(null)
+    setCompletionPercentage(null)
+    setSelectedProjectId(null)
+    setHasExistingIncomes(false)
     form.resetFields()
+    form.setFieldsValue({ incomeType: 'down_payment' })
     setIsModalVisible(true)
   }
 
-  const handleEdit = (income: any) => {
+  // Check if project has existing incomes when project is selected
+  const handleProjectChange = async (projectId: string | null) => {
+    setSelectedProjectId(projectId)
+    if (!projectId) {
+      setHasExistingIncomes(false)
+      form.setFieldsValue({ incomeType: 'down_payment' })
+      return
+    }
+
+    setLoadingProjectIncomes(true)
+    try {
+      const hasIncomes = await incomesService.hasExistingIncomes(projectId)
+      setHasExistingIncomes(hasIncomes)
+      
+      // Set default income type based on existing incomes
+      if (hasIncomes) {
+        form.setFieldsValue({ incomeType: 'advance' })
+      } else {
+        form.setFieldsValue({ incomeType: 'down_payment' })
+      }
+    } catch (error) {
+      console.error('Error checking existing incomes:', error)
+      setHasExistingIncomes(false)
+    } finally {
+      setLoadingProjectIncomes(false)
+    }
+  }
+
+  const handleEdit = async (income: any) => {
     setEditingIncome(income)
+    setSelectedProjectId(income.projectId)
+    
+    // Check if project has existing incomes (excluding current one)
+    if (income.projectId) {
+      setLoadingProjectIncomes(true)
+      try {
+        const allIncomes = await incomesService.getIncomes()
+        const projectIncomes = allIncomes.filter(
+          (inc: any) => inc.projectId === income.projectId && inc.id !== income.id
+        )
+        setHasExistingIncomes(projectIncomes.length > 0)
+      } catch (error) {
+        console.error('Error checking existing incomes:', error)
+        setHasExistingIncomes(false)
+      } finally {
+        setLoadingProjectIncomes(false)
+      }
+    }
+    
     form.setFieldsValue({
       projectId: income.projectId,
       date: income.date ? dayjs(income.date) : dayjs(),
       amount: income.amount,
-      incomeType: income.incomeType === 'advance' ? 'advance' : 
-                  income.incomeType === 'down_payment' ? 'down_payment' : 'milestone',
+      incomeType: income.incomeType === 'advance' ? 'advance' : 'down_payment',
       treasuryAccountId: null, // Treasury account is not stored in payment, would need separate lookup
       description: income.description,
       referenceNumber: income.referenceNumber,
-      workScope: income.workScope
+      workScope: income.workScope,
+      completionPercentage: income.completionPercentage || null
     })
+    if (income.incomeType === 'advance' && income.completionPercentage) {
+      setCompletionPercentage(income.completionPercentage)
+    }
     setIsModalVisible(true)
   }
 
@@ -149,11 +207,12 @@ const IncomesPage = () => {
         projectName: selectedProject?.name || '',
         date: values.date ? values.date.format('YYYY-MM-DD') : new Date().toISOString().split('T')[0],
         amount: values.amount,
-        incomeType: values.incomeType || 'milestone',
+        incomeType: values.incomeType || 'down_payment',
         treasuryAccountId: values.treasuryAccountId,
         description: values.description,
         referenceNumber: values.referenceNumber,
-        workScope: values.workScope || null
+        workScope: values.workScope || null,
+        completionPercentage: values.incomeType === 'advance' ? values.completionPercentage : null
       }
 
       let result
@@ -164,9 +223,22 @@ const IncomesPage = () => {
       }
 
       if (result.success) {
+        // Update project completion percentage if milestone advance
+        if (values.incomeType === 'advance' && values.completionPercentage !== null && values.completionPercentage !== undefined && values.projectId) {
+          try {
+            await projectsService.updateProject(values.projectId, {
+              completionPercentage: values.completionPercentage
+            })
+          } catch (error) {
+            console.error('Error updating project completion percentage:', error)
+            // Don't show error to user - income was saved successfully
+          }
+        }
+
         message.success(editingIncome ? 'تم تحديث الوارد بنجاح' : 'تم إضافة الوارد بنجاح')
         setIsModalVisible(false)
         form.resetFields()
+        setCompletionPercentage(null)
         loadIncomes()
         loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
       } else {
@@ -188,9 +260,8 @@ const IncomesPage = () => {
 
   const getIncomeTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      down_payment: 'عربون',
-      milestone: 'مرحلة',
-      advance: 'سلفة'
+      down_payment: 'عربون مقدم',
+      advance: 'سلفة مرحلة'
     }
     return labels[type] || type
   }
@@ -198,7 +269,6 @@ const IncomesPage = () => {
   const getIncomeTypeColor = (type: string) => {
     const colors: Record<string, string> = {
       down_payment: 'blue',
-      milestone: 'green',
       advance: 'orange'
     }
     return colors[type] || 'default'
@@ -259,6 +329,13 @@ const IncomesPage = () => {
           {getIncomeTypeLabel(type)}
         </Tag>
       )
+    },
+    {
+      title: 'الخزينة/الحساب',
+      dataIndex: 'treasuryAccountName',
+      key: 'treasuryAccountName',
+      width: 150,
+      render: (name: string) => name || '-'
     },
     {
       title: 'الوصف',
@@ -403,6 +480,9 @@ const IncomesPage = () => {
           setIsModalVisible(false)
           form.resetFields()
           setEditingIncome(null)
+          setSelectedProjectId(null)
+          setHasExistingIncomes(false)
+          setCompletionPercentage(null)
         }}
         okText="حفظ"
         cancelText="إلغاء"
@@ -423,9 +503,11 @@ const IncomesPage = () => {
             <Select
               placeholder="اختر المشروع"
               showSearch
+              loading={loadingProjectIncomes}
               filterOption={(input, option) =>
                 (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
               }
+              onChange={handleProjectChange}
             >
               {projects.map((project: any) => (
                 <Option key={project.id} value={project.id}>
@@ -492,14 +574,36 @@ const IncomesPage = () => {
                 name="incomeType"
                 label="نوع الوارد"
                 rules={[{ required: true, message: 'يرجى اختيار نوع الوارد' }]}
-                initialValue="milestone"
+                initialValue="down_payment"
               >
-                <Select placeholder="اختر نوع الوارد">
-                  <Option value="down_payment">عربون</Option>
-                  <Option value="milestone">مرحلة</Option>
-                  <Option value="advance">سلفة</Option>
+                <Select 
+                  placeholder="اختر نوع الوارد"
+                  disabled={selectedProjectId ? (hasExistingIncomes ? false : true) : false}
+                  onChange={(value) => {
+                    if (value !== 'advance') {
+                      setCompletionPercentage(null)
+                      form.setFieldsValue({ completionPercentage: undefined })
+                    }
+                  }}
+                >
+                  <Option value="down_payment" disabled={selectedProjectId && hasExistingIncomes}>
+                    عربون مقدم
+                    {selectedProjectId && hasExistingIncomes && ' (غير متاح - يوجد واردات سابقة)'}
+                  </Option>
+                  <Option value="advance" disabled={selectedProjectId && !hasExistingIncomes}>
+                    سلفة مرحلة
+                    {selectedProjectId && !hasExistingIncomes && ' (غير متاح - لا يوجد واردات سابقة)'}
+                  </Option>
                 </Select>
               </Form.Item>
+              {selectedProjectId && (
+                <div style={{ fontSize: '12px', color: '#666', marginTop: -16, marginBottom: 8 }}>
+                  {hasExistingIncomes 
+                    ? 'يوجد واردات سابقة - يجب اختيار "سلفة مرحلة"'
+                    : 'لا يوجد واردات سابقة - يجب اختيار "عربون مقدم"'
+                  }
+                </div>
+              )}
             </Col>
             <Col span={12}>
               <Form.Item
@@ -510,6 +614,46 @@ const IncomesPage = () => {
               </Form.Item>
             </Col>
           </Row>
+
+          {/* Completion Percentage - Only show for milestone advance */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => 
+              prevValues.incomeType !== currentValues.incomeType ||
+              prevValues.projectId !== currentValues.projectId
+            }
+          >
+            {({ getFieldValue }) => {
+              const incomeType = getFieldValue('incomeType')
+              const projectId = getFieldValue('projectId')
+              
+              // Show completion percentage if advance is selected AND project has existing incomes
+              if (incomeType === 'advance' && projectId) {
+                return (
+                  <Form.Item
+                    name="completionPercentage"
+                    label="نسبة الإنجاز السابقة (%)"
+                    rules={[
+                      { required: true, message: 'يرجى إدخال نسبة الإنجاز السابقة' },
+                      { type: 'number', min: 0, max: 100, message: 'يجب أن تكون النسبة بين 0 و 100' }
+                    ]}
+                    tooltip="نسبة الإنجاز السابقة للمشروع قبل استلام هذه السلفة"
+                  >
+                    <InputNumber
+                      min={0}
+                      max={100}
+                      style={{ width: '100%' }}
+                      placeholder="0"
+                      formatter={value => `${value}%`}
+                      parser={value => value!.replace('%', '')}
+                      onChange={(value) => setCompletionPercentage(value as number)}
+                    />
+                  </Form.Item>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
 
           {/* Treasury Account Selection */}
           {treasuryAccounts.length === 0 && (

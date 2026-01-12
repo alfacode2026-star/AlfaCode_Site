@@ -176,7 +176,39 @@ class OrdersService {
       }
 
       // Generate PO number in format PO-YYYY-XXXX if not provided
-      const orderId = orderData.id || await this.generateOrderNumber()
+      let orderId = orderData.id || await this.generateOrderNumber()
+
+      // Get tenant ID (needed for checking existing order)
+      const tenantId = tenantStore.getTenantId()
+      const tenantValidation = validateTenantId(tenantId)
+      if (!tenantValidation.valid) {
+        return {
+          success: false,
+          error: tenantValidation.error || 'Select a Company first',
+          errorCode: 'NO_TENANT_ID'
+        }
+      }
+
+      // Check if order ID already exists (prevent duplicate key errors)
+      if (orderId) {
+        const { data: existingOrder, error: checkError } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('id', orderId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle()
+
+        if (checkError && checkError.code !== 'PGRST116') {
+          // PGRST116 = no rows returned, which is fine
+          console.error('Error checking existing order:', checkError)
+        }
+
+        if (existingOrder) {
+          // Generate a new ID if the provided one exists
+          orderId = await this.generateOrderNumber()
+          console.warn(`Order ID ${orderData.id} already exists, using new ID: ${orderId}`)
+        }
+      }
 
       // Try to find existing customer by email or phone
       let customerId = orderData.customerId || null
@@ -187,16 +219,6 @@ class OrdersService {
         }
       }
 
-      // Get tenant ID
-      const tenantId = tenantStore.getTenantId()
-      const tenantValidation = validateTenantId(tenantId)
-      if (!tenantValidation.valid) {
-        return {
-          success: false,
-          error: tenantValidation.error || 'Select a Company first',
-          errorCode: 'NO_TENANT_ID'
-        }
-      }
 
       // Prepare order data
       const newOrder = {

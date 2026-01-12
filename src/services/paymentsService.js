@@ -5,6 +5,20 @@ import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
 class PaymentsService {
+  // Get current user ID from Supabase auth
+  async getCurrentUserId() {
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser()
+      if (error || !user) {
+        return null
+      }
+      return user.id
+    } catch (error) {
+      console.warn('Error getting current user:', error.message)
+      return null
+    }
+  }
+
   // Generate payment number
   generatePaymentNumber(contractNumber) {
     const prefix = 'P'
@@ -295,9 +309,23 @@ class PaymentsService {
         linked_advance_id: paymentData.linkedAdvanceId || null,
         // settlement_type: only for settlements, 'expense' or 'return'
         settlement_type: paymentData.settlementType || null,
-        is_general_expense: isGeneralExpense,
-        created_by: paymentData.createdBy || 'user'
+        is_general_expense: isGeneralExpense
       }
+
+      // Only add created_by if we have a valid UUID (optional)
+      let createdBy = paymentData.createdBy
+      if (!createdBy || createdBy === 'user') {
+        createdBy = await this.getCurrentUserId()
+      }
+      if (createdBy && createdBy !== 'user') {
+        // Validate UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (uuidRegex.test(createdBy)) {
+          newPayment.created_by = createdBy
+        }
+        // If invalid UUID format, omit the field - database should handle this gracefully
+      }
+      // If createdBy is null or 'user', omit the field - database should handle this gracefully
 
       const { data: insertedPayment, error } = await supabase
         .from('payments')
@@ -307,7 +335,7 @@ class PaymentsService {
 
       if (error) throw error
 
-      // If this is a settlement (return-type), update the linked advance's remaining_amount
+      // If this is a settlement (expense or return), update the linked advance's remaining_amount
       if (paymentData.transactionType === 'settlement' && paymentData.linkedAdvanceId) {
         const linkedAdvance = await this.getPayment(paymentData.linkedAdvanceId)
         if (linkedAdvance) {
@@ -964,9 +992,20 @@ class PaymentsService {
         linked_advance_id: null, // No linked advance for transferred advances
         settlement_type: null,
         is_general_expense: true, // Manager advances are general expenses
-        source_advance_id: advanceId, // Link to original advance
-        created_by: 'user'
+        source_advance_id: advanceId // Link to original advance
       }
+
+      // Only add created_by if we have a valid UUID (optional)
+      const createdBy = await this.getCurrentUserId()
+      if (createdBy) {
+        // Validate UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (uuidRegex.test(createdBy)) {
+          newAdvance.created_by = createdBy
+        }
+        // If invalid UUID format, omit the field - database should handle this gracefully
+      }
+      // If createdBy is null, omit the field - database should handle this gracefully
 
       const { data: insertedAdvance, error: insertError } = await supabase
         .from('payments')
@@ -1136,9 +1175,20 @@ class PaymentsService {
         manager_name: settlementData.managerName || null,
         linked_advance_id: settlementData.linkedAdvanceId,
         settlement_type: settlementData.settlementType || 'expense',
-        is_general_expense: true,
-        created_by: 'user'
+        is_general_expense: true
       }
+
+      // Only add created_by if we have a valid UUID (optional)
+      const createdBy = await this.getCurrentUserId()
+      if (createdBy) {
+        // Validate UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (uuidRegex.test(createdBy)) {
+          settlementPayment.created_by = createdBy
+        }
+        // If invalid UUID format, omit the field - database should handle this gracefully
+      }
+      // If createdBy is null, omit the field - database should handle this gracefully
 
       const { data: insertedSettlement, error: settlementError } = await supabase
         .from('payments')

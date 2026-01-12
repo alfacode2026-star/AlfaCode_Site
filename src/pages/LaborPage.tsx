@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import workersService from '../services/workersService'
-import attendanceService from '../services/attendanceService'
+import employeesService from '../services/employeesService'
+import laborGroupsService from '../services/laborGroupsService'
 import projectsService from '../services/projectsService'
+import treasuryService from '../services/treasuryService'
+import paymentsService from '../services/paymentsService'
 import {
   Card,
   Table,
@@ -19,75 +21,191 @@ import {
   Popconfirm,
   message,
   DatePicker,
-  Checkbox,
   InputNumber,
   Typography,
   Divider,
   Empty,
-  Spin
+  Spin,
+  Tabs,
+  Checkbox,
+  Alert,
+  Descriptions,
+  Radio
 } from 'antd'
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
   TeamOutlined,
-  CalendarOutlined,
-  CheckCircleOutlined,
   UserOutlined,
   DollarOutlined,
-  ClockCircleOutlined
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  CalendarOutlined,
+  ClockCircleOutlined,
+  BankOutlined,
+  WalletOutlined,
+  EyeOutlined,
+  PrinterOutlined
 } from '@ant-design/icons'
 import moment from 'moment'
+import dayjs from 'dayjs'
 
 const { Option } = Select
-const { Title } = Typography
+const { Title, Text } = Typography
 const { TextArea } = Input
 
 const LaborPage = () => {
-  const [workers, setWorkers] = useState([])
+  // Tab state
+  const [activeTab, setActiveTab] = useState('internal-staff')
+
+  // ========== Internal Staff State ==========
+  const [employees, setEmployees] = useState([])
+  const [employeesLoading, setEmployeesLoading] = useState(false)
+  const [isEmployeeModalVisible, setIsEmployeeModalVisible] = useState(false)
+  const [selectedEmployee, setSelectedEmployee] = useState(null)
+  const [employeeForm] = Form.useForm()
+
+  // ========== External Labor Groups State ==========
+  const [laborGroups, setLaborGroups] = useState([])
+  const [laborGroupsLoading, setLaborGroupsLoading] = useState(false)
   const [projects, setProjects] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [workersLoading, setWorkersLoading] = useState(false)
-
-  // Workers management state
-  const [isWorkerModalVisible, setIsWorkerModalVisible] = useState(false)
-  const [selectedWorker, setSelectedWorker] = useState(null)
-  const [workerForm] = Form.useForm()
-
-  // Attendance state
-  const [isAttendanceModalVisible, setIsAttendanceModalVisible] = useState(false)
-  const [attendanceForm] = Form.useForm()
-  const [selectedWorkersForAttendance, setSelectedWorkersForAttendance] = useState<string[]>([])
-  const [workerRates, setWorkerRates] = useState<Record<string, number>>({})
-  const [workerHours, setWorkerHours] = useState<Record<string, number>>({})
+  const [treasuryAccounts, setTreasuryAccounts] = useState([])
+  const [engineerAdvances, setEngineerAdvances] = useState([])
+  
+  // Modals
+  const [isGroupModalVisible, setIsGroupModalVisible] = useState(false)
+  const [isCloseGroupModalVisible, setIsCloseGroupModalVisible] = useState(false)
+  const [isApprovalModalVisible, setIsApprovalModalVisible] = useState(false)
+  const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false)
+  const [isSummaryModalVisible, setIsSummaryModalVisible] = useState(false)
+  const [isReceiptModalVisible, setIsReceiptModalVisible] = useState(false)
+  
+  // Forms
+  const [groupForm] = Form.useForm()
+  const [closeGroupForm] = Form.useForm()
+  const [approvalForm] = Form.useForm()
+  const [paymentForm] = Form.useForm()
+  
+  // Selected group
+  const [selectedGroup, setSelectedGroup] = useState(null)
+  const [selectedGroupForApproval, setSelectedGroupForApproval] = useState(null)
+  const [selectedGroupForPayment, setSelectedGroupForPayment] = useState(null)
+  const [selectedGroupForReceipt, setSelectedGroupForReceipt] = useState(null)
+  const [summaryCalculations, setSummaryCalculations] = useState(null)
+  const [receiptData, setReceiptData] = useState<any>(null)
+  
+  // Payment method
+  const [paymentMethod, setPaymentMethod] = useState<'treasury' | 'advance' | null>(null)
+  const [selectedAdvance, setSelectedAdvance] = useState<any>(null)
 
   // Load data on mount
   useEffect(() => {
     loadData()
   }, [])
 
+  useEffect(() => {
+    if (activeTab === 'external-labor') {
+      loadLaborGroups()
+      loadProjects()
+      loadTreasuryAccounts()
+    }
+  }, [activeTab])
+
   const loadData = async () => {
-    setLoading(true)
-    try {
-      await Promise.all([loadWorkers(), loadProjects()])
-    } catch (error) {
-      console.error('Error loading data:', error)
-      message.error('فشل في تحميل البيانات')
-    } finally {
-      setLoading(false)
+    if (activeTab === 'internal-staff') {
+      await loadEmployees()
     }
   }
 
-  const loadWorkers = async () => {
-    setWorkersLoading(true)
+  // ========== Internal Staff Functions ==========
+  const loadEmployees = async () => {
+    setEmployeesLoading(true)
     try {
-      const data = await workersService.getWorkers()
-      setWorkers(data || [])
+      const data = await employeesService.getEmployees()
+      setEmployees(data || [])
     } catch (error) {
-      console.error('Error loading workers:', error)
-      message.error('فشل في تحميل بيانات العمال')
+      console.error('Error loading employees:', error)
+      message.error('فشل في تحميل بيانات الموظفين')
     } finally {
-      setWorkersLoading(false)
+      setEmployeesLoading(false)
+    }
+  }
+
+  const handleAddEmployee = () => {
+    setSelectedEmployee(null)
+    employeeForm.resetFields()
+    setIsEmployeeModalVisible(true)
+  }
+
+  const handleEditEmployee = (employee) => {
+    setSelectedEmployee(employee)
+    employeeForm.setFieldsValue({
+      name: employee.name,
+      employeeId: employee.employeeId,
+      jobTitle: employee.jobTitle,
+      monthlySalary: employee.monthlySalary
+    })
+    setIsEmployeeModalVisible(true)
+  }
+
+  const handleSaveEmployee = async (values: any) => {
+    try {
+      const employeeData = {
+        name: values.name,
+        employeeId: values.employeeId,
+        jobTitle: values.jobTitle,
+        monthlySalary: values.monthlySalary || 0
+      }
+
+      let result
+      if (selectedEmployee) {
+        result = await employeesService.updateEmployee(selectedEmployee.id, employeeData)
+      } else {
+        result = await employeesService.addEmployee(employeeData)
+      }
+
+      if (result.success) {
+        message.success(selectedEmployee ? 'تم تحديث الموظف بنجاح' : 'تم إضافة الموظف بنجاح')
+        setIsEmployeeModalVisible(false)
+        employeeForm.resetFields()
+        setSelectedEmployee(null)
+        await loadEmployees()
+      } else {
+        message.error(result.error || 'فشل في حفظ الموظف')
+      }
+    } catch (error) {
+      console.error('Error saving employee:', error)
+      message.error('حدث خطأ أثناء حفظ الموظف')
+    }
+  }
+
+  const handleDeleteEmployee = async (id: string) => {
+    try {
+      const result = await employeesService.deleteEmployee(id)
+      if (result.success) {
+        message.success('تم حذف الموظف بنجاح')
+        await loadEmployees()
+      } else {
+        message.error(result.error || 'فشل في حذف الموظف')
+      }
+    } catch (error) {
+      console.error('Error deleting employee:', error)
+      message.error('حدث خطأ أثناء حذف الموظف')
+    }
+  }
+
+  // ========== External Labor Groups Functions ==========
+  const loadLaborGroups = async () => {
+    setLaborGroupsLoading(true)
+    try {
+      const data = await laborGroupsService.getLaborGroups()
+      setLaborGroups(data || [])
+    } catch (error) {
+      console.error('Error loading labor groups:', error)
+      message.error('فشل في تحميل مجموعات العمالة')
+    } finally {
+      setLaborGroupsLoading(false)
     }
   }
 
@@ -97,78 +215,637 @@ const LaborPage = () => {
       setProjects(data || [])
     } catch (error) {
       console.error('Error loading projects:', error)
-      message.error('فشل في تحميل بيانات المشاريع')
+      message.error('فشل في تحميل المشاريع')
     }
   }
 
-  // ========== Workers Management ==========
-  const handleAddWorker = () => {
-    setSelectedWorker(null)
-    workerForm.resetFields()
-    setIsWorkerModalVisible(true)
-  }
-
-  const handleEditWorker = (worker) => {
-    setSelectedWorker(worker)
-    workerForm.setFieldsValue({
-      name: worker.name,
-      trade: worker.trade,
-      defaultDailyRate: worker.defaultDailyRate,
-      phone: worker.phone,
-      status: worker.status
-    })
-    setIsWorkerModalVisible(true)
-  }
-
-  const handleSaveWorker = async (values: any) => {
+  const loadTreasuryAccounts = async () => {
     try {
-      const workerData = {
-        name: values.name,
-        trade: values.trade,
-        defaultDailyRate: values.defaultDailyRate || 0,
-        phone: values.phone || null,
-        status: values.status || 'active'
+      const data = await treasuryService.getAccounts()
+      setTreasuryAccounts(data || [])
+    } catch (error) {
+      console.error('Error loading treasury accounts:', error)
+    }
+  }
+
+  const loadEngineerAdvances = async (engineerName: string, engineerId: string | null = null) => {
+    try {
+      const data = await laborGroupsService.getEngineerAdvances(engineerName, engineerId)
+      setEngineerAdvances(data || [])
+    } catch (error) {
+      console.error('Error loading engineer advances:', error)
+      setEngineerAdvances([])
+    }
+  }
+
+  const handleAddGroup = () => {
+    setSelectedGroup(null)
+    groupForm.resetFields()
+    // Don't auto-fill start date - let user select manually
+    setIsGroupModalVisible(true)
+  }
+
+  const handleEditGroup = (group) => {
+    if (group.status !== 'active') {
+      message.warning('لا يمكن تعديل مجموعة غير نشطة')
+      return
+    }
+    setSelectedGroup(group)
+    // Handle both single projectId and multiple projectIds
+    const projectIds = group.projectIds || (group.projectId ? [group.projectId] : [])
+    groupForm.setFieldsValue({
+      projectIds: projectIds,
+      engineerName: group.engineerName,
+      startDate: group.startDate ? dayjs(group.startDate) : null,
+      normalCount: group.normalCount,
+      skilledCount: group.skilledCount,
+      normalRate: group.normalRate,
+      skilledRate: group.skilledRate,
+      holidays: group.holidays || [],
+      notes: group.notes
+    })
+    setIsGroupModalVisible(true)
+  }
+
+  const handleSaveGroup = async (values: any) => {
+    try {
+      // Validate project start dates
+      const selectedProjectIds = values.projectIds || []
+      if (selectedProjectIds.length === 0) {
+        message.error('يرجى اختيار مشروع واحد على الأقل')
+        return
+      }
+
+      // Get selected projects and find the earliest (oldest) start date
+      // Start date cannot be earlier than the earliest project start date
+      const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
+      if (selectedProjects.length === 0) {
+        message.error('المشاريع المحددة غير موجودة')
+        return
+      }
+
+      // Find the earliest (oldest) project start date
+      const projectStartDates = selectedProjects
+        .map(p => p.startDate ? dayjs(p.startDate) : null)
+        .filter(d => d !== null)
+        .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
+
+      const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+
+      // Validate startDate is not earlier than project start date
+      // CRITICAL: startDate must be >= earliest project start date (using dayjs for consistency)
+      if (earliestProjectStartDate && values.startDate) {
+        const selectedStartDate = dayjs(values.startDate).startOf('day')
+        const projectStartDate = earliestProjectStartDate.startOf('day')
+        if (selectedStartDate.isBefore(projectStartDate, 'day')) {
+          message.error(`لا يمكن بدء مجموعة العمل قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`)
+          return
+        }
+      }
+
+      // CRITICAL: Format dates as YYYY-MM-DD strings using dayjs to avoid timezone shifts
+      // Use dayjs to ensure consistent date formatting before sending to service
+      const formattedStartDate = values.startDate 
+        ? dayjs(values.startDate).format('YYYY-MM-DD')
+        : null
+
+      const groupData = {
+        projectIds: selectedProjectIds,
+        engineerName: values.engineerName || 'مهندس',
+        startDate: formattedStartDate, // Already formatted as YYYY-MM-DD string
+        normalCount: values.normalCount || 0,
+        // Skilled labor is optional - only include if provided
+        skilledCount: values.skilledCount !== undefined && values.skilledCount !== null ? values.skilledCount : undefined,
+        normalRate: values.normalRate || 0,
+        skilledRate: values.skilledRate !== undefined && values.skilledRate !== null ? values.skilledRate : undefined,
+        holidays: values.holidays || [],
+        notes: values.notes || null
       }
 
       let result
-      if (selectedWorker) {
-        result = await workersService.updateWorker(selectedWorker.id, workerData)
+      if (selectedGroup) {
+        result = await laborGroupsService.updateLaborGroup(selectedGroup.id, groupData)
       } else {
-        result = await workersService.addWorker(workerData)
+        result = await laborGroupsService.createLaborGroup(groupData)
       }
 
       if (result.success) {
-        message.success(selectedWorker ? 'تم تحديث العامل بنجاح' : 'تم إضافة العامل بنجاح')
-        setIsWorkerModalVisible(false)
-        workerForm.resetFields()
-        setSelectedWorker(null)
-        await loadWorkers()
+        message.success(selectedGroup ? 'تم تحديث المجموعة بنجاح' : 'تم إنشاء المجموعة بنجاح')
+        setIsGroupModalVisible(false)
+        groupForm.resetFields()
+        setSelectedGroup(null)
+        await loadLaborGroups()
       } else {
-        message.error(result.error || 'فشل في حفظ العامل')
+        message.error(result.error || 'فشل في حفظ المجموعة')
       }
     } catch (error) {
-      console.error('Error saving worker:', error)
-      message.error('حدث خطأ أثناء حفظ العامل')
+      console.error('Error saving group:', error)
+      message.error('حدث خطأ أثناء حفظ المجموعة')
     }
   }
 
-  const handleDeleteWorker = async (id: string) => {
+  const handleCloseGroup = (group) => {
+    if (group.status !== 'active') {
+      message.warning('المجموعة غير نشطة')
+      return
+    }
+    setSelectedGroup(group)
+    closeGroupForm.resetFields()
+    // Set endDate to startDate (or today if startDate is in the future)
+    // The validation will constrain it to max 7 days from the manual startDate
+    const startDate = group.startDate ? dayjs(group.startDate) : dayjs()
+    const initialEndDate = startDate.isAfter(dayjs()) ? startDate : dayjs()
+    closeGroupForm.setFieldsValue({
+      endDate: initialEndDate,
+      holidays: group.holidays || [],
+      overtime: 0,
+      deductions: 0,
+      deductionReason: null,
+      notes: group.notes
+    })
+    setIsCloseGroupModalVisible(true)
+  }
+
+  const handleCloseGroupSubmit = async (values: any) => {
     try {
-      const result = await workersService.deleteWorker(id)
-      if (result.success) {
-        message.success('تم حذف العامل بنجاح')
-        await loadWorkers()
-      } else {
-        message.error(result.error || 'فشل في حذف العامل')
+      if (!selectedGroup) return
+
+      // CRITICAL: Use EXCLUSIVELY manual dates (YYYY-MM-DD format) - NOT created_at or system timestamps
+      // Format dates using dayjs to ensure consistent YYYY-MM-DD format
+      const manualStartDate = selectedGroup.startDate
+        ? dayjs(selectedGroup.startDate).format('YYYY-MM-DD')
+        : null
+      
+      // Ensure endDate is in YYYY-MM-DD format using dayjs
+      const manualEndDate = values.endDate 
+        ? dayjs(values.endDate).format('YYYY-MM-DD')
+        : null
+
+      if (!manualEndDate) {
+        message.error('تاريخ النهاية مطلوب')
+        return
       }
+
+      // Validate: endDate must not be more than 7 days from today
+      const today = dayjs().startOf('day')
+      const maxAllowedDate = today.add(7, 'day')
+      const selectedEndDate = dayjs(manualEndDate).startOf('day')
+      
+      if (selectedEndDate.isAfter(maxAllowedDate, 'day')) {
+        message.error('تاريخ الإغلاق لا يمكن أن يتجاوز 7 أيام من التاريخ الحالي')
+        return
+      }
+
+      // Calculate duration for summary using manual dates (dayjs)
+      const startDate = dayjs(manualStartDate)
+      const endDate = dayjs(manualEndDate)
+      const duration = endDate.diff(startDate, 'day') + 1 // +1 to include both start and end days
+
+      // Calculate preview of final amounts for summary alert
+      // CRITICAL: Use EXCLUSIVELY manual dates for calculation
+      const holidays = values.holidays || selectedGroup.holidays || []
+      const netDays = laborGroupsService.calculateNetDays(
+        manualStartDate, // Manual startDate in YYYY-MM-DD format
+        manualEndDate,   // Manual endDate in YYYY-MM-DD format
+        holidays
+      )
+      
+      const skilledCount = selectedGroup.skilledCount || 0
+      const skilledRate = selectedGroup.skilledRate || 0
+      const normalTotal = netDays * selectedGroup.normalCount * selectedGroup.normalRate
+      const skilledTotal = netDays * skilledCount * skilledRate
+      const baseTotal = normalTotal + skilledTotal
+      const overtime = parseFloat(values.overtime) || 0
+      const deductions = parseFloat(values.deductions) || 0
+      const finalTotal = baseTotal + overtime - deductions
+
+      // Show summary alert before closing
+      const summaryMessage = `الفترة: ${startDate.format('YYYY-MM-DD')} إلى ${endDate.format('YYYY-MM-DD')} (${duration} يوم)`
+      
+      const calculationPreview = `تفاصيل الحساب:
+• العمالة العادية: ${selectedGroup.normalCount} × ${selectedGroup.normalRate.toFixed(2)} × ${netDays} = ${normalTotal.toFixed(2)} ريال
+${skilledCount > 0 && skilledRate > 0 ? `• العمالة المهنية/الخلفة: ${skilledCount} × ${skilledRate.toFixed(2)} × ${netDays} = ${skilledTotal.toFixed(2)} ريال\n` : ''}• المجموع الأساسي: ${baseTotal.toFixed(2)} ريال
+${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\n` : ''}${deductions > 0 ? `• خصومات: -${deductions.toFixed(2)} ريال\n` : ''}• المبلغ الإجمالي النهائي: ${finalTotal.toFixed(2)} ريال`
+
+      Modal.confirm({
+        title: 'تأكيد إغلاق المجموعة',
+        content: `${summaryMessage}\n\n${calculationPreview}`,
+        okText: 'تأكيد وإغلاق',
+        cancelText: 'إلغاء',
+        width: 600,
+        onOk: async () => {
+          // CRITICAL: Ensure endDate is saved in YYYY-MM-DD format (manual date from UI)
+          const closeData = {
+            endDate: manualEndDate, // Already formatted as YYYY-MM-DD
+            holidays: values.holidays || [],
+            overtime: values.overtime || 0,
+            deductions: values.deductions || 0,
+            deductionReason: values.deductionReason || null,
+            notes: values.notes || null
+          }
+
+          const result = await laborGroupsService.closeLaborGroup(selectedGroup.id, closeData)
+
+          if (result.success) {
+            setSummaryCalculations({
+              ...result.calculations,
+              startDate: manualStartDate, // Manual startDate in YYYY-MM-DD format
+              endDate: manualEndDate,      // Manual endDate in YYYY-MM-DD format
+              duration: duration
+            })
+            setIsCloseGroupModalVisible(false)
+            setIsSummaryModalVisible(true)
+            await loadLaborGroups()
+          } else {
+            message.error(result.error || 'فشل في إغلاق المجموعة')
+          }
+        }
+      })
     } catch (error) {
-      console.error('Error deleting worker:', error)
-      message.error('حدث خطأ أثناء حذف العامل')
+      console.error('Error closing group:', error)
+      message.error('حدث خطأ أثناء إغلاق المجموعة')
     }
   }
 
-  // Workers table columns
-  const workerColumns = [
+  // Phase 1: Admin approves the group
+  const handleApproveGroup = (group) => {
+    if (group.status !== 'pending_approval') {
+      message.warning('المجموعة ليست في حالة انتظار الموافقة')
+      return
+    }
+    setSelectedGroupForApproval(group)
+    setIsApprovalModalVisible(true)
+  }
+
+  // Phase 2: Accountant processes payment
+  const handlePayGroup = (group) => {
+    if (group.status !== 'approved_for_payment') {
+      message.warning('المجموعة ليست في حالة موافقة للدفع')
+      return
+    }
+    setSelectedGroupForPayment(group)
+    setPaymentMethod(null)
+    setSelectedAdvance(null)
+    paymentForm.resetFields()
+    
+    // Load engineer advances if engineer name or ID is available
+    // CRITICAL: Pass both engineerName and engineerId to fetch correct advances
+    if (group.engineerName || group.engineerId) {
+      loadEngineerAdvances(group.engineerName || '', group.engineerId || null)
+    } else {
+      setEngineerAdvances([])
+    }
+    
+    setIsPaymentModalVisible(true)
+  }
+
+  // Phase 1: Admin approval (no payment method needed)
+  const handleApprovalSubmit = async () => {
+    try {
+      if (!selectedGroupForApproval) return
+
+      const result = await laborGroupsService.approveLaborGroup(selectedGroupForApproval.id, {})
+
+      if (result.success) {
+        message.success('تمت الموافقة على المجموعة بنجاح')
+        setIsApprovalModalVisible(false)
+        setSelectedGroupForApproval(null)
+        await loadLaborGroups()
+      } else {
+        message.error(result.error || 'فشل في الموافقة على المجموعة')
+      }
+    } catch (error) {
+      console.error('Error approving group:', error)
+      message.error('حدث خطأ أثناء الموافقة على المجموعة')
+    }
+  }
+
+  // Phase 2: Accountant payment
+  const handlePaymentSubmit = async (values: any) => {
+    try {
+      if (!selectedGroupForPayment) return
+      if (!paymentMethod) {
+        message.error('يرجى اختيار طريقة الدفع')
+        return
+      }
+
+      const paymentData: any = {
+        paymentMethod: paymentMethod
+      }
+
+      if (paymentMethod === 'treasury') {
+        if (!values.treasuryAccountId) {
+          message.error('يرجى اختيار حساب الخزينة')
+          return
+        }
+        paymentData.treasuryAccountId = values.treasuryAccountId
+      } else if (paymentMethod === 'advance') {
+        if (!values.linkedAdvanceId) {
+          message.error('يرجى اختيار العهدة')
+          return
+        }
+        paymentData.linkedAdvanceId = values.linkedAdvanceId
+      }
+
+      const result = await laborGroupsService.payLaborGroup(selectedGroupForPayment.id, paymentData)
+
+      if (result.success) {
+        message.success('تم الدفع بنجاح')
+        setIsPaymentModalVisible(false)
+        paymentForm.resetFields()
+        setSelectedGroupForPayment(null)
+        setPaymentMethod(null)
+        setSelectedAdvance(null)
+        await loadLaborGroups()
+      } else {
+        message.error(result.error || 'فشل في دفع المجموعة')
+      }
+    } catch (error) {
+      console.error('Error paying group:', error)
+      message.error('حدث خطأ أثناء دفع المجموعة')
+    }
+  }
+
+  const handleDeleteGroup = async (id: string) => {
+    try {
+      const result = await laborGroupsService.deleteLaborGroup(id)
+      if (result.success) {
+        message.success('تم حذف المجموعة بنجاح')
+        await loadLaborGroups()
+      } else {
+        message.error(result.error || 'فشل في حذف المجموعة')
+      }
+    } catch (error) {
+      console.error('Error deleting group:', error)
+      message.error('حدث خطأ أثناء حذف المجموعة')
+    }
+  }
+
+  const handleViewReceipt = async (group: any) => {
+    if (group.status !== 'paid') {
+      message.warning('المجموعة غير مدفوعة')
+      return
+    }
+    
+    setSelectedGroupForReceipt(group)
+    setIsReceiptModalVisible(true)
+    
+    // Load treasury transaction if paid via treasury
+    if (group.paymentMethod === 'treasury' && group.treasuryAccountId) {
+      try {
+        const transaction = await laborGroupsService.getTreasuryTransactionForGroup(group.id)
+        setReceiptData(transaction)
+      } catch (error) {
+        console.error('Error loading receipt data:', error)
+        setReceiptData(null)
+      }
+    } else {
+      // Paid via advance - no treasury transaction
+      setReceiptData(null)
+    }
+  }
+
+  const handlePrintGroup = (group: any) => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    // Handle both projectIds (array) and projectId (single) for backward compatibility
+    const projectIds = group.projectIds || (group.projectId ? [group.projectId] : [])
+    const projectNames = (projectIds || []).map(id => {
+      const project = projects.find(p => p.id === id)
+      return project ? project.name : id
+    }).join(', ')
+    const skilledCount = group.skilledCount || 0
+    const skilledRate = group.skilledRate || 0
+    const normalTotal = group.netDays * group.normalCount * group.normalRate
+    const skilledTotal = group.netDays * skilledCount * skilledRate
+    const baseTotal = normalTotal + skilledTotal
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8">
+        <title>تقرير مجموعة العمالة - ${group.id}</title>
+        <style>
+          @media print {
+            body { margin: 0; }
+            .no-print { display: none; }
+          }
+          body {
+            font-family: 'Arial', 'Tahoma', sans-serif;
+            direction: rtl;
+            padding: 20px;
+            color: #333;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 3px solid #1890ff;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+          }
+          .header h1 {
+            color: #1890ff;
+            margin: 0;
+            font-size: 24px;
+          }
+          .info-section {
+            margin-bottom: 25px;
+          }
+          .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid #e8e8e8;
+          }
+          .info-label {
+            font-weight: bold;
+            color: #666;
+            width: 200px;
+          }
+          .info-value {
+            flex: 1;
+            text-align: right;
+          }
+          .calculation-section {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          }
+          .calculation-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1890ff;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #1890ff;
+            padding-bottom: 10px;
+          }
+          .calculation-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 14px;
+          }
+          .calculation-formula {
+            color: #666;
+            font-style: italic;
+          }
+          .calculation-result {
+            font-weight: bold;
+            color: #333;
+          }
+          .total-row {
+            border-top: 2px solid #1890ff;
+            padding-top: 15px;
+            margin-top: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #1890ff;
+          }
+          .footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            border-top: 1px solid #e8e8e8;
+            padding-top: 20px;
+          }
+          .button-container {
+            text-align: center;
+            margin: 20px 0;
+          }
+          button {
+            background: #1890ff;
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+          }
+          button:hover {
+            background: #40a9ff;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>تقرير مجموعة العمالة الخارجية</h1>
+        </div>
+
+        <div class="info-section">
+          <div class="info-row">
+            <span class="info-label">${projectIds.length > 1 ? 'المشاريع:' : 'المشروع:'}</span>
+            <span class="info-value">${projectNames || '-'}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">المهندس:</span>
+            <span class="info-value">${group.engineerName || '-'}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">تاريخ البداية:</span>
+            <span class="info-value">${group.startDate ? moment(group.startDate).format('YYYY-MM-DD') : '-'}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">تاريخ النهاية:</span>
+            <span class="info-value">${group.endDate ? moment(group.endDate).format('YYYY-MM-DD') : '-'}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">الأيام الصافية:</span>
+            <span class="info-value">${group.netDays !== null && group.netDays !== undefined ? group.netDays : '-'} يوم</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">الحالة:</span>
+            <span class="info-value">${
+              group.status === 'active' ? 'نشط' :
+              group.status === 'pending_approval' ? 'بانتظار الموافقة' :
+              group.status === 'approved_for_payment' ? 'موافق عليه - جاهز للدفع' :
+              group.status === 'paid' ? 'مدفوع' :
+              group.status || '-'
+            }</span>
+          </div>
+          ${group.notes ? `
+          <div class="info-row">
+            <span class="info-label">ملاحظات:</span>
+            <span class="info-value">${group.notes}</span>
+          </div>
+          ` : ''}
+        </div>
+
+        <div class="calculation-section">
+          <div class="calculation-title">تفاصيل الحساب</div>
+          
+          <div class="calculation-row">
+            <span class="calculation-formula">العمالة العادية:</span>
+            <span class="calculation-result">${group.normalCount} × ${group.normalRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(normalTotal)}</span>
+          </div>
+
+          ${skilledCount > 0 && skilledRate > 0 ? `
+          <div class="calculation-row">
+            <span class="calculation-formula">العمالة المهنية/الخلفة:</span>
+            <span class="calculation-result">${skilledCount} × ${skilledRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(skilledTotal)}</span>
+          </div>
+          ` : ''}
+
+          <div class="calculation-row total-row">
+            <span>المجموع الأساسي:</span>
+            <span>${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(baseTotal)}</span>
+          </div>
+
+          ${group.overtime > 0 ? `
+          <div class="calculation-row">
+            <span class="calculation-formula">إضافي/مكافأة:</span>
+            <span class="calculation-result">+ ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.overtime)}</span>
+          </div>
+          ` : ''}
+
+          ${group.deductions > 0 ? `
+          <div class="calculation-row">
+            <span class="calculation-formula">خصومات:</span>
+            <span class="calculation-result">- ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.deductions)}</span>
+          </div>
+          ${group.deductionReason ? `
+          <div class="calculation-row">
+            <span class="calculation-formula">سبب الخصومات:</span>
+            <span class="calculation-result">${group.deductionReason}</span>
+          </div>
+          ` : ''}
+          ` : ''}
+
+          <div class="calculation-row total-row" style="margin-top: 20px;">
+            <span>المبلغ الإجمالي النهائي:</span>
+            <span>${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.totalAmount || 0)}</span>
+          </div>
+          <div class="calculation-row" style="margin-top: 8px; font-size: 12px; color: #999;">
+            <span>(المجموع الأساسي + الإضافي - الخصومات)</span>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p>تم إنشاء التقرير في: ${moment().format('YYYY-MM-DD HH:mm')}</p>
+          <p>معرف المجموعة: ${group.id}</p>
+        </div>
+
+        <div class="button-container no-print">
+          <button onclick="window.print()">طباعة</button>
+          <button onclick="window.close()" style="background: #999; margin-right: 10px;">إغلاق</button>
+        </div>
+      </body>
+      </html>
+    `
+
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+    printWindow.focus()
+    // Auto-print after a short delay
+    setTimeout(() => {
+      printWindow.print()
+    }, 250)
+  }
+
+  // Employees table columns
+  const employeeColumns = [
     {
       title: 'الاسم',
       dataIndex: 'name',
@@ -181,44 +858,30 @@ const LaborPage = () => {
       )
     },
     {
-      title: 'الحرفة',
-      dataIndex: 'trade',
-      key: 'trade',
-      render: (trade: string) => <Tag color="blue">{trade}</Tag>
+      title: 'الرقم الوظيفي',
+      dataIndex: 'employeeId',
+      key: 'employeeId'
     },
     {
-      title: 'السعر اليومي',
-      dataIndex: 'defaultDailyRate',
-      key: 'defaultDailyRate',
-      render: (rate: number) => (
+      title: 'المسمى الوظيفي',
+      dataIndex: 'jobTitle',
+      key: 'jobTitle',
+      render: (title: string) => <Tag color="blue">{title}</Tag>
+    },
+    {
+      title: 'الراتب الأساسي',
+      dataIndex: 'monthlySalary',
+      key: 'monthlySalary',
+      render: (salary: number) => (
         <span style={{ fontWeight: 'bold', color: '#52c41a' }}>
           {new Intl.NumberFormat('ar-SA', {
             style: 'currency',
             currency: 'SAR',
             minimumFractionDigits: 0
-          }).format(rate || 0)}
+          }).format(salary || 0)}
         </span>
       ),
       align: 'right' as const
-    },
-    {
-      title: 'الهاتف',
-      dataIndex: 'phone',
-      key: 'phone',
-      render: (phone: string) => phone || '-'
-    },
-    {
-      title: 'الحالة',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => {
-        const config = {
-          active: { color: 'green', text: 'نشط' },
-          inactive: { color: 'default', text: 'غير نشط' }
-        }
-        const statusConfig = config[status] || { color: 'default', text: 'غير محدد' }
-        return <Tag color={statusConfig.color}>{statusConfig.text}</Tag>
-      }
     },
     {
       title: 'الإجراءات',
@@ -228,14 +891,14 @@ const LaborPage = () => {
           <Button
             type="link"
             icon={<EditOutlined />}
-            onClick={() => handleEditWorker(record)}
+            onClick={() => handleEditEmployee(record)}
             size="small"
           >
             تعديل
           </Button>
           <Popconfirm
-            title="هل أنت متأكد من حذف هذا العامل؟"
-            onConfirm={() => handleDeleteWorker(record.id)}
+            title="هل أنت متأكد من حذف هذا الموظف؟"
+            onConfirm={() => handleDeleteEmployee(record.id)}
             okText="نعم"
             cancelText="لا"
           >
@@ -253,243 +916,333 @@ const LaborPage = () => {
     }
   ]
 
-  // Common trades
-  const commonTrades = [
-    'بناء (Mason)',
-    'كهربائي (Electrician)',
-    'سباك (Plumber)',
-    'نجار (Carpenter)',
-    'حداد (Welder)',
-    'دهان (Painter)',
-    'سائق (Driver)',
-    'عامل عام (General Worker)',
-    'أخرى (Other)'
+  // Labor groups table columns
+  const laborGroupColumns = [
+    {
+      title: 'المشاريع',
+      dataIndex: 'projectIds',
+      key: 'projectIds',
+      render: (projectIds: string[] | string, record: any) => {
+        // Handle both array (projectIds) and single (projectId) for backward compatibility
+        const ids = Array.isArray(projectIds) ? projectIds : (record.projectId ? [record.projectId] : [])
+        if (!ids || ids.length === 0) return '-'
+        const projectNames = (ids || []).map(id => {
+          const project = projects.find(p => p.id === id)
+          return project ? project.name : id
+        })
+        return projectNames.join(', ')
+      }
+    },
+    {
+      title: 'المهندس',
+      dataIndex: 'engineerName',
+      key: 'engineerName',
+      render: (name: string) => name || '-'
+    },
+    {
+      title: 'تاريخ البداية',
+      dataIndex: 'startDate',
+      key: 'startDate',
+      render: (date: string) => date ? moment(date).format('YYYY-MM-DD') : '-'
+    },
+    {
+      title: 'تاريخ النهاية',
+      dataIndex: 'endDate',
+      key: 'endDate',
+      render: (date: string) => date ? moment(date).format('YYYY-MM-DD') : '-'
+    },
+    {
+      title: 'العمالة',
+      key: 'labor',
+      render: (_: any, record: any) => (
+        <div>
+          <div>عادية: {record.normalCount} × {record.normalRate.toFixed(0)}</div>
+          {(record.skilledCount && record.skilledCount > 0) && (
+            <div>مهني/خلفة: {record.skilledCount} × {record.skilledRate.toFixed(0)}</div>
+          )}
+        </div>
+      )
+    },
+    {
+      title: 'الأيام الصافية',
+      dataIndex: 'netDays',
+      key: 'netDays',
+      render: (days: number) => days !== null && days !== undefined ? days : '-'
+    },
+    {
+      title: 'المبلغ الإجمالي',
+      dataIndex: 'totalAmount',
+      key: 'totalAmount',
+      render: (amount: number) => (
+        <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
+          {new Intl.NumberFormat('ar-SA', {
+            style: 'currency',
+            currency: 'SAR',
+            minimumFractionDigits: 0
+          }).format(amount || 0)}
+        </span>
+      ),
+      align: 'right' as const
+    },
+    {
+      title: 'الحالة',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string) => {
+        const config = {
+          active: { color: 'green', text: 'نشط' },
+          pending_approval: { color: 'orange', text: 'بانتظار الموافقة' },
+          approved_for_payment: { color: 'blue', text: 'موافق عليه - جاهز للدفع' },
+          paid: { color: 'success', text: 'مدفوع' },
+          cancelled: { color: 'default', text: 'ملغي' }
+        }
+        const statusConfig = config[status] || { color: 'default', text: status }
+        return <Tag color={statusConfig.color}>{statusConfig.text}</Tag>
+      }
+    },
+    {
+      title: 'الإجراءات',
+      key: 'actions',
+      render: (_: any, record: any) => (
+        <Space>
+          {record.status === 'active' && (
+            <Button
+              type="link"
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleCloseGroup(record)}
+              size="small"
+            >
+              إغلاق
+            </Button>
+          )}
+          {record.status === 'pending_approval' && (
+            <Button
+              type="link"
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleApproveGroup(record)}
+              size="small"
+              style={{ color: '#52c41a' }}
+            >
+              موافقة
+            </Button>
+          )}
+          {record.status === 'approved_for_payment' && (
+            <Button
+              type="link"
+              icon={<DollarOutlined />}
+              onClick={() => handlePayGroup(record)}
+              size="small"
+              style={{ color: '#1890ff' }}
+            >
+              دفع
+            </Button>
+          )}
+          {record.status === 'active' && (
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => handleEditGroup(record)}
+              size="small"
+            >
+              تعديل
+            </Button>
+          )}
+          {record.status !== 'paid' && (
+            <Popconfirm
+              title="هل أنت متأكد من حذف هذه المجموعة؟"
+              onConfirm={() => handleDeleteGroup(record.id)}
+              okText="نعم"
+              cancelText="لا"
+            >
+              <Button
+                type="link"
+                danger
+                icon={<DeleteOutlined />}
+                size="small"
+              >
+                حذف
+              </Button>
+            </Popconfirm>
+          )}
+          {record.status === 'paid' && (
+            <Button
+              type="link"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewReceipt(record)}
+              size="small"
+              style={{ color: '#1890ff' }}
+            >
+              عرض الإيصال
+            </Button>
+          )}
+          <Button
+            type="link"
+            icon={<PrinterOutlined />}
+            onClick={() => handlePrintGroup(record)}
+            size="small"
+          >
+            طباعة
+          </Button>
+        </Space>
+      )
+    }
   ]
 
-  // ========== Daily Attendance ==========
-  const handleOpenAttendanceModal = () => {
-    // Reset form and state
-    attendanceForm.resetFields()
-    setSelectedWorkersForAttendance([])
-    setWorkerRates({})
-    setWorkerHours({})
-    setIsAttendanceModalVisible(true)
-  }
-
-  const handleAttendanceProjectChange = (projectId: string) => {
-    // Reset selected workers when project changes
-    setSelectedWorkersForAttendance([])
-    setWorkerRates({})
-    setWorkerHours({})
-    attendanceForm.setFieldsValue({ workers: [] })
-  }
-
-  const handleWorkerSelectionChange = (checkedValues: string[]) => {
-    setSelectedWorkersForAttendance(checkedValues)
-    
-    // Initialize rates and hours for newly selected workers
-    const newRates = { ...workerRates }
-    const newHours = { ...workerHours }
-    
-    checkedValues.forEach(workerId => {
-      if (!newRates[workerId]) {
-        const worker = workers.find(w => w.id === workerId)
-        if (worker) {
-          newRates[workerId] = worker.defaultDailyRate || 0
-          newHours[workerId] = 1.0
-        }
-      }
-    })
-    
-    // Remove rates/hours for deselected workers
-    Object.keys(newRates).forEach(workerId => {
-      if (!checkedValues.includes(workerId)) {
-        delete newRates[workerId]
-        delete newHours[workerId]
-      }
-    })
-    
-    setWorkerRates(newRates)
-    setWorkerHours(newHours)
-  }
-
-  const handleSaveAttendance = async (values: any) => {
-    try {
-      if (!values.projectId || !values.date) {
-        message.error('يرجى اختيار المشروع والتاريخ')
-        return
-      }
-
-      if (selectedWorkersForAttendance.length === 0) {
-        message.error('يرجى اختيار عامل واحد على الأقل')
-        return
-      }
-
-      const attendanceData = {
-        projectId: values.projectId,
-        date: values.date ? moment(values.date).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
-        workers: selectedWorkersForAttendance,
-        workerRates: workerRates,
-        workerHours: workerHours,
-        workScope: values.workScope || null,
-        notes: values.notes || null,
-        createdBy: 'user'
-      }
-
-      const result = await attendanceService.createAttendanceRecords(attendanceData)
-
-      if (result.success) {
-        message.success(`تم حفظ حضور ${result.records?.length || 0} عامل بنجاح. تم إنشاء ${result.paymentsCreated || 0} مصروف تلقائياً.`)
-        setIsAttendanceModalVisible(false)
-        attendanceForm.resetFields()
-        setSelectedWorkersForAttendance([])
-        setWorkerRates({})
-        setWorkerHours({})
-        
-        // Reload workers to refresh data
-        await loadWorkers()
-      } else {
-        message.error(result.error || 'فشل في حفظ سجلات الحضور')
-      }
-    } catch (error) {
-      console.error('Error saving attendance:', error)
-      message.error('حدث خطأ أثناء حفظ سجلات الحضور')
-    }
-  }
-
-  // Calculate total cost for selected workers
-  const calculateTotalCost = () => {
-    return selectedWorkersForAttendance.reduce((sum, workerId) => {
-      const rate = workerRates[workerId] || 0
-      const hours = workerHours[workerId] || 1.0
-      return sum + (rate * hours)
-    }, 0)
-  }
-
-  // Get active workers for attendance
-  const activeWorkers = workers.filter(w => w.status === 'active')
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-        <Spin size="large" tip="جاري التحميل..." />
-      </div>
-    )
-  }
+  // Holiday options
+  const holidayOptions = [
+    { label: 'الأحد', value: 'Sunday' },
+    { label: 'الإثنين', value: 'Monday' },
+    { label: 'الثلاثاء', value: 'Tuesday' },
+    { label: 'الأربعاء', value: 'Wednesday' },
+    { label: 'الخميس', value: 'Thursday' },
+    { label: 'الجمعة', value: 'Friday' },
+    { label: 'السبت', value: 'Saturday' }
+  ]
 
   return (
     <div style={{ padding: 24 }}>
       <Title level={2} style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
         <TeamOutlined />
-        نظام يوميات العمال (Labor Daily Records)
+        إدارة الموظفين والعمالة اليومية
       </Title>
 
-      {/* Section 1: Workers Management */}
-      <Card
-        title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-            <span>
-              <UserOutlined style={{ marginLeft: 8 }} />
-              إدارة العمال
-            </span>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleAddWorker}
-              size="large"
-            >
-              إضافة عامل
-            </Button>
-          </div>
-        }
-        style={{ marginBottom: 24 }}
-      >
-        {workersLoading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Spin size="large" tip="جاري تحميل العمال..." />
-          </div>
-        ) : workers.length === 0 ? (
-          <Empty
-            description="لا توجد عمال مسجلة"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddWorker}>
-              إضافة عامل جديد
-            </Button>
-          </Empty>
-        ) : (
-          <Table
-            columns={workerColumns}
-            dataSource={workers.map(w => ({ ...w, key: w.id }))}
-            pagination={{ 
-              pageSize: 10,
-              showSizeChanger: true,
-              showTotal: (total) => `إجمالي ${total} عامل`
-            }}
-            scroll={{ x: 'max-content' }}
-            responsive
-          />
-        )}
-      </Card>
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'internal-staff',
+            label: (
+              <span>
+                <UserOutlined />
+                الموظفون (Internal Staff)
+              </span>
+            ),
+            children: (
+              <Card
+                title={
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+                    <span>
+                      <UserOutlined style={{ marginLeft: 8 }} />
+                      إدارة الموظفين الداخليين
+                    </span>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={handleAddEmployee}
+                      size="large"
+                    >
+                      إضافة موظف
+                    </Button>
+                  </div>
+                }
+              >
+                {employeesLoading ? (
+                  <div style={{ textAlign: 'center', padding: 40 }}>
+                    <Spin size="large" tip="جاري تحميل الموظفين..." />
+                  </div>
+                ) : employees.length === 0 ? (
+                  <Empty
+                    description="لا توجد موظفين مسجلين"
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  >
+                    <Button type="primary" icon={<PlusOutlined />} onClick={handleAddEmployee}>
+                      إضافة موظف جديد
+                    </Button>
+                  </Empty>
+                ) : (
+                  <Table
+                    columns={employeeColumns}
+                    dataSource={employees.map(e => ({ ...e, key: e.id }))}
+                    pagination={{
+                      pageSize: 10,
+                      showSizeChanger: true,
+                      showTotal: (total) => `إجمالي ${total} موظف`
+                    }}
+                    scroll={{ x: 'max-content' }}
+                    responsive
+                  />
+                )}
+              </Card>
+            )
+          },
+          {
+            key: 'external-labor',
+            label: (
+              <span>
+                <TeamOutlined />
+                العمالة الخارجية (External Labor Groups)
+              </span>
+            ),
+            children: (
+              <Card
+                title={
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+                    <span>
+                      <TeamOutlined style={{ marginLeft: 8 }} />
+                      إدارة مجموعات العمالة الخارجية
+                    </span>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={handleAddGroup}
+                      size="large"
+                    >
+                      إنشاء مجموعة جديدة
+                    </Button>
+                  </div>
+                }
+              >
+                {laborGroupsLoading ? (
+                  <div style={{ textAlign: 'center', padding: 40 }}>
+                    <Spin size="large" tip="جاري تحميل المجموعات..." />
+                  </div>
+                ) : laborGroups.length === 0 ? (
+                  <Empty
+                    description="لا توجد مجموعات عمالة مسجلة"
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  >
+                    <Button type="primary" icon={<PlusOutlined />} onClick={handleAddGroup}>
+                      إنشاء مجموعة جديدة
+                    </Button>
+                  </Empty>
+                ) : (
+                  <Table
+                    columns={laborGroupColumns}
+                    dataSource={laborGroups.map(g => ({ ...g, key: g.id }))}
+                    pagination={{
+                      pageSize: 10,
+                      showSizeChanger: true,
+                      showTotal: (total) => `إجمالي ${total} مجموعة`
+                    }}
+                    scroll={{ x: 'max-content' }}
+                    responsive
+                  />
+                )}
+              </Card>
+            )
+          }
+        ]}
+      />
 
-      {/* Section 2: Daily Attendance Sheet */}
-      <Card
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <CalendarOutlined />
-            سجل الحضور اليومي (Daily Attendance Sheet)
-          </div>
-        }
-      >
-        <Button
-          type="primary"
-          icon={<CheckCircleOutlined />}
-          onClick={handleOpenAttendanceModal}
-          size="large"
-          block
-          style={{ marginBottom: 16 }}
-        >
-          تسجيل حضور جديد
-        </Button>
-
-        <div style={{ 
-          padding: 16, 
-          backgroundColor: '#f0f2f5', 
-          borderRadius: 4,
-          marginTop: 16
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <ClockCircleOutlined />
-            <strong>إجمالي العمال النشطين:</strong>
-            <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#1890ff' }}>
-              {activeWorkers.length}
-            </span>
-          </div>
-          <div style={{ color: '#666', fontSize: '14px' }}>
-            اضغط على زر "تسجيل حضور جديد" لتسجيل حضور العمال لمشروع معين في تاريخ محدد.
-            سيتم إنشاء مصروف تلقائياً في جدول الدفعات لكل عامل.
-          </div>
-        </div>
-      </Card>
-
-      {/* Worker Modal */}
+      {/* Employee Modal */}
       <Modal
-        title={selectedWorker ? 'تعديل عامل' : 'إضافة عامل جديد'}
-        open={isWorkerModalVisible}
-        onOk={() => workerForm.submit()}
+        title={selectedEmployee ? 'تعديل موظف' : 'إضافة موظف جديد'}
+        open={isEmployeeModalVisible}
+        onOk={() => employeeForm.submit()}
         onCancel={() => {
-          setIsWorkerModalVisible(false)
-          workerForm.resetFields()
-          setSelectedWorker(null)
+          setIsEmployeeModalVisible(false)
+          employeeForm.resetFields()
+          setSelectedEmployee(null)
         }}
         okText="حفظ"
         cancelText="إلغاء"
         width={600}
       >
         <Form
-          form={workerForm}
+          form={employeeForm}
           layout="vertical"
-          onFinish={handleSaveWorker}
+          onFinish={handleSaveEmployee}
           style={{ marginTop: 24 }}
         >
           <Form.Item
@@ -497,35 +1250,457 @@ const LaborPage = () => {
             label="الاسم"
             rules={[{ required: true, message: 'يرجى إدخال الاسم' }]}
           >
-            <Input placeholder="اسم العامل" />
+            <Input placeholder="اسم الموظف" />
           </Form.Item>
 
           <Form.Item
-            name="trade"
-            label="الحرفة"
-            rules={[{ required: true, message: 'يرجى اختيار الحرفة' }]}
+            name="employeeId"
+            label="الرقم الوظيفي"
+            rules={[{ required: true, message: 'يرجى إدخال الرقم الوظيفي' }]}
+          >
+            <Input placeholder="الرقم الوظيفي" />
+          </Form.Item>
+
+          <Form.Item
+            name="jobTitle"
+            label="المسمى الوظيفي"
+            rules={[{ required: true, message: 'يرجى إدخال المسمى الوظيفي' }]}
+          >
+            <Input placeholder="المسمى الوظيفي" />
+          </Form.Item>
+
+          <Form.Item
+            name="monthlySalary"
+            label="الراتب الأساسي (ريال)"
+            rules={[{ required: true, message: 'يرجى إدخال الراتب الأساسي' }]}
+          >
+            <InputNumber
+              min={0}
+              style={{ width: '100%' }}
+              placeholder="0"
+              formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Group Modal */}
+      <Modal
+        title={selectedGroup ? 'تعديل مجموعة عمالة' : 'إنشاء مجموعة عمالة جديدة'}
+        open={isGroupModalVisible}
+        onOk={() => groupForm.submit()}
+        onCancel={() => {
+          setIsGroupModalVisible(false)
+          groupForm.resetFields()
+          setSelectedGroup(null)
+        }}
+        okText="حفظ"
+        cancelText="إلغاء"
+        width={700}
+      >
+        <Form
+          form={groupForm}
+          layout="vertical"
+          onFinish={handleSaveGroup}
+          style={{ marginTop: 24 }}
+        >
+          <Form.Item
+            name="projectIds"
+            label="المشاريع"
+            rules={[
+              { required: true, message: 'يرجى اختيار مشروع واحد على الأقل' },
+              { type: 'array', min: 1, message: 'يرجى اختيار مشروع واحد على الأقل' }
+            ]}
           >
             <Select
-              placeholder="اختر الحرفة"
+              mode="multiple"
+              placeholder="اختر المشاريع (يمكن اختيار أكثر من مشروع)"
               showSearch
               filterOption={(input, option) =>
                 (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
               }
             >
-              {commonTrades.map(trade => (
-                <Option key={trade} value={trade}>
-                  {trade}
+              {projects.map(project => (
+                <Option key={project.id} value={project.id}>
+                  {project.name} {project.startDate ? `(بداية: ${moment(project.startDate).format('YYYY-MM-DD')})` : ''}
                 </Option>
               ))}
             </Select>
           </Form.Item>
 
+          <Form.Item
+            name="engineerName"
+            label="اسم المهندس"
+          >
+            <Input placeholder="اسم المهندس المسؤول" />
+          </Form.Item>
+
+          <Form.Item
+            name="startDate"
+            label="تاريخ البداية"
+            rules={[
+              { required: true, message: 'يرجى اختيار تاريخ البداية' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value) {
+                    return Promise.resolve()
+                  }
+                  const selectedProjectIds = getFieldValue('projectIds') || []
+                  if (selectedProjectIds.length === 0) {
+                    return Promise.resolve() // Will be caught by projectIds validation
+                  }
+                  
+                  // Get selected projects and find the earliest (oldest) start date
+                  // CRITICAL: Use dayjs for all date comparisons to prevent timezone errors
+                  const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
+                  const projectStartDates = selectedProjects
+                    .map(p => p.startDate ? dayjs(p.startDate) : null)
+                    .filter(d => d !== null)
+                    .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
+                  
+                  const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+                  
+                  if (earliestProjectStartDate) {
+                    const selectedStartDate = dayjs(value).startOf('day')
+                    const projectStartDate = earliestProjectStartDate.startOf('day')
+                    // CRITICAL: startDate must be >= earliest project start date
+                    if (selectedStartDate.isBefore(projectStartDate, 'day')) {
+                      return Promise.reject(new Error(`لا يمكن بدء مجموعة العمل قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`))
+                    }
+                  }
+                  return Promise.resolve()
+                }
+              })
+            ]}
+            shouldUpdate={(prevValues, currentValues) => 
+              prevValues.projectIds !== currentValues.projectIds
+            }
+          >
+            {({ getFieldValue }) => {
+              const selectedProjectIds = getFieldValue('projectIds') || []
+              // Get selected projects and find the earliest (oldest) start date
+              const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
+              const projectStartDates = selectedProjects
+                .map(p => p.startDate ? dayjs(p.startDate) : null)
+                .filter(d => d !== null)
+                .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
+              
+              const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+              
+              return (
+                <DatePicker
+                  style={{ width: '100%' }}
+                  format="YYYY-MM-DD"
+                  disabledDate={(current) => {
+                    if (!current) return false
+                    if (selectedProjectIds.length === 0) {
+                      return false // Allow all dates if no project selected yet
+                    }
+                    
+                    if (earliestProjectStartDate) {
+                      // CRITICAL: Use dayjs for all date comparisons to prevent timezone errors
+                      const currentDate = dayjs(current).startOf('day')
+                      const minAllowedDate = earliestProjectStartDate.startOf('day')
+                      // Disable dates before the earliest project start date (startDate must be >= earliest project start date)
+                      if (currentDate.isBefore(minAllowedDate, 'day')) {
+                        return true // Disable dates before project start date
+                      }
+                    }
+                    return false
+                  }}
+                />
+              )
+            }}
+          </Form.Item>
+
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                name="defaultDailyRate"
-                label="السعر اليومي (ريال)"
-                rules={[{ required: true, message: 'يرجى إدخال السعر اليومي' }]}
+                name="normalCount"
+                label="عدد العمالة العادية"
+                rules={[{ required: true, message: 'يرجى إدخال العدد' }]}
+              >
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  placeholder="0"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="normalRate"
+                label="السعر اليومي للعمالة العادية (ريال)"
+                rules={[{ required: true, message: 'يرجى إدخال السعر' }]}
+              >
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  placeholder="0"
+                  formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="skilledCount"
+                label="عامل مهني/خلفة/اسطة (اختياري)"
+              >
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  placeholder="0"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="skilledRate"
+                label="السعر اليومي (ريال) (اختياري)"
+              >
+                <InputNumber
+                  min={0}
+                  style={{ width: '100%' }}
+                  placeholder="0"
+                  formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item
+            name="holidays"
+            label="الأيام المستثناة (العطل)"
+          >
+            <Checkbox.Group options={holidayOptions} />
+          </Form.Item>
+
+          <Form.Item
+            name="notes"
+            label="ملاحظات"
+          >
+            <TextArea rows={3} placeholder="ملاحظات إضافية..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Close Group Modal */}
+      <Modal
+        title="إغلاق مجموعة العمالة"
+        open={isCloseGroupModalVisible}
+        onOk={() => closeGroupForm.submit()}
+        onCancel={() => {
+          setIsCloseGroupModalVisible(false)
+          closeGroupForm.resetFields()
+          setSelectedGroup(null)
+        }}
+        okText="إغلاق وحساب"
+        cancelText="إلغاء"
+        width={700}
+      >
+        {selectedGroup && (
+          <Alert
+            message="سيتم حساب الأيام الصافية (باستثناء العطل المحددة) والمبلغ الإجمالي"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
+        <Form
+          form={closeGroupForm}
+          layout="vertical"
+          onFinish={handleCloseGroupSubmit}
+          style={{ marginTop: 24 }}
+        >
+          {selectedGroup && (
+            <Form.Item shouldUpdate={(prevValues, currentValues) => 
+              prevValues.endDate !== currentValues.endDate || 
+              prevValues.holidays !== currentValues.holidays ||
+              prevValues.overtime !== currentValues.overtime ||
+              prevValues.deductions !== currentValues.deductions
+            }>
+              {({ getFieldValue }) => {
+                const endDate = getFieldValue('endDate')
+                const holidays = getFieldValue('holidays') || selectedGroup.holidays || []
+                const overtime = parseFloat(getFieldValue('overtime')) || 0
+                const deductions = parseFloat(getFieldValue('deductions')) || 0
+                const startDate = selectedGroup?.startDate
+                
+                if (endDate && startDate) {
+                  // Format dates using dayjs to ensure YYYY-MM-DD format
+                  const start = dayjs(startDate)
+                  const end = dayjs(endDate)
+                  const duration = end.diff(start, 'day') + 1
+                  
+                  // Calculate net days using manual dates (EXCLUSIVELY)
+                  // Ensure dates are in YYYY-MM-DD format
+                  const formattedStartDate = dayjs(startDate).format('YYYY-MM-DD')
+                  const formattedEndDate = dayjs(endDate).format('YYYY-MM-DD')
+                  const netDays = laborGroupsService.calculateNetDays(
+                    formattedStartDate,
+                    formattedEndDate,
+                    holidays
+                  )
+                  
+                  // Calculate totals using manual dates
+                  const skilledCount = selectedGroup.skilledCount || 0
+                  const skilledRate = selectedGroup.skilledRate || 0
+                  const normalTotal = netDays * selectedGroup.normalCount * selectedGroup.normalRate
+                  const skilledTotal = netDays * skilledCount * skilledRate
+                  const baseTotal = normalTotal + skilledTotal
+                  const finalTotal = baseTotal + overtime - deductions
+                  
+                  return (
+                    <Alert
+                      message={
+                        <div>
+                          <div style={{ marginBottom: 8 }}>
+                            <Text strong>ملخص الفترة:</Text>
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            من <Text strong>{dayjs(startDate).format('YYYY-MM-DD')}</Text> إلى <Text strong>{dayjs(endDate).format('YYYY-MM-DD')}</Text>
+                          </div>
+                          <div style={{ marginBottom: 8 }}>
+                            <Text strong>المدة الإجمالية: {duration} يوم</Text>
+                          </div>
+                          <Divider style={{ margin: '8px 0' }} />
+                          <div style={{ marginBottom: 4 }}>
+                            <Text strong>الأيام الصافية (باستثناء العطل): {netDays} يوم</Text>
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            <Text>المجموع الأساسي: </Text>
+                            <Text strong style={{ color: '#1890ff' }}>
+                              {new Intl.NumberFormat('ar-SA', {
+                                style: 'currency',
+                                currency: 'SAR',
+                                minimumFractionDigits: 2
+                              }).format(baseTotal)}
+                            </Text>
+                          </div>
+                          {overtime > 0 && (
+                            <div style={{ marginBottom: 4 }}>
+                              <Text>إضافي/مكافأة: </Text>
+                              <Text strong style={{ color: '#52c41a' }}>
+                                + {new Intl.NumberFormat('ar-SA', {
+                                  style: 'currency',
+                                  currency: 'SAR',
+                                  minimumFractionDigits: 2
+                                }).format(overtime)}
+                              </Text>
+                            </div>
+                          )}
+                          {deductions > 0 && (
+                            <div style={{ marginBottom: 4 }}>
+                              <Text>خصومات: </Text>
+                              <Text strong style={{ color: '#ff4d4f' }}>
+                                - {new Intl.NumberFormat('ar-SA', {
+                                  style: 'currency',
+                                  currency: 'SAR',
+                                  minimumFractionDigits: 2
+                                }).format(deductions)}
+                              </Text>
+                            </div>
+                          )}
+                          <Divider style={{ margin: '8px 0' }} />
+                          <div>
+                            <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                              المبلغ الإجمالي النهائي: {new Intl.NumberFormat('ar-SA', {
+                                style: 'currency',
+                                currency: 'SAR',
+                                minimumFractionDigits: 2
+                              }).format(finalTotal)}
+                            </Text>
+                          </div>
+                        </div>
+                      }
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                    />
+                  )
+                }
+                return null
+              }}
+            </Form.Item>
+          )}
+          <Form.Item
+            name="endDate"
+            label="تاريخ النهاية"
+            rules={[
+              { required: true, message: 'يرجى اختيار تاريخ النهاية' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value) {
+                    return Promise.resolve()
+                  }
+                  
+                  // Use dayjs for date calculations to ensure consistency
+                  const today = dayjs().startOf('day')
+                  const maxAllowedDate = today.add(7, 'day') // 7 days from today (current date)
+                  const selectedDate = dayjs(value).startOf('day')
+                  
+                  // Validate: endDate must not be more than 7 days from today
+                  if (selectedDate.isAfter(maxAllowedDate, 'day')) {
+                    return Promise.reject(new Error('تاريخ الإغلاق لا يمكن أن يتجاوز 7 أيام من التاريخ الحالي'))
+                  }
+                  
+                  // Validate: endDate must not be before startDate (if startDate exists)
+                  if (selectedGroup?.startDate) {
+                    const manualStartDate = dayjs(selectedGroup.startDate).startOf('day')
+                    if (selectedDate.isBefore(manualStartDate, 'day')) {
+                      return Promise.reject(new Error(`تاريخ النهاية لا يمكن أن يكون قبل تاريخ البداية (${manualStartDate.format('YYYY-MM-DD')})`))
+                    }
+                  }
+                  
+                  return Promise.resolve()
+                }
+              })
+            ]}
+          >
+            <DatePicker
+              style={{ width: '100%' }}
+              format="YYYY-MM-DD"
+              disabledDate={(current) => {
+                if (!current) return false
+                
+                // Use dayjs for date calculations to ensure consistency
+                const today = dayjs().startOf('day')
+                const maxAllowedDate = today.add(7, 'day') // 7 days from today (current date)
+                const currentDate = dayjs(current).startOf('day')
+                
+                // Disable dates before start date (if startDate exists)
+                if (selectedGroup?.startDate) {
+                  const manualStartDate = dayjs(selectedGroup.startDate).startOf('day')
+                  if (currentDate.isBefore(manualStartDate, 'day')) {
+                    return true
+                  }
+                }
+                
+                // Disable dates more than 7 days from today (current date)
+                if (currentDate.isAfter(maxAllowedDate, 'day')) {
+                  return true
+                }
+                
+                return false
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="holidays"
+            label="الأيام المستثناة (العطل)"
+          >
+            <Checkbox.Group options={holidayOptions} />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="overtime"
+                label="إضافي/مكافأة (ريال)"
               >
                 <InputNumber
                   min={0}
@@ -537,198 +1712,452 @@ const LaborPage = () => {
             </Col>
             <Col span={12}>
               <Form.Item
-                name="status"
-                label="الحالة"
-                initialValue="active"
+                name="deductions"
+                label="خصومات (ريال)"
               >
-                <Select>
-                  <Option value="active">نشط</Option>
-                  <Option value="inactive">غير نشط</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item
-            name="phone"
-            label="رقم الهاتف (اختياري)"
-          >
-            <Input placeholder="05xxxxxxxx" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Attendance Modal */}
-      <Modal
-        title="تسجيل حضور يومي"
-        open={isAttendanceModalVisible}
-        onOk={() => attendanceForm.submit()}
-        onCancel={() => {
-          setIsAttendanceModalVisible(false)
-          attendanceForm.resetFields()
-          setSelectedWorkersForAttendance([])
-          setWorkerRates({})
-          setWorkerHours({})
-        }}
-        okText="حفظ"
-        cancelText="إلغاء"
-        width={800}
-      >
-        <Form
-          form={attendanceForm}
-          layout="vertical"
-          onFinish={handleSaveAttendance}
-          style={{ marginTop: 24 }}
-        >
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="projectId"
-                label="المشروع"
-                rules={[{ required: true, message: 'يرجى اختيار المشروع' }]}
-              >
-                <Select
-                  placeholder="اختر المشروع"
-                  onChange={handleAttendanceProjectChange}
-                  showSearch
-                  filterOption={(input, option) =>
-                    (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
-                  }
-                >
-                  {projects.map(project => (
-                    <Option key={project.id} value={project.id}>
-                      {project.name}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="date"
-                label="التاريخ"
-                rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
-                initialValue={moment()}
-              >
-                <DatePicker
+                <InputNumber
+                  min={0}
                   style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                  disabledDate={(current) => current && current > moment().endOf('day')}
+                  placeholder="0"
+                  formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 />
               </Form.Item>
             </Col>
           </Row>
 
-          <Form.Item label="اختر العمال الحاضرين" required>
-            {activeWorkers.length === 0 ? (
-              <div style={{ padding: 16, textAlign: 'center', backgroundColor: '#fffbe6', borderRadius: 4 }}>
-                لا توجد عمال نشطة. يرجى إضافة عمال أولاً.
-              </div>
-            ) : (
-              <div style={{ 
-                maxHeight: '300px', 
-                overflowY: 'auto', 
-                border: '1px solid #d9d9d9', 
-                borderRadius: 4, 
-                padding: 16 
-              }}>
-                <Checkbox.Group
-                  value={selectedWorkersForAttendance}
-                  onChange={handleWorkerSelectionChange}
-                  style={{ width: '100%' }}
-                >
-                  <Space orientation="vertical" style={{ width: '100%' }}>
-                    {activeWorkers.map(worker => (
-                      <div 
-                        key={worker.id}
-                        style={{ 
-                          padding: 12, 
-                          border: '1px solid #f0f0f0', 
-                          borderRadius: 4,
-                          backgroundColor: selectedWorkersForAttendance.includes(worker.id) ? '#e6f7ff' : 'white'
-                        }}
-                      >
-                        <Row gutter={16} align="middle">
-                          <Col span={8}>
-                            <Checkbox value={worker.id}>
-                              <div>
-                                <div style={{ fontWeight: 500 }}>{worker.name}</div>
-                                <div style={{ fontSize: '12px', color: '#999' }}>{worker.trade}</div>
-                              </div>
-                            </Checkbox>
-                          </Col>
-                          <Col span={8}>
-                            <div style={{ fontSize: '12px', color: '#666', marginBottom: 4 }}>السعر اليومي:</div>
-                            <InputNumber
-                              value={workerRates[worker.id] || worker.defaultDailyRate || 0}
-                              onChange={(value) => setWorkerRates({ ...workerRates, [worker.id]: value || 0 })}
-                              min={0}
-                              style={{ width: '100%' }}
-                              size="small"
-                              disabled={!selectedWorkersForAttendance.includes(worker.id)}
-                              formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                            />
-                          </Col>
-                          <Col span={8}>
-                            <div style={{ fontSize: '12px', color: '#666', marginBottom: 4 }}>عدد الساعات:</div>
-                            <InputNumber
-                              value={workerHours[worker.id] !== undefined ? workerHours[worker.id] : 1.0}
-                              onChange={(value) => setWorkerHours({ ...workerHours, [worker.id]: value || 1.0 })}
-                              min={0.25}
-                              max={24}
-                              step={0.25}
-                              style={{ width: '100%' }}
-                              size="small"
-                              disabled={!selectedWorkersForAttendance.includes(worker.id)}
-                            />
-                          </Col>
-                        </Row>
-                      </div>
-                    ))}
-                  </Space>
-                </Checkbox.Group>
-              </div>
-            )}
-          </Form.Item>
-
-          {selectedWorkersForAttendance.length > 0 && (
-            <div style={{ 
-              padding: 16, 
-              backgroundColor: '#f6ffed', 
-              borderRadius: 4, 
-              marginBottom: 16,
-              border: '1px solid #b7eb8f'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 500 }}>إجمالي التكلفة:</span>
-                <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#52c41a' }}>
-                  {new Intl.NumberFormat('ar-SA', {
-                    style: 'currency',
-                    currency: 'SAR',
-                    minimumFractionDigits: 0
-                  }).format(calculateTotalCost())}
-                </span>
-              </div>
-              <div style={{ fontSize: '12px', color: '#666', marginTop: 8 }}>
-                سيتم إنشاء مصروف تلقائياً في جدول الدفعات بهذا المبلغ
-              </div>
-            </div>
-          )}
-
           <Form.Item
-            name="workScope"
-            label="نطاق العمل (اختياري)"
+            name="deductionReason"
+            label="سبب الخصومات"
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  const deductions = getFieldValue('deductions')
+                  if (deductions && parseFloat(deductions) > 0 && !value) {
+                    return Promise.reject(new Error('سبب الخصومات مطلوب عند وجود خصومات'))
+                  }
+                  return Promise.resolve()
+                }
+              })
+            ]}
           >
-            <Input placeholder="مثال: أعمال مدنية، أعمال كهربائية..." />
+            <TextArea rows={2} placeholder="سبب الخصومات (إجباري إذا كانت هناك خصومات)" />
           </Form.Item>
 
           <Form.Item
             name="notes"
-            label="ملاحظات (اختياري)"
+            label="ملاحظات"
           >
             <TextArea rows={3} placeholder="ملاحظات إضافية..." />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Summary Modal */}
+      <Modal
+        title="ملخص حساب مجموعة العمالة"
+        open={isSummaryModalVisible}
+        onOk={() => {
+          setIsSummaryModalVisible(false)
+          setSummaryCalculations(null)
+        }}
+        onCancel={() => {
+          setIsSummaryModalVisible(false)
+          setSummaryCalculations(null)
+        }}
+        okText="موافق"
+        width={600}
+      >
+        {summaryCalculations && selectedGroup && (
+          <Descriptions column={1} bordered>
+            <Descriptions.Item label="تاريخ البداية">
+              {dayjs(selectedGroup.startDate).format('YYYY-MM-DD')}
+            </Descriptions.Item>
+            <Descriptions.Item label="تاريخ النهاية">
+              {summaryCalculations.endDate ? dayjs(summaryCalculations.endDate).format('YYYY-MM-DD') : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="المدة الإجمالية">
+              {summaryCalculations.duration ? `${summaryCalculations.duration} يوم` : '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="الأيام الصافية (باستثناء العطل)">
+              {summaryCalculations.netDays} يوم
+            </Descriptions.Item>
+            <Descriptions.Item label="تفاصيل الحساب">
+              <div style={{ padding: '12px', background: '#f5f5f5', borderRadius: '4px' }}>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>العمالة العادية: </Text>
+                  <Text>{selectedGroup.normalCount} × {selectedGroup.normalRate.toFixed(2)} × {summaryCalculations.netDays} = </Text>
+                  <Text strong style={{ color: '#1890ff' }}>
+                    {new Intl.NumberFormat('ar-SA', {
+                      style: 'currency',
+                      currency: 'SAR',
+                      minimumFractionDigits: 2
+                    }).format(summaryCalculations.normalTotal)}
+                  </Text>
+                </div>
+                {selectedGroup.skilledCount > 0 && selectedGroup.skilledRate > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <Text strong>العمالة المهنية/الخلفة: </Text>
+                    <Text>{(selectedGroup.skilledCount || 0)} × {(selectedGroup.skilledRate || 0).toFixed(2)} × {summaryCalculations.netDays} = </Text>
+                    <Text strong style={{ color: '#1890ff' }}>
+                      {new Intl.NumberFormat('ar-SA', {
+                        style: 'currency',
+                        currency: 'SAR',
+                        minimumFractionDigits: 2
+                      }).format(summaryCalculations.skilledTotal)}
+                    </Text>
+                  </div>
+                )}
+                <Divider style={{ margin: '8px 0' }} />
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>المجموع الأساسي: </Text>
+                  <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                    {new Intl.NumberFormat('ar-SA', {
+                      style: 'currency',
+                      currency: 'SAR',
+                      minimumFractionDigits: 2
+                    }).format(summaryCalculations.baseTotal)}
+                  </Text>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                    (العمالة العادية + العمالة المهنية/الخلفة)
+                  </div>
+                </div>
+                {summaryCalculations.overtime > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <Text>إضافي/مكافأة: </Text>
+                    <Text strong style={{ color: '#52c41a' }}>
+                      + {new Intl.NumberFormat('ar-SA', {
+                        style: 'currency',
+                        currency: 'SAR',
+                        minimumFractionDigits: 2
+                      }).format(summaryCalculations.overtime)}
+                    </Text>
+                  </div>
+                )}
+                {summaryCalculations.deductions > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <Text>خصومات: </Text>
+                    <Text strong style={{ color: '#ff4d4f' }}>
+                      - {new Intl.NumberFormat('ar-SA', {
+                        style: 'currency',
+                        currency: 'SAR',
+                        minimumFractionDigits: 2
+                      }).format(summaryCalculations.deductions)}
+                    </Text>
+                  </div>
+                )}
+                <Divider style={{ margin: '8px 0' }} />
+                <div>
+                  <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
+                    المبلغ الإجمالي النهائي: {new Intl.NumberFormat('ar-SA', {
+                      style: 'currency',
+                      currency: 'SAR',
+                      minimumFractionDigits: 2
+                    }).format(summaryCalculations.finalTotal)}
+                  </Text>
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                    (المجموع الأساسي + الإضافي - الخصومات)
+                  </div>
+                </div>
+              </div>
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+        <Alert
+          message="تم إغلاق المجموعة ووضعها في حالة انتظار الموافقة"
+          type="success"
+          showIcon
+          style={{ marginTop: 16 }}
+        />
+      </Modal>
+
+      {/* Phase 1: Admin Approval Modal */}
+      <Modal
+        title="موافقة على مجموعة العمالة"
+        open={isApprovalModalVisible}
+        onOk={handleApprovalSubmit}
+        onCancel={() => {
+          setIsApprovalModalVisible(false)
+          setSelectedGroupForApproval(null)
+        }}
+        okText="موافقة"
+        cancelText="إلغاء"
+        width={600}
+      >
+        {selectedGroupForApproval && (
+          <div>
+            <Alert
+              message="سيتم الموافقة على المجموعة ووضعها في حالة جاهزة للدفع. المحاسب سيقوم بالدفع لاحقاً."
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label={selectedGroupForApproval.projectIds?.length > 1 ? 'المشاريع' : 'المشروع'}>
+                {(() => {
+                  const projectIds = selectedGroupForApproval.projectIds || (selectedGroupForApproval.projectId ? [selectedGroupForApproval.projectId] : [])
+                  const projectNames = (projectIds || []).map(id => {
+                    const project = projects.find(p => p.id === id)
+                    return project ? project.name : id
+                  })
+                  return projectNames.length > 0 ? projectNames.join(', ') : '-'
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="المهندس">
+                {selectedGroupForApproval.engineerName || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="المبلغ الإجمالي">
+                <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                  {new Intl.NumberFormat('ar-SA', {
+                    style: 'currency',
+                    currency: 'SAR',
+                    minimumFractionDigits: 2
+                  }).format(selectedGroupForApproval.totalAmount)}
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+          </div>
+        )}
+      </Modal>
+
+      {/* Phase 2: Accountant Payment Modal */}
+      <Modal
+        title="دفع مجموعة العمالة"
+        open={isPaymentModalVisible}
+        onOk={() => paymentForm.submit()}
+        onCancel={() => {
+          setIsPaymentModalVisible(false)
+          paymentForm.resetFields()
+          setSelectedGroupForPayment(null)
+          setPaymentMethod(null)
+          setSelectedAdvance(null)
+        }}
+        okText="دفع"
+        cancelText="إلغاء"
+        width={700}
+      >
+        {selectedGroupForPayment && (
+          <div style={{ marginBottom: 16 }}>
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="المبلغ الإجمالي">
+                <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
+                  {new Intl.NumberFormat('ar-SA', {
+                    style: 'currency',
+                    currency: 'SAR',
+                    minimumFractionDigits: 2
+                  }).format(selectedGroupForPayment.totalAmount)}
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+          </div>
+        )}
+        <Form
+          form={paymentForm}
+          layout="vertical"
+          onFinish={handlePaymentSubmit}
+        >
+          <Form.Item label="طريقة الدفع" required>
+            <Radio.Group
+              value={paymentMethod}
+              onChange={(e) => {
+                setPaymentMethod(e.target.value)
+                paymentForm.setFieldsValue({
+                  treasuryAccountId: undefined,
+                  linkedAdvanceId: undefined
+                })
+                setSelectedAdvance(null)
+              }}
+            >
+              <Radio value="treasury">
+                <BankOutlined /> من الخزينة/البنك
+              </Radio>
+              <Radio value="advance">
+                <WalletOutlined /> خصم من عهدة المهندس
+              </Radio>
+            </Radio.Group>
+          </Form.Item>
+
+          {paymentMethod === 'treasury' && (
+            <Form.Item
+              name="treasuryAccountId"
+              label="حساب الخزينة"
+              rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة' }]}
+            >
+              <Select
+                placeholder="اختر حساب الخزينة"
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+              >
+                {treasuryAccounts.map(account => (
+                  <Option key={account.id} value={account.id}>
+                    {account.name} ({account.type === 'bank' ? 'بنك' : 'صندوق'})
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          {paymentMethod === 'advance' && (
+            <>
+              {engineerAdvances.length === 0 ? (
+                <Alert
+                  message="لا توجد عهد مفتوحة ومعتمدة لهذا المهندس"
+                  description="لا توجد عهد بموافقة أو مدفوعة برصيد متبقي أكبر من الصفر لهذا المهندس"
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+              ) : (
+                <Form.Item
+                  name="linkedAdvanceId"
+                  label="العهدة"
+                  rules={[{ required: true, message: 'يرجى اختيار العهدة' }]}
+                >
+                  <Select
+                    placeholder="اختر العهدة"
+                    showSearch
+                    filterOption={(input, option) =>
+                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    onChange={(value) => {
+                      const advance = engineerAdvances.find(a => a.id === value)
+                      setSelectedAdvance(advance)
+                    }}
+                  >
+                    {engineerAdvances.map(advance => {
+                      const remaining = advance.remainingAmount !== null && advance.remainingAmount !== undefined
+                        ? parseFloat(advance.remainingAmount)
+                        : parseFloat(advance.amount || 0)
+                      return (
+                        <Option key={advance.id} value={advance.id}>
+                          {advance.referenceNumber || advance.id} - متبقي: {remaining.toFixed(2)} ريال
+                        </Option>
+                      )
+                    })}
+                  </Select>
+                </Form.Item>
+              )}
+              {selectedAdvance && selectedGroupForPayment && (
+                <Alert
+                  message={
+                    (() => {
+                      const remaining = selectedAdvance.remainingAmount !== null && selectedAdvance.remainingAmount !== undefined
+                        ? parseFloat(selectedAdvance.remainingAmount)
+                        : parseFloat(selectedAdvance.amount || 0)
+                      const required = selectedGroupForPayment.totalAmount
+                      if (remaining < required) {
+                        return `تحذير: رصيد العهدة غير كاف. المتاح: ${remaining.toFixed(2)} ريال، المطلوب: ${required.toFixed(2)} ريال`
+                      }
+                      return `رصيد العهدة كاف. المتاح: ${remaining.toFixed(2)} ريال، المطلوب: ${required.toFixed(2)} ريال`
+                    })()
+                  }
+                  type={(() => {
+                    const remaining = selectedAdvance.remainingAmount !== null && selectedAdvance.remainingAmount !== undefined
+                      ? parseFloat(selectedAdvance.remainingAmount)
+                      : parseFloat(selectedAdvance.amount || 0)
+                    const required = selectedGroupForPayment.totalAmount
+                    return remaining < required ? 'warning' : 'success'
+                  })()}
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+              )}
+            </>
+          )}
+        </Form>
+      </Modal>
+
+      {/* Receipt Modal */}
+      <Modal
+        title="إيصال الدفع - مجموعة العمالة"
+        open={isReceiptModalVisible}
+        onCancel={() => {
+          setIsReceiptModalVisible(false)
+          setSelectedGroupForReceipt(null)
+          setReceiptData(null)
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setIsReceiptModalVisible(false)
+            setSelectedGroupForReceipt(null)
+            setReceiptData(null)
+          }}>
+            إغلاق
+          </Button>
+        ]}
+        width={600}
+      >
+        {selectedGroupForReceipt && (
+          <Descriptions column={1} bordered>
+            <Descriptions.Item label="رقم المجموعة">
+              {selectedGroupForReceipt.id}
+            </Descriptions.Item>
+            <Descriptions.Item label="المهندس">
+              {selectedGroupForReceipt.engineerName || '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label="المبلغ المدفوع">
+              <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
+                {new Intl.NumberFormat('ar-SA', {
+                  style: 'currency',
+                  currency: 'SAR',
+                  minimumFractionDigits: 2
+                }).format(selectedGroupForReceipt.totalAmount)}
+              </Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="طريقة الدفع">
+              {selectedGroupForReceipt.paymentMethod === 'treasury' ? (
+                <Tag color="blue" icon={<BankOutlined />}>من الخزينة/البنك</Tag>
+              ) : selectedGroupForReceipt.paymentMethod === 'advance' ? (
+                <Tag color="green" icon={<WalletOutlined />}>خصم من عهدة المهندس</Tag>
+              ) : (
+                <Tag color="default">غير محدد</Tag>
+              )}
+            </Descriptions.Item>
+            {selectedGroupForReceipt.paymentMethod === 'treasury' && receiptData && (
+              <>
+                <Descriptions.Item label="حساب الخزينة">
+                  <Text strong>{receiptData.accountName}</Text>
+                  <Tag color="cyan" style={{ marginRight: 8 }}>
+                    {receiptData.accountType === 'bank' ? 'بنك' : receiptData.accountType === 'cash_box' ? 'صندوق' : receiptData.accountType}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="تاريخ الدفع">
+                  {receiptData.createdAt ? moment(receiptData.createdAt).format('YYYY-MM-DD HH:mm') : '-'}
+                </Descriptions.Item>
+                {receiptData.description && (
+                  <Descriptions.Item label="الوصف">
+                    {receiptData.description}
+                  </Descriptions.Item>
+                )}
+              </>
+            )}
+            {selectedGroupForReceipt.paymentMethod === 'treasury' && !receiptData && (
+              <Descriptions.Item label="معلومات الدفع">
+                <Alert
+                  message="لم يتم العثور على معاملة خزينة لهذه المجموعة"
+                  type="warning"
+                  showIcon
+                />
+              </Descriptions.Item>
+            )}
+            {selectedGroupForReceipt.paymentMethod === 'advance' && (
+              <Descriptions.Item label="معلومات الدفع">
+                <Alert
+                  message="تم الدفع من عهدة المهندس"
+                  description="تم خصم المبلغ من عهدة المهندس المحددة"
+                  type="info"
+                  showIcon
+                />
+              </Descriptions.Item>
+            )}
+            {selectedGroupForReceipt.approvedAt && (
+              <Descriptions.Item label="تاريخ الموافقة">
+                {moment(selectedGroupForReceipt.approvedAt).format('YYYY-MM-DD HH:mm')}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        )}
       </Modal>
     </div>
   )

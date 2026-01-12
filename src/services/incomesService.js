@@ -31,6 +31,35 @@ class IncomesService {
 
       if (error) throw error
 
+      // Get treasury transactions for these payments to get account names
+      const paymentIds = (payments || []).map(p => p.id)
+      let treasuryAccountMap = {}
+      
+      if (paymentIds.length > 0) {
+        const { data: treasuryTransactions, error: txnError } = await supabase
+          .from('treasury_transactions')
+          .select(`
+            reference_id,
+            account_id,
+            treasury_accounts:account_id (
+              id,
+              name
+            )
+          `)
+          .eq('tenant_id', tenantId)
+          .eq('reference_type', 'income')
+          .in('reference_id', paymentIds)
+
+        if (!txnError && treasuryTransactions) {
+          // Create a map of payment ID -> account name
+          treasuryTransactions.forEach(txn => {
+            if (txn.reference_id && txn.treasury_accounts) {
+              treasuryAccountMap[txn.reference_id] = txn.treasury_accounts.name
+            }
+          })
+        }
+      }
+
       // Map and filter to only include income-type payments
       const incomes = (payments || [])
         .filter(p => {
@@ -38,7 +67,14 @@ class IncomesService {
           // OR if it's an advance (received advance)
           return p.contract_id || p.payment_type === 'income' || p.transaction_type === 'advance'
         })
-        .map(p => this.mapToCamelCase(p))
+        .map(p => {
+          const mapped = this.mapToCamelCase(p)
+          // Add treasury account name from the map
+          if (treasuryAccountMap[p.id]) {
+            mapped.treasuryAccountName = treasuryAccountMap[p.id]
+          }
+          return mapped
+        })
 
       return incomes
     } catch (error) {
@@ -73,7 +109,33 @@ class IncomesService {
 
       if (error) throw error
 
-      return this.mapToCamelCase(payment)
+      // Get treasury account name for this payment
+      let treasuryAccountName = null
+      if (payment) {
+        const { data: treasuryTransaction, error: txnError } = await supabase
+          .from('treasury_transactions')
+          .select(`
+            account_id,
+            treasury_accounts:account_id (
+              id,
+              name
+            )
+          `)
+          .eq('tenant_id', tenantId)
+          .eq('reference_type', 'income')
+          .eq('reference_id', id)
+          .maybeSingle()
+
+        if (!txnError && treasuryTransaction?.treasury_accounts) {
+          treasuryAccountName = treasuryTransaction.treasury_accounts.name
+        }
+      }
+
+      const mapped = this.mapToCamelCase(payment)
+      if (treasuryAccountName) {
+        mapped.treasuryAccountName = treasuryAccountName
+      }
+      return mapped
     } catch (error) {
       console.error('Error fetching income:', error.message)
       return null
@@ -102,7 +164,9 @@ class IncomesService {
         }
       }
 
-      if (!incomeData.amount || parseFloat(incomeData.amount) <= 0) {
+      // Ensure amount is positive and valid
+      const amount = Math.abs(parseFloat(incomeData.amount))
+      if (!incomeData.amount || amount <= 0 || isNaN(amount)) {
         return {
           success: false,
           error: 'المبلغ يجب أن يكون أكبر من الصفر',
@@ -128,6 +192,8 @@ class IncomesService {
       }
 
       // Create payment record
+      // CRITICAL: Ensure amount is always positive for incomes
+      const positiveAmount = Math.abs(amount)
       const newPayment = {
         tenant_id: tenantId,
         contract_id: null, // Incomes can be standalone
@@ -135,8 +201,8 @@ class IncomesService {
         work_scope: incomeData.workScope || null,
         expense_category: null,
         payment_number: paymentNumber,
-        amount: parseFloat(incomeData.amount),
-        remaining_amount: transactionType === 'advance' ? parseFloat(incomeData.amount) : null,
+        amount: positiveAmount, // Always positive for incomes
+        remaining_amount: transactionType === 'advance' ? positiveAmount : null,
         due_date: incomeData.date || new Date().toISOString().split('T')[0],
         paid_date: incomeData.date || new Date().toISOString().split('T')[0],
         status: 'paid', // Incomes are considered paid when received
@@ -150,7 +216,8 @@ class IncomesService {
         linked_advance_id: null,
         settlement_type: null,
         is_general_expense: false,
-        payment_type: 'income', // Mark as income
+        payment_type: 'income', // CRITICAL: Always mark as 'income' so filters can catch it
+        completion_percentage: incomeData.completionPercentage || null,
         created_by: 'user'
       }
 
@@ -170,14 +237,14 @@ class IncomesService {
       }
 
       // Create treasury transaction with POSITIVE amount (inflow)
-      const amount = parseFloat(incomeData.amount)
+      // Use the same positiveAmount to ensure consistency
       const treasuryResult = await treasuryService.createTransaction({
         accountId: incomeData.treasuryAccountId,
         transactionType: 'inflow', // IMPORTANT: inflow for income
-        amount: amount, // POSITIVE amount
+        amount: positiveAmount, // POSITIVE amount - always positive for incomes
         referenceType: 'income',
         referenceId: insertedPayment.id,
-        description: `وارد: ${incomeData.description || ''} - مشروع: ${incomeData.projectName || ''}`
+        description: `تمويل مشروع من مستثمر: ${incomeData.description || ''} - مشروع: ${incomeData.projectName || ''}`
       })
 
       if (!treasuryResult.success) {
@@ -253,6 +320,7 @@ class IncomesService {
       if (incomeData.referenceNumber !== undefined) updateData.reference_number = incomeData.referenceNumber
       if (incomeData.projectId !== undefined) updateData.project_id = incomeData.projectId
       if (incomeData.workScope !== undefined) updateData.work_scope = incomeData.workScope
+      if (incomeData.completionPercentage !== undefined) updateData.completion_percentage = incomeData.completionPercentage
 
       const { data: updatedPayment, error } = await supabase
         .from('payments')
@@ -332,6 +400,37 @@ class IncomesService {
     }
   }
 
+  // Check if a project has existing incomes
+  async hasExistingIncomes(projectId) {
+    try {
+      if (!projectId) return false
+
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) {
+        return false
+      }
+
+      // Check if there are any income payments for this project
+      const { data: payments, error } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('project_id', projectId)
+        .or('contract_id.not.is.null,payment_type.eq.income,transaction_type.eq.advance')
+        .limit(1)
+
+      if (error) {
+        console.error('Error checking existing incomes:', error)
+        return false
+      }
+
+      return (payments && payments.length > 0) || false
+    } catch (error) {
+      console.error('Error checking existing incomes:', error.message)
+      return false
+    }
+  }
+
   // Helper: Map snake_case to camelCase
   mapToCamelCase(payment) {
     if (!payment) return null
@@ -349,6 +448,8 @@ class IncomesService {
       description: payment.notes || null,
       referenceNumber: payment.reference_number || null,
       status: payment.status,
+      completionPercentage: payment.completion_percentage || null,
+      treasuryAccountName: payment.treasuryAccountName || null, // Will be set by caller if available
       createdAt: payment.created_at,
       updatedAt: payment.updated_at
     }

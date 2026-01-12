@@ -34,7 +34,10 @@ import {
   WalletOutlined,
   DollarOutlined,
   UserOutlined,
-  LinkOutlined
+  LinkOutlined,
+  PrinterOutlined,
+  FilePdfOutlined,
+  FileExcelOutlined
 } from '@ant-design/icons'
 import paymentsService from '../services/paymentsService'
 import projectsService from '../services/projectsService'
@@ -42,6 +45,7 @@ import categoryService from '../services/categoryService'
 import customersService from '../services/customersService'
 import ordersService from '../services/ordersService'
 import treasuryService from '../services/treasuryService'
+import workersService from '../services/workersService'
 import { useTenant } from '../contexts/TenantContext'
 import dayjs from 'dayjs'
 
@@ -96,6 +100,9 @@ const GeneralExpenses = () => {
   const [transferModalVisible, setTransferModalVisible] = useState(false)
   const [transferForm] = Form.useForm()
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([])
+  const [workers, setWorkers] = useState<any[]>([])
+  const [recipientType, setRecipientType] = useState<'internal' | 'external'>('external')
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null)
 
   const isEngineering = industryType === 'engineering'
 
@@ -142,7 +149,18 @@ const GeneralExpenses = () => {
     }
     loadOutstandingAdvances()
     loadTreasuryAccounts()
+    loadWorkers()
   }, [industryType])
+
+  const loadWorkers = async () => {
+    try {
+      const data = await workersService.getActiveWorkers()
+      setWorkers(data || [])
+    } catch (error) {
+      console.error('Error loading workers:', error)
+      setWorkers([])
+    }
+  }
 
   useEffect(() => {
     if (activeTab === 'petty-cash') {
@@ -320,6 +338,8 @@ const GeneralExpenses = () => {
     setSettlementPoNewVendorEmail('')
     setSettlementAmountExceedsLimit(false)
     setSettlementAmountError(null)
+    setRecipientType('external')
+    setSelectedWorkerId(null)
     form.resetFields()
     form.setFieldsValue({
       expenseType: 'administrative',
@@ -329,7 +349,8 @@ const GeneralExpenses = () => {
       unitPrice: undefined, // Don't set initial value - let placeholder show
       date: dayjs(), // Default to today for administrative expenses
       linkedAdvanceId: undefined, // Clear any previous linkedAdvanceId
-      remainingAmount: undefined // Clear any previous remainingAmount (if it exists)
+      remainingAmount: undefined, // Clear any previous remainingAmount (if it exists)
+      recipientType: 'external'
     })
     setIsModalVisible(true)
   }
@@ -379,6 +400,17 @@ const GeneralExpenses = () => {
       })
     }
     
+    // Determine recipient type
+    const recipientWorker = expense.recipientName ? workers.find(w => w.name === expense.recipientName) : null
+    const recipientTypeValue = recipientWorker ? 'internal' : 'external'
+    if (recipientWorker) {
+      setRecipientType('internal')
+      setSelectedWorkerId(recipientWorker.id)
+    } else {
+      setRecipientType('external')
+      setSelectedWorkerId(null)
+    }
+
     form.setFieldsValue({
       expenseType: expenseTypeValue,
       projectId: expense.projectId || undefined,
@@ -392,6 +424,8 @@ const GeneralExpenses = () => {
       referenceNumber: expense.referenceNumber || undefined,
       notes: expense.notes || undefined,
       recipientName: expense.recipientName || undefined,
+      recipientType: recipientTypeValue,
+      recipientWorkerId: recipientWorker?.id || undefined,
       paymentFrequency: expense.paymentFrequency || 'one-time',
       transactionType: expense.transactionType || 'regular',
       managerName: expense.managerName || undefined,
@@ -1323,6 +1357,15 @@ const GeneralExpenses = () => {
 
         const expenseDate = values.date ? values.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
 
+        // Get recipient name based on type
+        let recipientName = null
+        if (values.recipientType === 'internal' && values.recipientWorkerId) {
+          const selectedWorker = workers.find(w => w.id === values.recipientWorkerId)
+          recipientName = selectedWorker?.name || null
+        } else if (values.recipientType === 'external' && values.recipientName) {
+          recipientName = values.recipientName
+        }
+
         // Prepare payment data for administrative expense
         // Note: The 'category' field here maps to 'expense_category' in the database via paymentsService
         // The 'recipientName' field maps to 'recipient_name' in the database
@@ -1338,7 +1381,7 @@ const GeneralExpenses = () => {
           paymentMethod: derivedPaymentMethod === 'cash' ? 'Cash' : derivedPaymentMethod,
           referenceNumber: referenceNumber,
           notes: values.notes || null,
-          recipientName: values.recipientName || null, // Maps to recipient_name in DB via paymentsService
+          recipientName: recipientName, // Maps to recipient_name in DB via paymentsService
           paymentFrequency: values.paymentFrequency || 'one-time',
           transactionType: 'regular',
           managerName: null,
@@ -1448,6 +1491,8 @@ const GeneralExpenses = () => {
     setIsSettlementPoNewVendor(false)
     setSettlementAmountExceedsLimit(false)
     setSettlementAmountError(null)
+    setRecipientType('external')
+    setSelectedWorkerId(null)
     // Reset form with default values
     form.setFieldsValue({
       expenseType: 'administrative',
@@ -1455,8 +1500,229 @@ const GeneralExpenses = () => {
       transactionType: 'regular',
       quantity: undefined, // Don't set initial value - let placeholder show
       unitPrice: undefined, // Don't set initial value - let placeholder show
-      date: dayjs() // Reset date to today for administrative expenses
+      date: dayjs(), // Reset date to today for administrative expenses
+      recipientType: 'external'
     })
+  }
+
+  const handlePrintVoucher = (expense: any) => {
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      message.error('يرجى السماح بالنوافذ المنبثقة للطباعة')
+      return
+    }
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8">
+        <title>سند صرف - ${expense.paymentNumber || expense.id}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            direction: rtl;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+          }
+          .details {
+            margin: 20px 0;
+          }
+          .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #ddd;
+          }
+          .label {
+            font-weight: bold;
+          }
+          .footer {
+            margin-top: 40px;
+            text-align: center;
+            border-top: 2px solid #000;
+            padding-top: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>سند صرف</h1>
+          <p>Payment Voucher</p>
+        </div>
+        <div class="details">
+          <div class="detail-row">
+            <span class="label">رقم السند:</span>
+            <span>${expense.paymentNumber || expense.id}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">التاريخ:</span>
+            <span>${expense.dueDate ? dayjs(expense.dueDate).format('YYYY-MM-DD') : '-'}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">المبلغ:</span>
+            <span>${parseFloat(expense.amount || 0).toLocaleString()} ريال</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">المستلم:</span>
+            <span>${expense.recipientName || '-'}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">الفئة:</span>
+            <span>${expense.expenseCategory || '-'}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">الوصف:</span>
+            <span>${expense.notes || '-'}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">طريقة الدفع:</span>
+            <span>${expense.paymentMethod || '-'}</span>
+          </div>
+        </div>
+        <div class="footer">
+          <p>تم الطباعة في: ${dayjs().format('YYYY-MM-DD HH:mm')}</p>
+        </div>
+      </body>
+      </html>
+    `
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => {
+      printWindow.print()
+    }, 250)
+  }
+
+  const handlePrintAll = () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      message.error('يرجى السماح بالنوافذ المنبثقة للطباعة')
+      return
+    }
+
+    const tableRows = filteredExpenses.map(expense => `
+      <tr>
+        <td>${expense.paymentNumber || expense.id}</td>
+        <td>${expense.dueDate ? dayjs(expense.dueDate).format('YYYY-MM-DD') : '-'}</td>
+        <td>${expense.recipientName || '-'}</td>
+        <td>${expense.expenseCategory || '-'}</td>
+        <td>${parseFloat(expense.amount || 0).toLocaleString()} ريال</td>
+        <td>${expense.notes || '-'}</td>
+      </tr>
+    `).join('')
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8">
+        <title>تقرير المصاريف العامة</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            direction: rtl;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+          }
+          th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: right;
+          }
+          th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+          }
+          .footer {
+            margin-top: 40px;
+            text-align: center;
+            border-top: 2px solid #000;
+            padding-top: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>تقرير المصاريف العامة</h1>
+          <p>General Expenses Report</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>رقم المصروف</th>
+              <th>التاريخ</th>
+              <th>المستلم</th>
+              <th>الفئة</th>
+              <th>المبلغ</th>
+              <th>الوصف</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        <div class="footer">
+          <p>إجمالي المصاريف: ${totalExpenses.toLocaleString()} ريال</p>
+          <p>تم الطباعة في: ${dayjs().format('YYYY-MM-DD HH:mm')}</p>
+        </div>
+      </body>
+      </html>
+    `
+    printWindow.document.write(printContent)
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => {
+      printWindow.print()
+    }, 250)
+  }
+
+  const handleExportExcel = () => {
+    // Create CSV content
+    const headers = ['رقم المصروف', 'التاريخ', 'المستلم', 'الفئة', 'المبلغ', 'الوصف', 'الحالة']
+    const rows = filteredExpenses.map(expense => [
+      expense.paymentNumber || expense.id,
+      expense.dueDate ? dayjs(expense.dueDate).format('YYYY-MM-DD') : '',
+      expense.recipientName || '',
+      expense.expenseCategory || '',
+      parseFloat(expense.amount || 0).toLocaleString(),
+      expense.notes || '',
+      expense.status || ''
+    ])
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n')
+
+    // Add BOM for UTF-8
+    const BOM = '\uFEFF'
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `المصاريف_العامة_${dayjs().format('YYYY-MM-DD')}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    message.success('تم تصدير البيانات بنجاح')
   }
 
   // Calculate statistics
@@ -1534,6 +1800,13 @@ const GeneralExpenses = () => {
       render: (category: string) => category ? <Tag>{category}</Tag> : '-'
     },
     {
+      title: 'المستلم',
+      dataIndex: 'recipientName',
+      key: 'recipientName',
+      width: 150,
+      render: (name: string) => name ? <Tag color="blue">{name}</Tag> : '-'
+    },
+    {
       title: 'المبلغ',
       dataIndex: 'amount',
       key: 'amount',
@@ -1608,7 +1881,7 @@ const GeneralExpenses = () => {
     {
       title: 'الإجراءات',
       key: 'actions',
-      width: 120,
+      width: 180,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         // Don't allow editing if status is 'approved' for manager advances
@@ -1616,6 +1889,15 @@ const GeneralExpenses = () => {
         
         return (
           <Space>
+            <Button
+              type="link"
+              icon={<PrinterOutlined />}
+              onClick={() => handlePrintVoucher(record)}
+              size="small"
+              title="طباعة سند الصرف"
+            >
+              طباعة
+            </Button>
             <Button
               type="link"
               icon={<EditOutlined />}
@@ -1813,14 +2095,30 @@ const GeneralExpenses = () => {
             <BankOutlined style={{ marginLeft: 8 }} />
             المصاريف العامة والإدارية
           </Title>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleAddExpense}
-            size="large"
-          >
-            إضافة مصروف جديد
-          </Button>
+          <Space>
+            <Button
+              icon={<FilePdfOutlined />}
+              onClick={handlePrintAll}
+              size="large"
+            >
+              طباعة الكل PDF
+            </Button>
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={handleExportExcel}
+              size="large"
+            >
+              تصدير Excel
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleAddExpense}
+              size="large"
+            >
+              إضافة مصروف جديد
+            </Button>
+          </Space>
         </div>
 
         {/* Statistics */}
@@ -2768,16 +3066,62 @@ const GeneralExpenses = () => {
                 />
               </Form.Item>
 
-              {/* Recipient Name */}
+              {/* Recipient Type Toggle */}
               <Form.Item
-                name="recipientName"
+                name="recipientType"
+                label="نوع المستلم / Recipient Type"
+                rules={[{ required: true, message: 'يرجى اختيار نوع المستلم' }]}
+                initialValue="external"
+              >
+                <Radio.Group
+                  value={recipientType}
+                  onChange={(e) => {
+                    setRecipientType(e.target.value)
+                    setSelectedWorkerId(null)
+                    form.setFieldsValue({ recipientName: undefined, recipientWorkerId: undefined })
+                  }}
+                  buttonStyle="solid"
+                  size="large"
+                >
+                  <Radio.Button value="internal">داخلي / Internal</Radio.Button>
+                  <Radio.Button value="external">خارجي / External</Radio.Button>
+                </Radio.Group>
+              </Form.Item>
+
+              {/* Recipient Name - Conditional based on type */}
+              <Form.Item
+                name={recipientType === 'internal' ? 'recipientWorkerId' : 'recipientName'}
                 label="اسم المستلم / Recipient Name"
+                rules={[{ required: true, message: 'يرجى اختيار/إدخال اسم المستلم' }]}
                 tooltip="اسم المستلم مهم لطباعة سند الصرف (Payment Voucher) لاحقاً"
               >
-                <Input
-                  placeholder="أدخل اسم المستلم"
-                  size="large"
-                />
+                {recipientType === 'internal' ? (
+                  <Select
+                    placeholder="اختر الموظف"
+                    showSearch
+                    size="large"
+                    value={selectedWorkerId}
+                    onChange={(value) => {
+                      setSelectedWorkerId(value)
+                      const worker = workers.find(w => w.id === value)
+                      form.setFieldsValue({ recipientName: worker?.name || '' })
+                    }}
+                    filterOption={(input, option) =>
+                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                  >
+                    {workers.map((worker) => (
+                      <Option key={worker.id} value={worker.id}>
+                        {worker.name} - {worker.trade}
+                      </Option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    placeholder="أدخل اسم المستلم الخارجي"
+                    size="large"
+                  />
+                )}
               </Form.Item>
 
               {/* Date - Single field for administrative expenses, defaults to today */}
