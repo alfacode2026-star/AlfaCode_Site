@@ -1,7 +1,10 @@
-import React, { useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useEffect, Component } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { ConfigProvider } from 'antd';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import arEG from 'antd/locale/ar_EG';
+import enUS from 'antd/locale/en_US';
+import moment from 'moment';
 import './App.css';
 
 // Import your pages
@@ -35,6 +38,10 @@ import transactionManager from './services/transactionManager';
 // Import Tenant Provider
 import { TenantProvider, useTenant } from './contexts/TenantContext';
 
+// Import Language Provider
+import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
+import LanguageSelection from './components/LanguageSelection';
+
 const { Sider, Content } = Layout;
 
 // Error Boundary Component
@@ -61,11 +68,11 @@ class ErrorBoundary extends Component<
         <div style={{ 
           padding: 24, 
           textAlign: 'center',
-          direction: 'rtl'
+          direction: 'ltr'
         }}>
-          <h2>حدث خطأ في تحميل الصفحة</h2>
+          <h2>Error Loading Page</h2>
           <p style={{ color: '#666', marginTop: 16 }}>
-            {this.state.error?.message || 'خطأ غير معروف'}
+            {this.state.error?.message || 'Unknown error'}
           </p>
           <button 
             onClick={() => {
@@ -82,7 +89,7 @@ class ErrorBoundary extends Component<
               cursor: 'pointer'
             }}
           >
-            إعادة تحميل الصفحة
+            Reload Page
           </button>
         </div>
       );
@@ -113,6 +120,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
   const { industryType } = useTenant();
+  const { language } = useLanguage();
   const location = useLocation();
 
   // Show full layout only if not on setup page and industry is set
@@ -131,9 +139,9 @@ function AppContent() {
         alignItems: 'center', 
         justifyContent: 'center', 
         minHeight: '100vh',
-        direction: 'rtl'
+        direction: language === 'ar' ? 'rtl' : 'ltr'
       }}>
-        <div>جاري التحميل...</div>
+        <div>Loading...</div>
       </div>
     );
   }
@@ -189,6 +197,48 @@ function AppContent() {
   );
 }
 
+function AppWrapper() {
+  // Must call hooks unconditionally (Rules of Hooks)
+  const { language } = useLanguage();
+  
+  // CRITICAL: Force Language Selection Gate on Boot
+  // Check localStorage directly to prevent flash - must check before rendering routes
+  const storedLanguage = localStorage.getItem('language');
+  const hasLanguage = storedLanguage === 'en' || storedLanguage === 'ar';
+  
+  // If language is not set, show ONLY LanguageSelection component
+  // Do NOT mount the Sidebar, Navbar, or any Routes until language is set
+  if (!hasLanguage) {
+    return (
+      <ConfigProvider direction="ltr" locale={enUS}>
+        <LanguageSelection />
+      </ConfigProvider>
+    );
+  }
+  
+  // ENGLISH-FIRST BOOT: Language defaults to 'en', so we always have a language
+  // Set moment locale based on language
+  useEffect(() => {
+    moment.locale(language === 'en' ? 'en' : 'ar');
+  }, [language]);
+
+  // ENGLISH CLEAN ROOM: When English is active, MUST use LTR and en_US locale
+  const locale = language === 'en' ? enUS : arEG;
+  const direction = language === 'en' ? 'ltr' : 'rtl';
+
+  return (
+    <ConfigProvider direction={direction} locale={locale}>
+      <TenantProvider>
+        <Router>
+          <OnboardingGuard>
+            <AppContent />
+          </OnboardingGuard>
+        </Router>
+      </TenantProvider>
+    </ConfigProvider>
+  );
+}
+
 function App() {
   // Cleanup expired locks on app startup
   useEffect(() => {
@@ -214,15 +264,9 @@ function App() {
   }, [])
 
   return (
-    <ConfigProvider direction="rtl" locale={arEG}>
-      <TenantProvider>
-        <Router>
-          <OnboardingGuard>
-            <AppContent />
-          </OnboardingGuard>
-        </Router>
-      </TenantProvider>
-    </ConfigProvider>
+    <LanguageProvider>
+      <AppWrapper />
+    </LanguageProvider>
   );
 }
 

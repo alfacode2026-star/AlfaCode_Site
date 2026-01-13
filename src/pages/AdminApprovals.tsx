@@ -62,7 +62,7 @@ const AdminApprovals = () => {
       setExpenses(expensesWithProjects)
     } catch (error) {
       console.error('Error loading pending expenses:', error)
-      message.error('فشل في تحميل طلبات المصاريف المعلقة')
+      message.error('Failed to load pending expense requests')
     } finally {
       setLoadingExpenses(false)
     }
@@ -94,7 +94,7 @@ const AdminApprovals = () => {
       setAdvances(advancesWithProjects)
     } catch (error) {
       console.error('Error loading pending advances:', error)
-      message.error('فشل في تحميل طلبات العهد المعلقة')
+      message.error('Failed to load pending advance requests')
     } finally {
       setLoadingAdvances(false)
     }
@@ -117,15 +117,15 @@ const AdminApprovals = () => {
       
       const result = await paymentsService.updatePaymentStatus(id, approvalStatus)
       if (result.success) {
-        message.success('تمت الموافقة بنجاح - تم خصم المبلغ من الخزينة')
+        message.success('Approved successfully - Amount deducted from treasury')
         // Reload all data
         await reloadAll()
       } else {
-        message.error(result.error || 'فشل في الموافقة على الطلب')
+        message.error(result.error || 'Failed to approve request')
       }
     } catch (error) {
       console.error('Error approving payment:', error)
-      message.error('فشل في الموافقة على الطلب')
+      message.error('Failed to approve request')
     } finally {
       setUpdatingIds(prev => {
         const newSet = new Set(prev)
@@ -140,15 +140,15 @@ const AdminApprovals = () => {
     try {
       const result = await paymentsService.updatePaymentStatus(id, 'rejected')
       if (result.success) {
-        message.success('تم رفض الطلب بنجاح')
+        message.success('Request rejected successfully')
         // Reload all data
         await reloadAll()
       } else {
-        message.error(result.error || 'فشل في رفض الطلب')
+        message.error(result.error || 'Failed to reject request')
       }
     } catch (error) {
       console.error('Error rejecting payment:', error)
-      message.error('فشل في رفض الطلب')
+      message.error('Failed to reject request')
     } finally {
       setUpdatingIds(prev => {
         const newSet = new Set(prev)
@@ -158,16 +158,32 @@ const AdminApprovals = () => {
     }
   }
 
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'SAR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount)
+  }
+
+  // Dynamic rowKey function for instant updates
+  const getRowKey = (record: any): string => {
+    const timestamp = record.updatedAt || record.updated_at || record.lastUpdated || ''
+    const dateKey = record.dueDate || record.due_date || ''
+    return `${record.id}-${timestamp}-${dateKey}`
+  }
+
   const columns = [
     {
-      title: 'التاريخ',
+      title: 'Date',
       dataIndex: 'dueDate',
       key: 'dueDate',
       width: 150,
       render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-'
     },
     {
-      title: 'المقدم',
+      title: 'Requester',
       key: 'requester',
       width: 200,
       render: (_: any, record: any) => {
@@ -176,13 +192,13 @@ const AdminApprovals = () => {
       }
     },
     {
-      title: 'المبلغ (ريال)',
+      title: 'Amount (SAR)',
       dataIndex: 'amount',
       key: 'amount',
       width: 150,
       align: 'right' as const,
       render: (amount: number) => {
-        const formatted = parseFloat(amount?.toString() || '0').toLocaleString('ar-SA', {
+        const formatted = parseFloat(amount?.toString() || '0').toLocaleString('en-US', {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2
         })
@@ -190,14 +206,14 @@ const AdminApprovals = () => {
       }
     },
     {
-      title: 'الوصف',
+      title: 'Description',
       dataIndex: 'notes',
       key: 'notes',
       ellipsis: true,
       render: (text: string) => text || '-'
     },
     {
-      title: 'الإجراءات',
+      title: 'Actions',
       key: 'actions',
       width: 200,
       fixed: 'right' as const,
@@ -213,7 +229,7 @@ const AdminApprovals = () => {
               loading={isUpdating}
               style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
             >
-              موافقة
+              Approve
             </Button>
             <Button
               danger
@@ -222,7 +238,7 @@ const AdminApprovals = () => {
               onClick={() => handleReject(record.id)}
               loading={isUpdating}
             >
-              رفض
+              Reject
             </Button>
           </Space>
         )
@@ -231,12 +247,12 @@ const AdminApprovals = () => {
   ]
 
   return (
-    <div style={{ padding: '24px', direction: 'rtl' }}>
+    <div style={{ padding: '24px', direction: 'ltr' }}>
       {/* Main Title Card */}
       <Card style={{ marginBottom: 24 }}>
         <Title level={2} style={{ margin: 0 }}>
-          <SafetyOutlined style={{ marginLeft: 8 }} />
-          لوحة الاعتمادات
+          <SafetyOutlined style={{ marginRight: 8 }} />
+          Approvals Dashboard
         </Title>
       </Card>
 
@@ -245,23 +261,24 @@ const AdminApprovals = () => {
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <BankOutlined />
-            <Title level={4} style={{ margin: 0 }}>طلبات المصاريف</Title>
+            <Title level={4} style={{ margin: 0 }}>Expense Requests</Title>
           </div>
         }
         style={{ marginBottom: 24 }}
       >
         <Table
           columns={columns}
-          dataSource={expenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
+          dataSource={expenses}
+          rowKey={getRowKey}
           loading={loadingExpenses}
           scroll={{ x: 1000 }}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
-            showTotal: (total) => `إجمالي ${total} طلب`
+            showTotal: (total) => `Total ${total} request${total !== 1 ? 's' : ''}`
           }}
           locale={{
-            emptyText: 'لا توجد طلبات مصاريف معلقة'
+            emptyText: 'No pending expense requests'
           }}
         />
       </Card>
@@ -271,22 +288,23 @@ const AdminApprovals = () => {
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <WalletOutlined />
-            <Title level={4} style={{ margin: 0 }}>طلبات العهد</Title>
+            <Title level={4} style={{ margin: 0 }}>Advance Requests</Title>
           </div>
         }
       >
         <Table
           columns={columns}
-          dataSource={advances.map((a, idx) => ({ ...a, key: a.id || idx }))}
+          dataSource={advances}
+          rowKey={getRowKey}
           loading={loadingAdvances}
           scroll={{ x: 1000 }}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
-            showTotal: (total) => `إجمالي ${total} طلب`
+            showTotal: (total) => `Total ${total} request${total !== 1 ? 's' : ''}`
           }}
           locale={{
-            emptyText: 'لا توجد طلبات عهد معلقة'
+            emptyText: 'No pending advance requests'
           }}
         />
       </Card>

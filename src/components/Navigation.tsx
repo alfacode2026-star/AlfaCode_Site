@@ -1,6 +1,6 @@
 'use client'
 
-import { Menu, Select, Divider } from 'antd'
+import { Menu, Select } from 'antd'
 import {
   DashboardOutlined,
   ShoppingOutlined,
@@ -18,38 +18,43 @@ import {
   SafetyOutlined,
   ShopOutlined,
   DollarOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useTenant } from '../contexts/TenantContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 
 const { Option } = Select
 
 const Navigation = () => {
   const navigate = useNavigate()
   const { currentTenantId, setCurrentTenantId, tenants, industryType } = useTenant()
+  const { language, setLanguage } = useLanguage()
+  const t = getTranslations(language)
 
   // Dynamic labels based on industry type
   const isEngineering = industryType === 'engineering'
-  const productsLabel = isEngineering ? 'المواد والمعدات (Resources)' : 'المنتجات'
-  const ordersLabel = 'أوامر الشراء / المصاريف'
+  const productsLabel = isEngineering ? t.navigation.resources : t.navigation.products
+  const ordersLabel = t.navigation.purchaseOrdersExpenses
 
   const menuItems = [
     {
       key: '/',
       icon: <DashboardOutlined />,
-      label: 'لوحة التحكم',
+      label: t.navigation.dashboard,
     },
     // Show Quotations and Contracts only for engineering companies
     ...(isEngineering ? [
       {
         key: '/quotations',
         icon: <FileTextOutlined />,
-        label: 'عروض الأسعار',
+        label: t.navigation.quotations,
       },
       {
         key: '/contracts',
         icon: <FileProtectOutlined />,
-        label: 'العقود',
+        label: t.navigation.contracts,
       },
     ] : []),
     {
@@ -61,46 +66,46 @@ const Navigation = () => {
     ...(isEngineering ? [{
       key: '/projects',
       icon: <RocketOutlined />,
-      label: 'المشاريع',
+      label: t.navigation.projects,
     }] : []),
     // Show Labor page only for engineering companies
     ...(isEngineering ? [{
       key: '/labor',
       icon: <TeamOutlined />,
-      label: 'إدارة الموظفين والعمالة اليومية',
+      label: t.navigation.laborStaffManagement,
     }] : []),
     // Show General Expenses only for engineering companies
     ...(isEngineering ? [{
       key: '/general-expenses',
       icon: <BankOutlined />,
-      label: 'المصاريف العامة والإدارية',
+      label: t.navigation.generalExpenses,
     }] : []),
     {
       key: '/treasury',
       icon: <WalletOutlined />,
-      label: 'إدارة الخزينة',
+      label: t.navigation.treasury,
     },
     // Show Incomes page only for engineering companies
     ...(isEngineering ? [{
       key: '/incomes',
       icon: <DollarOutlined />,
-      label: 'الواردات والسلف المستلمة',
+      label: t.navigation.incomesAdvances,
     }] : []),
     // Admin Approvals - available for all (for now, just make the link available)
     {
       key: '/admin-approvals',
       icon: <SafetyOutlined />,
-      label: 'اعتمادات الإدارة',
+      label: t.navigation.adminApprovals,
     },
     {
       key: '/customers',
       icon: <UserOutlined />,
-      label: 'العملاء',
+      label: t.navigation.customers,
     },
     {
       key: '/suppliers',
       icon: <ShopOutlined />,
-      label: 'الموردين',
+      label: t.navigation.suppliers,
     },
     {
       key: '/inventory',
@@ -110,28 +115,45 @@ const Navigation = () => {
     {
       key: '/reports',
       icon: <BarChartOutlined />,
-      label: 'التقارير',
+      label: t.navigation.reports,
     },
     {
       key: '/settings',
       icon: <SettingOutlined />,
-      label: 'الإعدادات',
+      label: t.navigation.settings,
     },
   ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Language Toggle */}
+      <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
+        <div style={{ marginBottom: '8px', color: '#666', fontSize: '12px', fontWeight: 500 }}>
+          <GlobalOutlined style={{ marginRight: '4px' }} />
+          {t.navigation.language}
+        </div>
+        <Select
+          value={language}
+          onChange={setLanguage}
+          style={{ width: '100%' }}
+          placeholder={t.navigation.selectLanguage}
+        >
+          <Option value="en">{t.languageSelection.english}</Option>
+          <Option value="ar">{t.languageSelection.arabic}</Option>
+        </Select>
+      </div>
+
       {/* Tenant Switcher */}
       <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
         <div style={{ marginBottom: '8px', color: '#666', fontSize: '12px', fontWeight: 500 }}>
-          <ApartmentOutlined style={{ marginLeft: '4px' }} />
-          تغيير الشركة
+          <ApartmentOutlined style={{ marginRight: '4px' }} />
+          {t.navigation.switchCompany}
         </div>
         <Select
           value={currentTenantId}
           onChange={setCurrentTenantId}
           style={{ width: '100%' }}
-          placeholder="اختر الشركة"
+          placeholder={t.navigation.selectCompany}
         >
           {tenants.map((tenant) => (
             <Option key={tenant.id} value={tenant.id}>

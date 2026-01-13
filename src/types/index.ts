@@ -101,6 +101,7 @@ export interface Project {
   startDate?: string | null
   endDate?: string | null
   notes?: string | null
+  workScopes?: string[]
   createdAt?: string
   createdBy: string
   updatedAt?: string
@@ -173,4 +174,23 @@ export interface Payment {
   createdAt: string
   updatedAt: string
   createdBy: string
+  projectId?: string | null
+  workScope?: string | null
+  projectName?: string | null
+  isGeneralExpense?: boolean
+  expenseCategory?: string | null
+  treasuryAccountId?: string | null
+}
+
+export interface TreasuryAccount {
+  id: string
+  name: string
+  type: 'bank' | 'cash_box'
+  balance: number
+  currency?: string
+  accountNumber?: string
+  bankName?: string
+  notes?: string
+  createdAt?: string
+  updatedAt?: string
 }

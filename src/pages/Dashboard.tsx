@@ -14,11 +14,17 @@ import { useNavigate } from 'react-router-dom'
 import inventoryService from '../services/inventoryService'
 import paymentsService from '../services/paymentsService'
 import { useTenant } from '../contexts/TenantContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
+import { useFormatting } from '../utils/formatting'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 
 const Dashboard = () => {
   const navigate = useNavigate()
   const { industryType } = useTenant()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
+  const { formatCurrency } = useFormatting()
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [financialMetrics, setFinancialMetrics] = useState({
@@ -94,48 +100,48 @@ const Dashboard = () => {
 
   const stats = [
     {
-      title: 'إجمالي الطلبات',
+      title: t.dashboard.totalOrders,
       value: 128,
       icon: <ShoppingOutlined />,
       color: '#1890ff',
       link: '/orders'
     },
     {
-      title: 'إجمالي العملاء',
+      title: t.dashboard.totalCustomers,
       value: 45,
       icon: <UserOutlined />,
       color: '#52c41a',
       link: '/customers'
     },
     {
-      title: 'عناصر المخزون',
+      title: t.dashboard.inventoryItems,
       value: totalProducts,
       icon: <DatabaseOutlined />,
       color: '#faad14',
       link: '/inventory'
     },
     {
-      title: 'قيمة المخزون',
+      title: t.dashboard.inventoryValue,
       value: totalValue,
       icon: <DollarOutlined />,
       color: '#722ed1',
-      suffix: 'ريال',
+      suffix: t.common.sar,
       link: '/inventory'
     }
   ]
 
   const quickActions = [
-    { label: 'إنشاء طلب جديد', icon: <ShoppingOutlined />, path: '/orders', type: 'primary' },
-    { label: 'إضافة عميل', icon: <UserOutlined />, path: '/customers' },
-    { label: 'إدارة المخزون', icon: <DatabaseOutlined />, path: '/inventory' },
-    { label: 'عرض التقارير', icon: <ArrowUpOutlined />, path: '/reports' }
+    { label: t.dashboard.createNewOrder, icon: <ShoppingOutlined />, path: '/orders', type: 'primary' },
+    { label: t.dashboard.addCustomer, icon: <UserOutlined />, path: '/customers' },
+    { label: t.dashboard.manageInventory, icon: <DatabaseOutlined />, path: '/inventory' },
+    { label: t.dashboard.viewReports, icon: <ArrowUpOutlined />, path: '/reports' }
   ]
 
   return (
     <div style={{ padding: 24 }}>
       <Alert
-        title="مرحباً بك في نظام ERP المتكامل"
-        description="تم نقل مشروعك بنجاح إلى Vite + React. النظام يعمل بكفاءة على الجهاز الجديد."
+        title={t.dashboard.welcomeMessage}
+        description={t.dashboard.welcomeDescription}
         type="success"
         showIcon
         style={{ marginBottom: 24 }}
@@ -168,11 +174,11 @@ const Dashboard = () => {
           <Col xs={24} sm={12} lg={8}>
             <Card>
               <Statistic
-                title="ربح المشاريع الإجمالي"
+                title={t.dashboard.totalProjectsProfit}
                 value={financialMetrics.totalProjectsProfit}
                 precision={0}
                 prefix={<RiseOutlined />}
-                suffix="ريال"
+                suffix={t.common.sar}
                 styles={{ value: { color: financialMetrics.totalProjectsProfit >= 0 ? '#3f8600' : '#cf1322' } }}
               />
             </Card>
@@ -180,11 +186,11 @@ const Dashboard = () => {
           <Col xs={24} sm={12} lg={8}>
             <Card>
               <Statistic
-                title="إجمالي المصاريف العامة"
+                title={t.dashboard.totalGeneralExpenses}
                 value={financialMetrics.totalGeneralExpenses}
                 precision={0}
                 prefix={<FallOutlined />}
-                suffix="ريال"
+                suffix={t.common.sar}
                 styles={{ value: { color: '#cf1322' } }}
               />
             </Card>
@@ -199,23 +205,23 @@ const Dashboard = () => {
               }}
             >
               <Statistic
-                title={<span style={{ color: 'white', fontSize: '16px' }}>صافي ربح الشركة</span>}
+                title={<span style={{ color: 'white', fontSize: '16px' }}>{t.dashboard.netCompanyProfit}</span>}
                 value={financialMetrics.netCompanyProfit}
                 precision={0}
                 prefix={financialMetrics.netCompanyProfit >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <FallOutlined style={{ color: 'white' }} />}
-                suffix={<span style={{ color: 'white' }}>ريال</span>}
+                suffix={<span style={{ color: 'white' }}>{t.common.sar || 'SAR'}</span>}
                 styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
               />
               <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-                <div>ربح المشاريع - المصاريف العامة</div>
+                <div>{t.dashboard.projectsProfitMinusExpenses}</div>
               </div>
             </Card>
           </Col>
         </Row>
       )}
 
-      {/* الإجراءات السريعة */}
-      <Card title="إجراءات سريعة" style={{ marginBottom: 24 }}>
+      {/* Quick Actions */}
+      <Card title={t.dashboard.quickActions} style={{ marginBottom: 24 }}>
         <Row gutter={[16, 16]}>
           {quickActions.map((action, index) => (
             <Col key={index}>
@@ -232,15 +238,15 @@ const Dashboard = () => {
         </Row>
       </Card>
 
-      {/* معلومات النظام */}
+      {/* System Information */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          <Card title="حالة النظام">
-            <p>✅ Vite + React يعملان بشكل صحيح</p>
-            <p>✅ Ant Design مثبت ومفعل</p>
-            <p>✅ React Router يعمل للتنقل بين الصفحات</p>
-            <p>✅ الدعم العربي (RTL) مفعل</p>
-            <p>✅ جميع صفحات ERP متوفرة</p>
+          <Card title={t.dashboard.systemStatus}>
+            <p>✅ {t.dashboard.viteReactWorking}</p>
+            <p>✅ {t.dashboard.antDesignInstalled}</p>
+            <p>✅ {t.dashboard.reactRouterWorking}</p>
+            <p>✅ {t.dashboard.rtlSupportEnabled}</p>
+            <p>✅ {t.dashboard.allPagesAvailable}</p>
             
             <Button 
               type="primary" 
@@ -248,19 +254,19 @@ const Dashboard = () => {
               style={{ marginTop: 16 }}
               onClick={() => navigate('/orders')}
             >
-              ابدأ باستخدام النظام
+              {t.dashboard.startUsingSystem}
             </Button>
           </Card>
         </Col>
         
         <Col xs={24} lg={12}>
-          <Card title="آخر النشاطات">
+          <Card title={t.dashboard.recentActivity}>
             <div style={{ padding: 8 }}>
-              <p>📦 تم إضافة 3 طلبات جديدة</p>
-              <p>👥 تم تسجيل عميل جديد</p>
-              <p>📊 تم تحديث تقارير المبيعات</p>
-              <p>🛒 {lowStockCount} منتجات تحتاج إعادة تعبئة</p>
-              <p>✅ النظام يعمل بشكل طبيعي</p>
+              <p>📦 {t.dashboard.newOrdersAdded}</p>
+              <p>👥 {t.dashboard.newCustomerRegistered}</p>
+              <p>📊 {t.dashboard.salesReportsUpdated}</p>
+              <p>🛒 {lowStockCount} {t.dashboard.productsNeedRestock}</p>
+              <p>✅ {t.dashboard.systemRunningNormal}</p>
             </div>
           </Card>
         </Col>

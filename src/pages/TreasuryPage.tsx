@@ -1,28 +1,27 @@
-'use client'
-
-import { useState, useEffect } from 'react'
-import moment from 'moment'
-import treasuryService from '../services/treasuryService'
+import React, { FC, useEffect, useMemo, useState } from 'react';
 import {
-  Card,
   Table,
-  Button,
+  Card,
   Input,
   Select,
-  Tag,
+  Button,
   Space,
+  message,
+  ConfigProvider,
+  Tag,
   Modal,
   Form,
   Row,
   Col,
   Popconfirm,
-  message,
   InputNumber,
-  Typography,
-  Divider,
   Statistic,
-  Badge
-} from 'antd'
+  Badge,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import moment from 'moment';
+import 'moment/locale/en-gb';
+import enUS from 'antd/es/locale/en_US';
 import {
   PlusOutlined,
   EditOutlined,
@@ -32,489 +31,634 @@ import {
   DollarOutlined,
   ArrowUpOutlined,
   ArrowDownOutlined,
-  SearchOutlined
-} from '@ant-design/icons'
+  SearchOutlined,
+} from '@ant-design/icons';
+import { useLanguage } from '../contexts/LanguageContext';
+import treasuryService from '../services/treasuryService';
 
-const { Option } = Select
-const { Title } = Typography
+const { Option } = Select;
 
-const TreasuryPage = () => {
-  const [accounts, setAccounts] = useState([])
-  const [transactions, setTransactions] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [transactionsLoading, setTransactionsLoading] = useState(false)
-  const [isAccountModalVisible, setIsAccountModalVisible] = useState(false)
-  const [selectedAccount, setSelectedAccount] = useState(null)
-  const [accountForm] = Form.useForm()
-  const [searchText, setSearchText] = useState('')
-  const [selectedAccountFilter, setSelectedAccountFilter] = useState(null)
+/* =======================
+   Types & Interfaces
+======================= */
+
+export interface TreasuryAccount {
+  id: string;
+  name: string;
+  type: 'bank' | 'cash_box';
+  initialBalance: number;
+  currentBalance: number;
+  updatedAt?: string;
+  lastUpdated?: string;
+}
+
+export interface TreasuryTransaction {
+  id: string;
+  accountId: string;
+  transactionType: 'inflow' | 'outflow';
+  amount: number;
+  description?: string;
+  referenceType?: string;
+  referenceId?: string;
+  projectName?: string;
+  createdAt: string;
+  updatedAt?: string;
+  lastUpdated?: string;
+}
+
+interface FilterState {
+  searchText: string;
+  accountId: string | null;
+}
+
+/* =======================
+   Utilities
+======================= */
+
+const formatCurrency = (value: number, currency: string = 'SAR'): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  }).format(value);
+};
+
+const formatNumber = (value: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
+/* =======================
+   Component
+======================= */
+
+const TreasuryPage: FC = () => {
+  const { setLanguage } = useLanguage();
+
+  const [accounts, setAccounts] = useState<TreasuryAccount[]>([]);
+  const [transactions, setTransactions] = useState<TreasuryTransaction[]>([]);
+  const [filters, setFilters] = useState<FilterState>({
+    searchText: '',
+    accountId: null,
+  });
+  const [loading, setLoading] = useState<boolean>(false);
+  const [transactionsLoading, setTransactionsLoading] = useState<boolean>(false);
+  const [isAccountModalVisible, setIsAccountModalVisible] = useState<boolean>(false);
+  const [selectedAccount, setSelectedAccount] = useState<TreasuryAccount | null>(null);
+  const [accountForm] = Form.useForm();
+
+  /* =======================
+     Language & Locale Sync
+  ======================= */
 
   useEffect(() => {
-    loadData()
-  }, [])
+    setLanguage('en');
+    moment.locale('en');
+  }, [setLanguage]);
 
-  const loadData = async () => {
-    setLoading(true)
+  /* =======================
+     Data Loading
+  ======================= */
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async (): Promise<void> => {
+    setLoading(true);
     try {
-      await Promise.all([loadAccounts(), loadTransactions()])
+      await Promise.all([loadAccounts(), loadTransactions()]);
     } catch (error) {
-      console.error('Error loading data:', error)
-      message.error('فشل في تحميل البيانات')
+      console.error('Error loading data:', error);
+      message.error('Failed to load treasury data.');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const loadAccounts = async () => {
+  const loadAccounts = async (): Promise<void> => {
     try {
-      const data = await treasuryService.getAccounts()
-      setAccounts(data || [])
+      const data = await treasuryService.getAccounts();
+      setAccounts(data || []);
     } catch (error) {
-      console.error('Error loading accounts:', error)
-      message.error('فشل في تحميل بيانات الحسابات')
+      console.error('Error loading accounts:', error);
+      message.error('Failed to load accounts.');
     }
-  }
+  };
 
-  const loadTransactions = async (accountId = null) => {
-    setTransactionsLoading(true)
+  const loadTransactions = async (accountId: string | null = null): Promise<void> => {
+    setTransactionsLoading(true);
     try {
-      const data = await treasuryService.getTransactions(accountId)
-      setTransactions(data || [])
+      const data = await treasuryService.getTransactions(accountId);
+      setTransactions(data || []);
     } catch (error) {
-      console.error('Error loading transactions:', error)
-      message.error('فشل في تحميل بيانات المعاملات')
+      console.error('Error loading transactions:', error);
+      message.error('Failed to load transactions.');
     } finally {
-      setTransactionsLoading(false)
+      setTransactionsLoading(false);
     }
-  }
+  };
 
-  // Calculate balances dynamically from latest accounts state
-  // Cash accounts (cash_box type)
-  const totalCash = accounts
-    .filter(acc => acc.type === 'cash_box')
-    .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0)
-  
-  // Bank accounts (bank type)
-  const totalBank = accounts
-    .filter(acc => acc.type === 'bank')
-    .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0)
-  
-  // Grand Total: Sum of ALL account types (includes any future account types)
-  const grandTotal = accounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0)
+  /* =======================
+     Statistics
+  ======================= */
 
-  // Handle account operations
-  const handleAddAccount = () => {
-    setSelectedAccount(null)
-    accountForm.resetFields()
-    accountForm.setFieldsValue({ type: 'bank' })
-    setIsAccountModalVisible(true)
-  }
+  const totalCash = useMemo(() => {
+    return accounts
+      .filter((acc) => acc.type === 'cash_box')
+      .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
+  }, [accounts]);
 
-  const handleEditAccount = (account) => {
-    setSelectedAccount(account)
+  const totalBank = useMemo(() => {
+    return accounts
+      .filter((acc) => acc.type === 'bank')
+      .reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
+  }, [accounts]);
+
+  const grandTotal = useMemo(() => {
+    return accounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
+  }, [accounts]);
+
+  /* =======================
+     Memoized Filtering
+  ======================= */
+
+  const filteredTransactions = useMemo<TreasuryTransaction[]>(() => {
+    return transactions.filter((txn) => {
+      const account = accounts.find((acc) => acc.id === txn.accountId);
+      const accountName = account ? account.name.toLowerCase() : '';
+      const description = (txn.description || '').toLowerCase();
+      const referenceId = (txn.referenceId || '').toLowerCase();
+
+      const matchesText =
+        accountName.includes(filters.searchText.toLowerCase()) ||
+        description.includes(filters.searchText.toLowerCase()) ||
+        referenceId.includes(filters.searchText.toLowerCase());
+
+      const matchesAccount = !filters.accountId || txn.accountId === filters.accountId;
+
+      return matchesText && matchesAccount;
+    });
+  }, [transactions, accounts, filters]);
+
+  /* =======================
+     Table Columns
+  ======================= */
+
+  const accountColumns = useMemo<ColumnsType<TreasuryAccount>>(
+    () => [
+      {
+        title: 'Account Name',
+        dataIndex: 'name',
+        key: 'name',
+        render: (name: string, record: TreasuryAccount) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {record.type === 'bank' ? <BankOutlined /> : <WalletOutlined />}
+            <span style={{ fontWeight: 500 }}>{name}</span>
+          </div>
+        ),
+      },
+      {
+        title: 'Account Type',
+        dataIndex: 'type',
+        key: 'type',
+        render: (type: string) => (
+          <Tag color={type === 'bank' ? 'blue' : 'green'}>
+            {type === 'bank' ? 'Bank' : 'Cash Box'}
+          </Tag>
+        ),
+      },
+      {
+        title: 'Balance',
+        dataIndex: 'currentBalance',
+        key: 'currentBalance',
+        render: (balance: number) => (
+          <span
+            style={{ fontWeight: 'bold', color: balance >= 0 ? '#52c41a' : '#ff4d4f' }}
+          >
+            {formatCurrency(balance)}
+          </span>
+        ),
+        sorter: (a: TreasuryAccount, b: TreasuryAccount) =>
+          (a.currentBalance || 0) - (b.currentBalance || 0),
+      },
+      {
+        title: 'Initial Balance',
+        dataIndex: 'initialBalance',
+        key: 'initialBalance',
+        render: (balance: number) => <span>{formatCurrency(balance)}</span>,
+      },
+      {
+        title: 'Actions',
+        key: 'actions',
+        render: (_: unknown, record: TreasuryAccount) => (
+          <Space>
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => handleEditAccount(record)}
+            >
+              Edit
+            </Button>
+            <Popconfirm
+              title="Are you sure you want to delete this account?"
+              description="This action cannot be undone."
+              onConfirm={() => handleDeleteAccount(record.id)}
+              okText="Yes"
+              cancelText="No"
+            >
+              <Button type="link" danger icon={<DeleteOutlined />}>
+                Delete
+              </Button>
+            </Popconfirm>
+          </Space>
+        ),
+      },
+    ],
+    []
+  );
+
+  const transactionColumns = useMemo<ColumnsType<TreasuryTransaction>>(
+    () => [
+      {
+        title: 'Date',
+        dataIndex: 'createdAt',
+        key: 'createdAt',
+        render: (value: string) => {
+          if (!value) return '-';
+          const parsed = moment(value);
+          return parsed.isValid() ? parsed.format('LLL') : '-';
+        },
+        sorter: (a: TreasuryTransaction, b: TreasuryTransaction) => {
+          const dateA = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateA - dateB;
+        },
+        defaultSortOrder: 'descend' as const,
+      },
+      {
+        title: 'Account',
+        dataIndex: 'accountId',
+        key: 'accountId',
+        render: (accountId: string) => {
+          const account = accounts.find((acc) => acc.id === accountId);
+          return account ? account.name : 'Not Specified';
+        },
+      },
+      {
+        title: 'Type',
+        dataIndex: 'transactionType',
+        key: 'transactionType',
+        render: (type: string) => (
+          <Tag
+            color={type === 'inflow' ? 'green' : 'red'}
+            icon={type === 'inflow' ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+          >
+            {type === 'inflow' ? 'Income' : 'Expense'}
+          </Tag>
+        ),
+      },
+      {
+        title: 'Project Name',
+        dataIndex: 'projectName',
+        key: 'projectName',
+        render: (projectName: string) => {
+          if (projectName) {
+            return <Tag color="purple">{projectName}</Tag>;
+          }
+          return '-';
+        },
+      },
+      {
+        title: 'Amount',
+        dataIndex: 'amount',
+        key: 'amount',
+        render: (amount: number, record: TreasuryTransaction) => (
+          <span
+            style={{
+              fontWeight: 'bold',
+              color: record.transactionType === 'inflow' ? '#52c41a' : '#ff4d4f',
+            }}
+          >
+            {record.transactionType === 'inflow' ? '+' : '-'}
+            {formatCurrency(amount)}
+          </span>
+        ),
+        sorter: (a: TreasuryTransaction, b: TreasuryTransaction) =>
+          (a.amount || 0) - (b.amount || 0),
+      },
+      {
+        title: 'Reference',
+        key: 'reference',
+        render: (_: unknown, record: TreasuryTransaction) => {
+          if (record.referenceType && record.referenceId) {
+            const typeLabels: Record<string, string> = {
+              payment: 'Payment',
+              expense: 'Expense',
+              order: 'Order',
+            };
+            return (
+              <Tag color="blue">
+                {typeLabels[record.referenceType] || record.referenceType}:{' '}
+                {record.referenceId.substring(0, 8)}
+              </Tag>
+            );
+          }
+          return '-';
+        },
+      },
+      {
+        title: 'Description',
+        dataIndex: 'description',
+        key: 'description',
+        render: (description: string) => description || '-',
+      },
+    ],
+    [accounts]
+  );
+
+  /* =======================
+     Handlers
+  ======================= */
+
+  const handleAddAccount = (): void => {
+    setSelectedAccount(null);
+    accountForm.resetFields();
+    accountForm.setFieldsValue({ type: 'bank' });
+    setIsAccountModalVisible(true);
+  };
+
+  const handleEditAccount = (account: TreasuryAccount): void => {
+    setSelectedAccount(account);
     accountForm.setFieldsValue({
       name: account.name,
       type: account.type,
-      initialBalance: account.initialBalance
-    })
-    setIsAccountModalVisible(true)
-  }
+      initialBalance: account.initialBalance,
+    });
+    setIsAccountModalVisible(true);
+  };
 
-  const handleSaveAccount = async (values) => {
+  const handleSaveAccount = async (): Promise<void> => {
     try {
+      const values = await accountForm.validateFields();
+
       const accountData = {
         name: values.name,
         type: values.type,
-        initialBalance: values.initialBalance || 0
-      }
+        initialBalance: values.initialBalance || 0,
+      };
 
-      let result
+      let result;
       if (selectedAccount) {
-        // For update, only update name and type (balance is calculated from transactions)
         result = await treasuryService.updateAccount(selectedAccount.id, {
           name: accountData.name,
-          type: accountData.type
-        })
+          type: accountData.type,
+        });
       } else {
-        result = await treasuryService.addAccount(accountData)
+        result = await treasuryService.addAccount(accountData);
       }
 
       if (result.success) {
-        message.success(selectedAccount ? 'تم تحديث الحساب بنجاح' : 'تم إضافة الحساب بنجاح')
-        setIsAccountModalVisible(false)
-        accountForm.resetFields()
-        setSelectedAccount(null)
-        await loadAccounts()
+        message.success(
+          selectedAccount ? 'Account updated successfully.' : 'Account created successfully.'
+        );
+        setIsAccountModalVisible(false);
+        accountForm.resetFields();
+        setSelectedAccount(null);
+        await loadAccounts();
       } else {
-        message.error(result.error || 'فشل في حفظ الحساب')
+        message.error(result.error || 'Failed to save account.');
       }
     } catch (error) {
-      console.error('Error saving account:', error)
-      message.error('حدث خطأ أثناء حفظ الحساب')
+      console.error('Error saving account:', error);
+      message.error('Failed to save account.');
     }
-  }
+  };
 
-  const handleDeleteAccount = async (id) => {
+  const handleDeleteAccount = async (id: string): Promise<void> => {
     try {
-      const result = await treasuryService.deleteAccount(id)
+      const result = await treasuryService.deleteAccount(id);
       if (result.success) {
-        message.success('تم حذف الحساب بنجاح')
-        await loadAccounts()
-        if (selectedAccountFilter === id) {
-          setSelectedAccountFilter(null)
-          loadTransactions()
+        message.success('Account deleted successfully.');
+        await loadAccounts();
+        if (filters.accountId === id) {
+          setFilters((prev) => ({ ...prev, accountId: null }));
+          loadTransactions();
         }
       } else {
-        message.error(result.error || 'فشل في حذف الحساب')
+        message.error(result.error || 'Failed to delete account.');
       }
     } catch (error) {
-      console.error('Error deleting account:', error)
-      message.error('حدث خطأ أثناء حذف الحساب')
+      console.error('Error deleting account:', error);
+      message.error('Failed to delete account.');
     }
-  }
+  };
 
-  // Handle account filter change
-  const handleAccountFilterChange = (accountId) => {
-    setSelectedAccountFilter(accountId)
-    loadTransactions(accountId || null)
-  }
+  const handleAccountFilterChange = (accountId: string | null): void => {
+    setFilters((prev) => ({ ...prev, accountId }));
+    loadTransactions(accountId || null);
+  };
 
-  // Account columns
-  const accountColumns = [
-    {
-      title: 'اسم الحساب',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name, record) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {record.type === 'bank' ? <BankOutlined /> : <WalletOutlined />}
-          <span style={{ fontWeight: 500 }}>{name}</span>
-        </div>
-      )
-    },
-    {
-      title: 'النوع',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type) => (
-        <Tag color={type === 'bank' ? 'blue' : 'green'}>
-          {type === 'bank' ? 'بنك' : 'صندوق نقدي'}
-        </Tag>
-      )
-    },
-    {
-      title: 'الرصيد الحالي',
-      dataIndex: 'currentBalance',
-      key: 'currentBalance',
-      render: (balance) => (
-        <span style={{ fontWeight: 'bold', color: balance >= 0 ? '#52c41a' : '#ff4d4f' }}>
-          {balance.toLocaleString()} ريال
-        </span>
-      ),
-      sorter: (a, b) => (a.currentBalance || 0) - (b.currentBalance || 0)
-    },
-    {
-      title: 'الرصيد الأولي',
-      dataIndex: 'initialBalance',
-      key: 'initialBalance',
-      render: (balance) => <span>{balance.toLocaleString()} ريال</span>
-    },
-    {
-      title: 'الإجراءات',
-      key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEditAccount(record)}
-            title="تعديل"
-          />
-          <Popconfirm
-            title="حذف الحساب"
-            description="هل أنت متأكد من حذف هذا الحساب؟"
-            onConfirm={() => handleDeleteAccount(record.id)}
-            okText="نعم"
-            cancelText="لا"
-          >
-            <Button
-              type="link"
-              danger
-              icon={<DeleteOutlined />}
-              title="حذف"
-            />
-          </Popconfirm>
-        </Space>
-      )
-    }
-  ]
+  const handleRefresh = (): void => {
+    message.success('Treasury data has been refreshed successfully.');
+    loadData();
+  };
 
-  // Transaction columns
-  const transactionColumns = [
-    {
-      title: 'التاريخ',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (date) => {
-        if (!date) return 'غير محدد'
-        const parsed = moment(date)
-        return parsed.isValid() ? parsed.format('DD-MMM-YYYY HH:mm') : '-'
-      },
-      sorter: (a, b) => {
-        const dateA = a?.createdAt ? new Date(a.createdAt).getTime() : 0
-        const dateB = b?.createdAt ? new Date(b.createdAt).getTime() : 0
-        return dateA - dateB
-      },
-      defaultSortOrder: 'descend'
-    },
-    {
-      title: 'الحساب',
-      dataIndex: 'accountId',
-      key: 'accountId',
-      render: (accountId) => {
-        const account = accounts.find(acc => acc.id === accountId)
-        return account ? account.name : 'غير محدد'
-      }
-    },
-    {
-      title: 'النوع',
-      dataIndex: 'transactionType',
-      key: 'transactionType',
-      render: (type) => (
-        <Tag color={type === 'inflow' ? 'green' : 'red'} icon={type === 'inflow' ? <ArrowUpOutlined /> : <ArrowDownOutlined />}>
-          {type === 'inflow' ? 'إيداع' : 'سحب'}
-        </Tag>
-      )
-    },
-    {
-      title: 'اسم المشروع',
-      dataIndex: 'projectName',
-      key: 'projectName',
-      render: (projectName) => {
-        if (projectName) {
-          return <Tag color="purple">{projectName}</Tag>
-        }
-        return '-'
-      }
-    },
-    {
-      title: 'المبلغ',
-      dataIndex: 'amount',
-      key: 'amount',
-      render: (amount, record) => (
-        <span style={{ fontWeight: 'bold', color: record.transactionType === 'inflow' ? '#52c41a' : '#ff4d4f' }}>
-          {record.transactionType === 'inflow' ? '+' : '-'}{amount.toLocaleString()} ريال
-        </span>
-      ),
-      sorter: (a, b) => (a.amount || 0) - (b.amount || 0)
-    },
-    {
-      title: 'المرجع',
-      key: 'reference',
-      render: (_, record) => {
-        if (record.referenceType && record.referenceId) {
-          const typeLabels = {
-            payment: 'دفعة',
-            expense: 'مصروف',
-            order: 'أمر شراء'
-          }
-          return (
-            <Tag color="blue">
-              {typeLabels[record.referenceType] || record.referenceType}: {record.referenceId.substring(0, 8)}
-            </Tag>
-          )
-        }
-        return '-'
-      }
-    },
-    {
-      title: 'الوصف',
-      dataIndex: 'description',
-      key: 'description',
-      render: (description) => description || '-'
-    }
-  ]
-
-  // Filter transactions by search
-  const filteredTransactions = transactions.filter(txn => {
-    const account = accounts.find(acc => acc.id === txn.accountId)
-    const accountName = account ? account.name.toLowerCase() : ''
-    const description = (txn.description || '').toLowerCase()
-    const referenceId = (txn.referenceId || '').toLowerCase()
-    
-    return (
-      accountName.includes(searchText.toLowerCase()) ||
-      description.includes(searchText.toLowerCase()) ||
-      referenceId.includes(searchText.toLowerCase())
-    )
-  })
+  /* =======================
+     Render
+  ======================= */
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <Title level={2} style={{ margin: 0 }}>إدارة الخزينة</Title>
-          <p style={{ color: '#666', margin: '4px 0 0 0' }}>عرض وإدارة حسابات الخزينة والمعاملات المالية</p>
+    <ConfigProvider locale={enUS}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>
+              Treasury Management
+            </h1>
+            <p style={{ color: '#666', margin: '4px 0 0 0' }}>
+              Manage accounts and transactions
+            </p>
+          </div>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAddAccount}>
+            New Account
+          </Button>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddAccount}>
-          إضافة حساب
-        </Button>
-      </div>
 
-      {/* Statistics */}
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={8}>
-          <Card>
-            <Statistic
-              title="إجمالي النقد (صندوق نقدي)"
-              value={totalCash}
-              precision={0}
-              prefix={<WalletOutlined />}
-              suffix="ريال"
-              styles={{ content: { color: totalCash >= 0 ? '#52c41a' : '#ff4d4f' } }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={8}>
-          <Card>
-            <Statistic
-              title="إجمالي البنك"
-              value={totalBank}
-              precision={0}
-              prefix={<BankOutlined />}
-              suffix="ريال"
-              styles={{ content: { color: totalBank >= 0 ? '#1890ff' : '#ff4d4f' } }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={8}>
-          <Card>
-            <Statistic
-              title="الإجمالي العام"
-              value={grandTotal}
-              precision={0}
-              prefix={<DollarOutlined />}
-              suffix="ريال"
-              styles={{ content: { color: grandTotal >= 0 ? '#722ed1' : '#ff4d4f' } }}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Accounts Table */}
-      <Card title="حسابات الخزينة" extra={<Badge count={accounts.length} />}>
-        <Table
-          columns={accountColumns}
-          dataSource={accounts}
-          loading={loading}
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-        />
-      </Card>
-
-      {/* Transactions Section */}
-      <Card
-        title="سجل المعاملات"
-        extra={
-          <Space>
-            <Select
-              placeholder="فلترة حسب الحساب"
-              allowClear
-              style={{ width: 200 }}
-              value={selectedAccountFilter}
-              onChange={handleAccountFilterChange}
-            >
-              {accounts.map(acc => (
-                <Option key={acc.id} value={acc.id}>
-                  {acc.name}
-                </Option>
-              ))}
-            </Select>
-            <Input
-              placeholder="ابحث في المعاملات..."
-              prefix={<SearchOutlined />}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              style={{ width: 250 }}
-            />
-          </Space>
-        }
-      >
-        <Table
-          columns={transactionColumns}
-          dataSource={filteredTransactions}
-          loading={transactionsLoading}
-          rowKey="id"
-          pagination={{ pageSize: 20 }}
-        />
-      </Card>
-
-      {/* Add/Edit Account Modal */}
-      <Modal
-        title={selectedAccount ? 'تعديل الحساب' : 'إضافة حساب جديد'}
-        open={isAccountModalVisible}
-        onOk={() => accountForm.submit()}
-        onCancel={() => {
-          setIsAccountModalVisible(false)
-          accountForm.resetFields()
-          setSelectedAccount(null)
-        }}
-        okText="حفظ"
-        cancelText="إلغاء"
-      >
-        <Form
-          form={accountForm}
-          layout="vertical"
-          onFinish={handleSaveAccount}
-          style={{ marginTop: 24 }}
-        >
-          <Form.Item
-            name="name"
-            label="اسم الحساب"
-            rules={[{ required: true, message: 'يرجى إدخال اسم الحساب' }]}
-          >
-            <Input placeholder="مثال: البنك الأهلي، الصندوق النقدي الرئيسي" />
-          </Form.Item>
-
-          <Form.Item
-            name="type"
-            label="نوع الحساب"
-            rules={[{ required: true, message: 'يرجى اختيار نوع الحساب' }]}
-          >
-            <Select>
-              <Option value="bank">بنك</Option>
-              <Option value="cash_box">صندوق نقدي</Option>
-            </Select>
-          </Form.Item>
-
-          {!selectedAccount && (
-            <Form.Item
-              name="initialBalance"
-              label="الرصيد الأولي"
-              rules={[{ required: true, message: 'يرجى إدخال الرصيد الأولي' }]}
-            >
-              <InputNumber
-                style={{ width: '100%' }}
-                placeholder="0"
-                formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={value => value.replace(/\$\s?|(,*)/g, '')}
-                min={0}
+        {/* Statistics */}
+        <Row gutter={[16, 16]}>
+          <Col xs={24} sm={12} lg={8}>
+            <Card>
+              <Statistic
+                title="Total Cash (Cash Box)"
+                value={totalCash}
+                precision={0}
+                prefix={<WalletOutlined />}
+                suffix="SAR"
+                valueStyle={{ color: totalCash >= 0 ? '#52c41a' : '#ff4d4f' }}
               />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card>
+              <Statistic
+                title="Total Bank"
+                value={totalBank}
+                precision={0}
+                prefix={<BankOutlined />}
+                suffix="SAR"
+                valueStyle={{ color: totalBank >= 0 ? '#1890ff' : '#ff4d4f' }}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card>
+              <Statistic
+                title="Total Balance"
+                value={grandTotal}
+                precision={0}
+                prefix={<DollarOutlined />}
+                suffix="SAR"
+                valueStyle={{ color: grandTotal >= 0 ? '#722ed1' : '#ff4d4f' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Accounts Table */}
+        <Card
+          title="Accounts"
+          extra={<Badge count={accounts.length} />}
+        >
+          <Table<TreasuryAccount>
+            columns={accountColumns}
+            dataSource={accounts}
+            loading={loading}
+            rowKey={(record) =>
+              `${record.id}-${record.updatedAt || record.lastUpdated || ''}`
+            }
+            pagination={{ pageSize: 10 }}
+          />
+        </Card>
+
+        {/* Transactions Section */}
+        <Card
+          title="Transactions"
+          extra={
+            <Space>
+              <Select
+                placeholder="Filter by account"
+                allowClear
+                style={{ width: 200 }}
+                value={filters.accountId}
+                onChange={handleAccountFilterChange}
+              >
+                {accounts.map((acc) => (
+                  <Option key={acc.id} value={acc.id}>
+                    {acc.name}
+                  </Option>
+                ))}
+              </Select>
+              <Input
+                placeholder="Search transactions"
+                prefix={<SearchOutlined />}
+                value={filters.searchText}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    searchText: e.target.value,
+                  }))
+                }
+                style={{ width: 250 }}
+                allowClear
+              />
+              <Button onClick={handleRefresh}>Refresh Data</Button>
+            </Space>
+          }
+        >
+          <Table<TreasuryTransaction>
+            columns={transactionColumns}
+            dataSource={filteredTransactions}
+            loading={transactionsLoading}
+            rowKey={(record) =>
+              `${record.id}-${record.updatedAt || record.lastUpdated || ''}`
+            }
+            pagination={{ pageSize: 20 }}
+          />
+        </Card>
+
+        {/* Add/Edit Account Modal */}
+        <Modal
+          title={selectedAccount ? 'Edit Account' : 'New Account'}
+          open={isAccountModalVisible}
+          onOk={handleSaveAccount}
+          onCancel={() => {
+            setIsAccountModalVisible(false);
+            accountForm.resetFields();
+            setSelectedAccount(null);
+          }}
+          okText="Save"
+          cancelText="Cancel"
+        >
+          <Form form={accountForm} layout="vertical" style={{ marginTop: 24 }}>
+            <Form.Item
+              name="name"
+              label="Account Name"
+              rules={[{ required: true, message: 'Please enter account name' }]}
+            >
+              <Input placeholder="Account name" />
             </Form.Item>
-          )}
 
-          {selectedAccount && (
-            <div style={{ padding: '12px', backgroundColor: '#f5f5f5', borderRadius: 4, marginBottom: 16 }}>
-              <div><strong>الرصيد الحالي:</strong> {selectedAccount.currentBalance.toLocaleString()} ريال</div>
-              <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                لا يمكن تعديل الرصيد - يتم تحديثه تلقائياً من المعاملات
+            <Form.Item
+              name="type"
+              label="Account Type"
+              rules={[{ required: true, message: 'Please select account type' }]}
+            >
+              <Select>
+                <Option value="bank">Bank</Option>
+                <Option value="cash_box">Cash Box</Option>
+              </Select>
+            </Form.Item>
+
+            {!selectedAccount && (
+              <Form.Item
+                name="initialBalance"
+                label="Initial Balance"
+                rules={[{ required: true, message: 'Please enter initial balance' }]}
+              >
+                <InputNumber
+                  style={{ width: '100%' }}
+                  placeholder="0"
+                  formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(value) => value!.replace(/\$\s?|(,*)/g, '')}
+                  min={0}
+                />
+              </Form.Item>
+            )}
+
+            {selectedAccount && (
+              <div
+                style={{
+                  padding: '12px',
+                  backgroundColor: '#f5f5f5',
+                  borderRadius: 4,
+                  marginBottom: 16,
+                }}
+              >
+                <div>
+                  <strong>Balance:</strong> {formatCurrency(selectedAccount.currentBalance)}
+                </div>
+                <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                  Balance is calculated from transactions and cannot be edited directly.
+                </div>
               </div>
-            </div>
-          )}
-        </Form>
-      </Modal>
-    </div>
-  )
-}
+            )}
+          </Form>
+        </Modal>
+      </div>
+    </ConfigProvider>
+  );
+};
 
-export default TreasuryPage
+export default TreasuryPage;
