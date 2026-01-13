@@ -46,6 +46,7 @@ import customersService from '../services/customersService'
 import ordersService from '../services/ordersService'
 import treasuryService from '../services/treasuryService'
 import workersService from '../services/workersService'
+import employeesService from '../services/employeesService'
 import { useTenant } from '../contexts/TenantContext'
 import dayjs from 'dayjs'
 
@@ -103,6 +104,11 @@ const GeneralExpenses = () => {
   const [workers, setWorkers] = useState<any[]>([])
   const [recipientType, setRecipientType] = useState<'internal' | 'external'>('external')
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null)
+  const [employees, setEmployees] = useState<any[]>([])
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null)
+  const [externalCustodyName, setExternalCustodyName] = useState('')
+  const [externalCustodyPhone, setExternalCustodyPhone] = useState('')
+  const [externalCustodyAddress, setExternalCustodyAddress] = useState('')
 
   const isEngineering = industryType === 'engineering'
 
@@ -150,6 +156,7 @@ const GeneralExpenses = () => {
     loadOutstandingAdvances()
     loadTreasuryAccounts()
     loadWorkers()
+    loadEmployees()
   }, [industryType])
 
   const loadWorkers = async () => {
@@ -159,6 +166,16 @@ const GeneralExpenses = () => {
     } catch (error) {
       console.error('Error loading workers:', error)
       setWorkers([])
+    }
+  }
+
+  const loadEmployees = async () => {
+    try {
+      const data = await employeesService.getEmployees()
+      setEmployees(data || [])
+    } catch (error) {
+      console.error('Error loading employees:', error)
+      setEmployees([])
     }
   }
 
@@ -237,8 +254,13 @@ const GeneralExpenses = () => {
     try {
       const expensePayments = await paymentsService.getAllExpenses()
 
+      // Filter out income/revenue records - only show actual expenses
+      const filteredExpensePayments = expensePayments.filter(
+        (expense) => expense.transactionType !== 'income_project' && expense.transactionType !== 'revenue'
+      )
+
       const expensesWithProjects = await Promise.all(
-        expensePayments.map(async (expense) => {
+        filteredExpensePayments.map(async (expense) => {
           let projectName = null
           if (expense.projectId) {
             const project = await projectsService.getProjectById(expense.projectId)
@@ -547,12 +569,31 @@ const GeneralExpenses = () => {
   const handleProjectChange = (projectId: string) => {
     setSelectedProject(projectId)
     
+    // Always set projectId in form
+    form.setFieldsValue({ projectId: projectId || undefined })
+    
     if (projectId) {
       const project = projects.find(p => p.id === projectId)
       if (project && project.workScopes && Array.isArray(project.workScopes) && project.workScopes.length > 0) {
         setAvailableWorkScopes(project.workScopes)
       } else {
         setAvailableWorkScopes([])
+      }
+      
+      // CRITICAL: When project is selected, ensure managerName is preserved
+      // If employee is already selected, re-sync managerName to ensure validation passes
+      const currentEmployeeId = form.getFieldValue('employeeId')
+      if (currentEmployeeId) {
+        const employee = employees.find(emp => emp && emp.id === currentEmployeeId)
+        if (employee && employee.name) {
+          const employeeName = employee.name.trim()
+          // Re-set managerName and projectManager to ensure they're not lost
+          form.setFieldsValue({
+            managerName: employeeName,
+            projectManager: employeeName,
+            recipientName: employeeName
+          })
+        }
       }
     } else {
       setAvailableWorkScopes([])
@@ -897,9 +938,34 @@ const GeneralExpenses = () => {
       // For Manager Advance expenses
       if (isManagerAdvance) {
         // For settlement, manager name comes from the linked advance, so skip validation
-        if (transactionType !== 'settlement' && !values.managerName) {
-          message.error('يرجى إدخال اسم مدير المشروع')
-          return
+        if (transactionType !== 'settlement') {
+          // CRITICAL: Enhanced validation - check multiple potential field names
+          const managerName = values.managerName || values.projectManager || null
+          const employeeId = values.employeeId || null
+          
+          // If project is selected, managerName becomes required
+          if (values.projectId && !managerName) {
+            message.error('يرجى اختيار الموظف (مدير المشروع مطلوب عند ربط المشروع)')
+            return
+          }
+          
+          // If employee is selected but managerName is missing, try to recover from employeeId
+          if (employeeId && !managerName) {
+            const employee = employees.find(emp => emp && emp.id === employeeId)
+            if (employee && employee.name) {
+              // Auto-recover managerName from employee
+              values.managerName = employee.name.trim()
+            } else {
+              message.error('يرجى التأكد من اختيار الموظف بشكل صحيح')
+              return
+            }
+          }
+          
+          // Final check: if no managerName and no employeeId, show error
+          if (!managerName && !employeeId) {
+            message.error('يرجى إدخال اسم مدير المشروع أو اختيار الموظف')
+            return
+          }
         }
         
         // Validate amount <= remaining amount (not original amount)
@@ -1150,13 +1216,20 @@ const GeneralExpenses = () => {
         }
 
         // For settlement, get manager name from linked advance and validate remaining amount
-        let managerName = values.managerName || null
+        // CRITICAL: Use multiple potential field names to ensure we get the manager name
+        let managerName = values.managerName || values.projectManager || null
         if (transactionType === 'settlement' && values.linkedAdvanceId) {
           const linkedAdvance = selectedLinkedAdvance || openAdvances.find(a => a.id === values.linkedAdvanceId)
           if (linkedAdvance) {
             managerName = linkedAdvance.managerName
             // For return-type settlements, we still need to update remaining_amount
             // This will be handled in the service, but we need to ensure the advance exists
+          }
+        } else if (!managerName && values.employeeId) {
+          // Fallback: If managerName is missing but employeeId exists, recover from employee
+          const employee = employees.find(emp => emp && emp.id === values.employeeId)
+          if (employee && employee.name) {
+            managerName = employee.name.trim()
           }
         }
 
@@ -1205,50 +1278,14 @@ const GeneralExpenses = () => {
         }
 
         if (result.success) {
-          message.success(transactionType === 'settlement' ? 'تم حفظ التسوية بنجاح' : 'تم حفظ العهدة بنجاح')
-          
-          // Create treasury transaction for advances (non-settlement) - ensure it's not empty string or null
-          if (transactionType !== 'settlement') {
-            const treasuryAccountIdForAdvance = values.treasuryAccountId?.trim() || null
-            if (treasuryAccountIdForAdvance && treasuryAccountIdForAdvance !== '' && result.payment?.id) {
-              try {
-                // Console log to trace account_id value
-                console.log('GeneralExpenses: Creating treasury transaction for advance', {
-                  paymentId: result.payment.id,
-                  accountId: treasuryAccountIdForAdvance,
-                  accountIdType: typeof treasuryAccountIdForAdvance,
-                  accountIdLength: treasuryAccountIdForAdvance?.length
-                })
-                
-                const treasuryResult = await treasuryService.createTransaction({
-                  accountId: treasuryAccountIdForAdvance,
-                  transactionType: 'outflow',
-                  amount: amountValue,
-                  referenceType: 'expense',
-                  referenceId: result.payment.id,
-                  description: `عهدة مدير: ${managerName || ''} - ${referenceNumber || ''} - ${values.notes || ''}`
-                })
-                
-                if (treasuryResult.success) {
-                  console.log('GeneralExpenses: Treasury transaction created successfully for advance', {
-                    transactionId: treasuryResult.transaction?.id,
-                    accountId: treasuryAccountIdForAdvance,
-                    accountName: treasuryResult.accountName,
-                    newBalance: treasuryResult.newBalance
-                  })
-                  message.success(`✅ تم خصم ${amountValue.toLocaleString()} ريال من حساب الخزينة (${treasuryResult.accountName || 'غير محدد'})`)
-                } else {
-                  console.error('GeneralExpenses: Failed to update treasury for advance:', treasuryResult.error)
-                  message.error({
-                    content: `❌ فشل خصم المبلغ من الخزينة: ${treasuryResult.error || 'خطأ غير معروف'}`,
-                    duration: 10,
-                  })
-                }
-              } catch (error) {
-                console.error('GeneralExpenses: Error updating treasury for advance:', error)
-                message.error('حدث خطأ أثناء خصم المبلغ من الخزينة')
-              }
-            }
+          // CRITICAL: Treasury transactions are now created ONLY when status changes to 'approved' via updatePaymentStatus
+          // Do NOT create treasury transaction here for pending advances - it will be created when admin approves (status -> 'approved')
+          if (transactionType === 'settlement') {
+            message.success('تم حفظ التسوية بنجاح')
+          } else if (result.payment?.status === 'pending') {
+            message.success('تم حفظ طلب العهدة بنجاح - في انتظار الموافقة')
+          } else {
+            message.success('تم حفظ العهدة بنجاح')
           }
           
           // Create treasury transaction for return-type settlements - ensure it's not empty string or null
@@ -1369,6 +1406,7 @@ const GeneralExpenses = () => {
         // Prepare payment data for administrative expense
         // Note: The 'category' field here maps to 'expense_category' in the database via paymentsService
         // The 'recipientName' field maps to 'recipient_name' in the database
+        // CRITICAL: Status is set to 'pending' to require admin approval before treasury deduction
         const paymentData = {
           isGeneralExpense: true,
           projectId: null,
@@ -1376,8 +1414,8 @@ const GeneralExpenses = () => {
           category: values.category, // Maps to expense_category in DB via paymentsService
           amount: amountValue,
           dueDate: expenseDate,
-          paidDate: expenseDate, // Same as dueDate since status is auto-set to 'paid'
-          status: 'paid', // Auto-set to 'paid' for administrative expenses
+          paidDate: null, // Will be set when approved/paid
+          status: editingExpense ? values.status : 'pending', // Default to 'pending' for new entries, use existing for edits
           paymentMethod: derivedPaymentMethod === 'cash' ? 'Cash' : derivedPaymentMethod,
           referenceNumber: referenceNumber,
           notes: values.notes || null,
@@ -1402,42 +1440,12 @@ const GeneralExpenses = () => {
         console.log('Service result:', result)
 
         if (result.success) {
-          message.success('تم حفظ المصروف بنجاح')
-          
-          // Update treasury if account selected - ensure it's not empty string or null
-          if (treasuryAccountId && treasuryAccountId !== '' && result.payment?.id) {
-            try {
-              // Console log to trace account_id value
-              console.log('GeneralExpenses: Creating treasury transaction for general expense', {
-                paymentId: result.payment.id,
-                accountId: treasuryAccountId,
-                accountIdType: typeof treasuryAccountId,
-                accountIdLength: treasuryAccountId?.length
-              })
-              
-              const treasuryResult = await treasuryService.createTransaction({
-                accountId: treasuryAccountId,
-                transactionType: 'outflow',
-                amount: amountValue,
-                referenceType: 'expense',
-                referenceId: result.payment.id,
-                description: `مصروف إداري: ${values.category || ''} - ${values.notes || ''}`
-              })
-              
-              if (treasuryResult.success) {
-                console.log('GeneralExpenses: Treasury transaction created successfully for general expense', {
-                  transactionId: treasuryResult.transaction?.id,
-                  accountId: treasuryAccountId,
-                  newBalance: treasuryResult.newBalance
-                })
-              } else {
-                console.error('GeneralExpenses: Failed to update treasury for general expense:', treasuryResult.error)
-                // Don't show error to user - expense is already saved
-              }
-            } catch (error) {
-              console.error('GeneralExpenses: Error updating treasury for general expense:', error)
-              // Don't show error to user - expense is already saved
-            }
+          // CRITICAL: Treasury transactions are now created ONLY when status changes to 'paid' via updatePaymentStatus
+          // Do NOT create treasury transaction here - it will be created when admin approves (status -> 'paid')
+          if (result.payment?.status === 'pending') {
+            message.success('تم حفظ طلب المصروف بنجاح - في انتظار الموافقة')
+          } else {
+            message.success('تم حفظ المصروف بنجاح')
           }
           
           setIsModalVisible(false)
@@ -1767,11 +1775,28 @@ const GeneralExpenses = () => {
       )
     },
     ...(activeTab === 'petty-cash' ? [{
-      title: 'المدير',
+      title: 'المدير/المهندس',
       dataIndex: 'managerName',
       key: 'managerName',
       width: 150,
-      render: (manager: string) => manager ? <Tag color="purple">{manager}</Tag> : '-'
+      render: (manager: string, record: any) => {
+        // CRITICAL FIX: Always show manager name even if balance is 0
+        // Get manager name from record, or try to get it from linked advance for settlements
+        const managerName = manager || record.managerName || (record.transactionType === 'settlement' && record.linkedAdvanceId ? 
+          (pettyCashAdvances.find(a => a.id === record.linkedAdvanceId)?.managerName) : null)
+        
+        if (managerName) {
+          return <Tag color="purple">{managerName}</Tag>
+        }
+        // For settlements, try to get from linked advance
+        if (record.transactionType === 'settlement' && record.linkedAdvanceId) {
+          const linkedAdvance = pettyCashAdvances.find(a => a.id === record.linkedAdvanceId)
+          if (linkedAdvance && linkedAdvance.managerName) {
+            return <Tag color="purple">{linkedAdvance.managerName}</Tag>
+          }
+        }
+        return <span style={{ color: '#999' }}>-</span>
+      }
     }] : []),
     {
       title: 'نوع المصروف',
@@ -2374,26 +2399,193 @@ const GeneralExpenses = () => {
 
               {/* Manager Name - Hidden for settlement, shown for advance */}
               {transactionType !== 'settlement' && (
-                <Form.Item
-                  name="managerName"
-                  label="اسم مدير المشروع"
-                  rules={[{ required: true, message: 'يرجى إدخال اسم مدير المشروع' }]}
-                >
-                  <AutoComplete
-                    options={managers.map(m => ({ value: m, label: m }))}
-                    placeholder="أدخل اسم مدير المشروع"
-                    style={{ width: '100%' }}
-                    size="large"
-                    onSearch={(value) => {
-                      if (!managers.includes(value) && value.trim()) {
-                        setManagers([...new Set([...managers, value.trim()])])
-                      }
-                    }}
-                    filterOption={(input, option) =>
-                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                    }
-                  />
-                </Form.Item>
+                <>
+                  <Form.Item
+                    name="custodyType"
+                    label="نوع العهدة"
+                    rules={[{ required: true, message: 'يرجى اختيار نوع العهدة' }]}
+                    initialValue="external"
+                  >
+                    <Radio.Group
+                      value={recipientType}
+                      onChange={(e) => {
+                        setRecipientType(e.target.value)
+                        // Reset fields when switching types
+                        form.setFieldsValue({ 
+                          managerName: undefined,
+                          employeeId: undefined
+                        })
+                        setSelectedEmployeeId(null)
+                        setExternalCustodyName('')
+                        setExternalCustodyPhone('')
+                        setExternalCustodyAddress('')
+                      }}
+                      buttonStyle="solid"
+                      size="large"
+                    >
+                      <Radio.Button value="internal">داخلي (موظف)</Radio.Button>
+                      <Radio.Button value="external">خارجي (مورد/مندوب)</Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+
+                  {recipientType === 'internal' ? (
+                    <>
+                      {/* Hidden Form.Item for managerName to ensure validation works correctly */}
+                      <Form.Item
+                        name="managerName"
+                        hidden
+                        rules={[
+                          {
+                            validator: (_, value) => {
+                              // If project is selected, managerName becomes required
+                              const projectId = form.getFieldValue('projectId')
+                              if (projectId && !value) {
+                                return Promise.reject(new Error('يرجى اختيار الموظف (مدير المشروع مطلوب عند ربط المشروع)'))
+                              }
+                              // If employee is selected, managerName should be set
+                              const employeeId = form.getFieldValue('employeeId')
+                              if (employeeId && !value) {
+                                return Promise.reject(new Error('يرجى التأكد من اختيار الموظف بشكل صحيح'))
+                              }
+                              return Promise.resolve()
+                            }
+                          }
+                        ]}
+                      >
+                        <Input type="hidden" />
+                      </Form.Item>
+                      
+                      <Form.Item
+                        name="employeeId"
+                        label="الموظف"
+                        rules={[{ required: true, message: 'يرجى اختيار الموظف' }]}
+                      >
+                        <Select
+                          placeholder="اختر الموظف"
+                          showSearch
+                          value={selectedEmployeeId}
+                          onChange={(value) => {
+                            // Step 1: Capture the selected ID
+                            if (!value) {
+                              setSelectedEmployeeId(null)
+                              // Clear all related fields when deselecting
+                              form.setFieldsValue({ 
+                                managerName: undefined,
+                                recipientName: undefined,
+                                employeeId: undefined,
+                                projectManager: undefined // Clear potential projectManager field
+                              })
+                              return
+                            }
+                            
+                            // Update state immediately for UI consistency
+                            setSelectedEmployeeId(value)
+                            
+                            // Step 2: Find the corresponding employee object in the data source
+                            // Fail-safe: Verify employees array is populated
+                            if (!employees || employees.length === 0) {
+                              console.warn('Employees array is empty or not loaded. Cannot populate managerName/recipientName.')
+                              return
+                            }
+                            
+                            const employee = employees.find(emp => emp && emp.id === value)
+                            
+                            // Step 3: Fail-safe logic - if found, populate form fields
+                            if (employee && employee.name) {
+                              const employeeName = employee.name.trim()
+                              
+                              if (!employeeName) {
+                                console.warn(`Employee with ID ${value} has empty name field`)
+                                return
+                              }
+                              
+                              // Step 4: Execute form.setFieldsValue to populate ALL potential field names synchronously
+                              // This ensures the form state is updated before any validation runs
+                              // CRITICAL: Set managerName, recipientName, AND projectManager to cover all backend expectations
+                              form.setFieldsValue({ 
+                                managerName: employeeName,
+                                recipientName: employeeName,
+                                employeeId: value,
+                                projectManager: employeeName // Set projectManager in case backend expects this field when project is linked
+                              })
+                              
+                              // Force form validation to run after setting values
+                              // This ensures validation passes immediately after selection
+                              setTimeout(() => {
+                                form.validateFields(['managerName', 'employeeId']).catch(() => {
+                                  // Validation errors will be shown by Form.Item
+                                })
+                              }, 0)
+                              
+                              // Update managers list for future reference
+                              if (employeeName && !managers.includes(employeeName)) {
+                                setManagers([...new Set([...managers, employeeName])])
+                              }
+                            } else {
+                              // Fail-safe: If employee not found, log warning but don't break
+                              console.warn(`Employee with ID ${value} not found in employees array. Available employees:`, employees.map(e => ({ id: e?.id, name: e?.name })))
+                            }
+                          }}
+                          filterOption={(input, option) =>
+                            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                          }
+                          size="large"
+                        >
+                          {employees.map(emp => (
+                            <Option key={emp.id} value={emp.id} label={emp.name}>
+                              {emp.name} - {emp.jobTitle || 'موظف'}
+                            </Option>
+                          ))}
+                        </Select>
+                      </Form.Item>
+                    </>
+                  ) : (
+                    <>
+                      <Form.Item
+                        name="managerName"
+                        label="اسم المورد/المندوب"
+                        rules={[{ required: true, message: 'يرجى إدخال اسم المورد/المندوب' }]}
+                      >
+                        <Input
+                          placeholder="أدخل اسم المورد/المندوب"
+                          value={externalCustodyName}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setExternalCustodyName(value)
+                            form.setFieldsValue({ managerName: value })
+                            if (value.trim() && !managers.includes(value.trim())) {
+                              setManagers([...new Set([...managers, value.trim()])])
+                            }
+                          }}
+                          size="large"
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="externalCustodyPhone"
+                        label="رقم الهاتف"
+                        rules={[{ required: true, message: 'يرجى إدخال رقم الهاتف' }]}
+                      >
+                        <Input
+                          placeholder="أدخل رقم الهاتف"
+                          value={externalCustodyPhone}
+                          onChange={(e) => setExternalCustodyPhone(e.target.value)}
+                          size="large"
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        name="externalCustodyAddress"
+                        label="العنوان (اختياري)"
+                      >
+                        <Input.TextArea
+                          placeholder="أدخل العنوان"
+                          value={externalCustodyAddress}
+                          onChange={(e) => setExternalCustodyAddress(e.target.value)}
+                          rows={2}
+                        />
+                      </Form.Item>
+                    </>
+                  )}
+                </>
               )}
 
               {/* Settlement: Open Advance Dropdown */}
@@ -2761,6 +2953,18 @@ const GeneralExpenses = () => {
                   <Select
                     placeholder="اختر المشروع (اختياري)"
                     showSearch
+                    onChange={(value) => {
+                      // Use handleProjectChange to maintain managerName sync
+                      handleProjectChange(value)
+                      // Trigger validation for managerName when project is selected
+                      if (value) {
+                        setTimeout(() => {
+                          form.validateFields(['managerName']).catch(() => {
+                            // Validation errors will be shown by Form.Item
+                          })
+                        }, 0)
+                      }
+                    }}
                     filterOption={(input, option) =>
                       (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
                     }

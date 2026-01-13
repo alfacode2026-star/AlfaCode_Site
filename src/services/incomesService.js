@@ -14,7 +14,10 @@ class IncomesService {
       }
 
       // Get all payments that are income-type (have contract_id or payment_type = 'income')
-      // Also include advances (transaction_type = 'advance') that are received
+      // EXCLUDE advances (transaction_type = 'advance') and settlements (transaction_type = 'settlement')
+      // Only show real Revenues/Income (Invoices/Receipts from clients)
+      // CRITICAL: Include ALL income payments (contract_id OR payment_type='income'), even if project_id is null
+      // This ensures contract payments from Contract Details appear in the main Revenue list
       const { data: payments, error } = await supabase
         .from('payments')
         .select(`
@@ -25,8 +28,10 @@ class IncomesService {
           )
         `)
         .eq('tenant_id', tenantId)
-        .or('contract_id.not.is.null,payment_type.eq.income,transaction_type.eq.advance')
-        .not('project_id', 'is', null)
+        .or('contract_id.not.is.null,payment_type.eq.income')
+        // REMOVED: .not('project_id', 'is', null) - Allow payments without project_id (contract payments may not have project_id)
+        .neq('transaction_type', 'advance') // EXCLUDE advances (Custody)
+        .neq('transaction_type', 'settlement') // EXCLUDE internal transfers/settlements
         .order('due_date', { ascending: false })
 
       if (error) throw error
@@ -60,12 +65,19 @@ class IncomesService {
         }
       }
 
-      // Map and filter to only include income-type payments
+      // Map and filter to only include income-type payments (real revenues)
+      // EXCLUDE advances and settlements (already filtered in query above)
       const incomes = (payments || [])
         .filter(p => {
-          // Include if it has contract_id (client payment) or payment_type is income
-          // OR if it's an advance (received advance)
-          return p.contract_id || p.payment_type === 'income' || p.transaction_type === 'advance'
+          // Include only if it has contract_id (client payment) or payment_type is income
+          // EXCLUDE advances (transaction_type = 'advance') and settlements (transaction_type = 'settlement')
+          // These are already filtered in the query above, but double-check here for safety
+          const isAdvance = p.transaction_type === 'advance'
+          const isSettlement = p.transaction_type === 'settlement'
+          if (isAdvance || isSettlement) {
+            return false // EXCLUDE advances and internal transfers
+          }
+          return p.contract_id || p.payment_type === 'income'
         })
         .map(p => {
           const mapped = this.mapToCamelCase(p)

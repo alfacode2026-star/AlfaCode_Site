@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import moment from 'moment'
 import treasuryService from '../services/treasuryService'
 import {
   Card,
@@ -256,8 +257,8 @@ const TreasuryPage = () => {
       key: 'createdAt',
       render: (date) => {
         if (!date) return 'غير محدد'
-        const dateObj = new Date(date)
-        return dateObj.toLocaleDateString('ar-SA') + ' ' + dateObj.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+        const parsed = moment(date)
+        return parsed.isValid() ? parsed.format('DD-MMM-YYYY HH:mm') : '-'
       },
       sorter: (a, b) => {
         const dateA = a?.createdAt ? new Date(a.createdAt).getTime() : 0
@@ -284,6 +285,17 @@ const TreasuryPage = () => {
           {type === 'inflow' ? 'إيداع' : 'سحب'}
         </Tag>
       )
+    },
+    {
+      title: 'اسم المشروع',
+      dataIndex: 'projectName',
+      key: 'projectName',
+      render: (projectName) => {
+        if (projectName) {
+          return <Tag color="purple">{projectName}</Tag>
+        }
+        return '-'
+      }
     },
     {
       title: 'المبلغ',

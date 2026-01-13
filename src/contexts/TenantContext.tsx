@@ -1,5 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
+// @ts-expect-error - tenantStore is a .js file without type definitions
 import tenantStore from '../services/tenantStore'
+// @ts-expect-error - supabaseClient is a .js file without type definitions
 import { supabase } from '../services/supabaseClient'
 
 interface TenantContextType {
@@ -12,18 +15,12 @@ interface TenantContextType {
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined)
 
-// Mock tenants for testing - in production, these would come from the database
-const MOCK_TENANTS = [
-  { id: '00000000-0000-0000-0000-000000000001', name: 'شركة أ' },
-  { id: '00000000-0000-0000-0000-000000000002', name: 'شركة ب' },
-  { id: '00000000-0000-0000-0000-000000000003', name: 'شركة ج' }
-]
-
 export const TenantProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentTenantId, setCurrentTenantIdState] = useState<string | null>(null)
   const [industryType, setIndustryType] = useState<'retail' | 'engineering' | 'services' | null>(null)
+  const [tenants, setTenants] = useState<Array<{ id: string; name: string }>>([])
 
-  // Fetch industry_type from database
+  // دالة لجلب نوع النشاط (Industry Type)
   const fetchIndustryType = async (tenantId: string | null) => {
     if (!tenantId) {
       setIndustryType(null)
@@ -37,61 +34,62 @@ export const TenantProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         .eq('id', tenantId)
         .single()
 
-      if (!error && data) {
-        // If data exists, check industry_type
-        if (data.industry_type) {
-          const industry = data.industry_type.toLowerCase()
-          if (industry === 'retail' || industry === 'engineering' || industry === 'services') {
-            setIndustryType(industry as 'retail' | 'engineering' | 'services')
-          } else {
-            setIndustryType(null)
-          }
+      if (!error && data?.industry_type) {
+        const industry = data.industry_type.toLowerCase()
+        if (['retail', 'engineering', 'services'].includes(industry)) {
+          setIndustryType(industry as 'retail' | 'engineering' | 'services')
         } else {
-          // Tenant exists but has no industry_type - set to null to trigger onboarding
           setIndustryType(null)
         }
-      } else {
-        // Database query failed or tenant doesn't exist - use fallback
-        const fallbackMap: Record<string, 'retail' | 'engineering' | 'services'> = {
-          '00000000-0000-0000-0000-000000000001': 'retail',
-          '00000000-0000-0000-0000-000000000002': 'engineering',
-          '00000000-0000-0000-0000-000000000003': 'services',
-        }
-        setIndustryType(fallbackMap[tenantId] || null)
       }
     } catch (error) {
-      console.warn('Error fetching industry_type, using fallback:', error)
-      // Fallback to hardcoded mapping
-      const fallbackMap: Record<string, 'retail' | 'engineering' | 'services'> = {
-        '00000000-0000-0000-0000-000000000001': 'retail',
-        '00000000-0000-0000-0000-000000000002': 'engineering',
-        '00000000-0000-0000-0000-000000000003': 'services',
-      }
-      setIndustryType(fallbackMap[tenantId] || null)
+      console.error('Error fetching industry_type:', error)
     }
   }
 
-  // Initialize from tenantStore on mount
+  // تهيئة النظام عند فتح الموقع
   useEffect(() => {
-    const stored = tenantStore.getTenantId()
-    if (stored) {
-      setCurrentTenantIdState(stored)
-      fetchIndustryType(stored)
-    } else if (MOCK_TENANTS.length > 0) {
-      // Set default tenant if none is set
-      const defaultTenant = MOCK_TENANTS[0].id
-      setCurrentTenantIdState(defaultTenant)
-      tenantStore.setTenantId(defaultTenant)
-      fetchIndustryType(defaultTenant)
+    const initTenants = async () => {
+      // 1. جلب جميع الشركات الحقيقية الموجودة في النظام
+      const { data: realTenants, error } = await supabase
+        .from('tenants')
+        .select('id, name, industry_type')
+
+      if (error || !realTenants || realTenants.length === 0) {
+        console.warn("No tenants found in DB yet.")
+        return
+      }
+
+      // حفظ القائمة الحقيقية لاستخدامها في التبديل
+      setTenants(realTenants)
+
+      // 2. تحديد الشركة النشطة
+      const storedId = tenantStore.getTenantId()
+      
+      // هل الشركة المخزنة في الذاكرة موجودة فعلاً في القائمة؟
+      const isValidTenant = storedId && realTenants.find(t => t.id === storedId)
+
+      if (isValidTenant) {
+        // ممتاز، نستخدم الشركة المخزنة
+        setCurrentTenantIdState(storedId)
+        fetchIndustryType(storedId)
+      } else {
+        // الشركة المخزنة غير صالحة (أو قديمة)، نختار أول شركة متاحة تلقائياً
+        const defaultTenant = realTenants[0]
+        console.log("Auto-selecting tenant:", defaultTenant.name)
+        setCurrentTenantIdState(defaultTenant.id)
+        tenantStore.setTenantId(defaultTenant.id)
+        fetchIndustryType(defaultTenant.id)
+      }
     }
+
+    initTenants()
   }, [])
 
   const setCurrentTenantId = (tenantId: string | null) => {
     setCurrentTenantIdState(tenantId)
     tenantStore.setTenantId(tenantId)
     fetchIndustryType(tenantId)
-    // Reload the page to refresh all data with new tenant context
-    // This ensures all services fetch data for the new tenant
     window.location.reload()
   }
 
@@ -102,7 +100,7 @@ export const TenantProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const value: TenantContextType = {
     currentTenantId,
     setCurrentTenantId,
-    tenants: MOCK_TENANTS,
+    tenants, // الآن هذه القائمة تأتي من السيرفر مباشرة وتتحدث تلقائياً
     industryType,
     refreshIndustryType
   }

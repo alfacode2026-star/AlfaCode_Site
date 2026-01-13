@@ -3,6 +3,7 @@ import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import paymentsService from './paymentsService'
 import treasuryService from './treasuryService'
+import projectsService from './projectsService'
 
 class LaborGroupsService {
   // Get current user ID from Supabase auth
@@ -775,9 +776,47 @@ class LaborGroupsService {
           .eq('tenant_id', tenantId)
       } else if (paymentMethod === 'advance') {
         // Deduct from advance
+        // Get project ID (handle both projectId and projectIds array)
+        const projectIds = existingGroup.projectIds || (existingGroup.projectId ? [existingGroup.projectId] : [])
+        const projectId = projectIds.length > 0 ? projectIds[0] : existingGroup.projectId || null
+        
+        // Fetch project details to get contract_id
+        // CRITICAL: Set contract_id = project.contract_id || null, NEVER use quotation_id
+        let contractId = null
+        if (projectId) {
+          try {
+            const tenantId = tenantStore.getTenantId()
+            if (tenantId) {
+              // Fetch directly from database to get contract_id (not quotation_id)
+              const { data: projectData } = await supabase
+                .from('projects')
+                .select('contract_id')
+                .eq('id', projectId)
+                .eq('tenant_id', tenantId)
+                .single()
+              
+              if (projectData) {
+                // CRITICAL: Use contract_id from project, or null if not available
+                // NEVER use quotation_id
+                contractId = projectData.contract_id || null
+              }
+            }
+          } catch (error) {
+            console.warn('Error fetching project for contract_id:', error.message)
+            // Continue with null contractId - this is safe
+            contractId = null
+          }
+        }
+        
+        // Generate auto payment name: Labor Payment - [Group Name] - [Date]
+        const groupName = existingGroup.engineerName || 'مجموعة عمالة'
+        const paymentDate = new Date().toISOString().split('T')[0]
+        const autoPaymentName = `Labor Payment - ${groupName} - ${paymentDate}`
+        
         // Create a settlement payment linked to the advance
         const settlementResult = await paymentsService.createPayment({
-          projectId: existingGroup.projectId,
+          projectId: projectId,
+          contractId: contractId, // Use contract_id from project, or null if not available (NEVER quotation_id)
           paymentType: 'expense',
           category: 'Labor',
           amount: existingGroup.totalAmount,
@@ -788,7 +827,7 @@ class LaborGroupsService {
           transactionType: 'settlement',
           settlementType: 'expense', // Expense settlement (spending from advance)
           linkedAdvanceId: paymentData.linkedAdvanceId,
-          notes: `تسوية مجموعة عمالة خارجية - ${existingGroup.engineerName || 'مهندس'}`,
+          notes: autoPaymentName, // Auto-generated payment name
           workScope: 'Labor Group Settlement'
         })
 

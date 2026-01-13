@@ -20,7 +20,9 @@ import {
   Popconfirm,
   message,
   Progress,
-  InputNumber
+  InputNumber,
+  DatePicker,
+  Alert
 } from 'antd'
 import {
   SearchOutlined,
@@ -30,8 +32,10 @@ import {
   RocketOutlined,
   DollarOutlined,
   UserOutlined,
-  EyeOutlined
+  EyeOutlined,
+  CalendarOutlined
 } from '@ant-design/icons'
+import moment from 'moment'
 
 const { Option } = Select
 
@@ -46,6 +50,8 @@ const ProjectsPage = () => {
   const [isModalVisible, setIsModalVisible] = useState(false)
   const [selectedProject, setSelectedProject] = useState(null)
   const [form] = Form.useForm()
+  const [datesEditModalVisible, setDatesEditModalVisible] = useState(false)
+  const [datesEditForm] = Form.useForm()
 
   // Load projects and customers on mount
   useEffect(() => {
@@ -143,6 +149,54 @@ const ProjectsPage = () => {
       },
     },
     {
+      title: 'تاريخ البدء',
+      dataIndex: 'startDate',
+      key: 'startDate',
+      render: (startDate) => {
+        if (!startDate) {
+          return <span style={{ color: '#999' }}>-</span>
+        }
+        try {
+          const formattedDate = moment(startDate).format('YYYY-MM-DD')
+          return <span>{formattedDate}</span>
+        } catch (error) {
+          console.warn('Error formatting start date:', error)
+          return <span style={{ color: '#999' }}>-</span>
+        }
+      },
+      sorter: (a, b) => {
+        if (!a?.startDate && !b?.startDate) return 0
+        if (!a?.startDate) return 1
+        if (!b?.startDate) return -1
+        return moment(a.startDate).unix() - moment(b.startDate).unix()
+      },
+      width: 120,
+    },
+    {
+      title: 'تاريخ الانتهاء',
+      dataIndex: 'endDate',
+      key: 'endDate',
+      render: (endDate) => {
+        if (!endDate) {
+          return <span style={{ color: '#999' }}>-</span>
+        }
+        try {
+          const formattedDate = moment(endDate).format('YYYY-MM-DD')
+          return <span>{formattedDate}</span>
+        } catch (error) {
+          console.warn('Error formatting end date:', error)
+          return <span style={{ color: '#999' }}>-</span>
+        }
+      },
+      sorter: (a, b) => {
+        if (!a?.endDate && !b?.endDate) return 0
+        if (!a?.endDate) return 1
+        if (!b?.endDate) return -1
+        return moment(a.endDate).unix() - moment(b.endDate).unix()
+      },
+      width: 120,
+    },
+    {
       title: 'الميزانية',
       dataIndex: 'budget',
       key: 'budget',
@@ -182,6 +236,22 @@ const ProjectsPage = () => {
             title="عرض التفاصيل"
           >
             التفاصيل
+          </Button>
+          <Button 
+            type="link" 
+            icon={<CalendarOutlined />}
+            onClick={() => {
+              setSelectedProject(record)
+              // Pre-fill form with current dates
+              datesEditForm.setFieldsValue({
+                startDate: record.startDate ? moment(record.startDate) : null,
+                endDate: record.endDate ? moment(record.endDate) : null
+              })
+              setDatesEditModalVisible(true)
+            }}
+            title="تعديل التواريخ"
+          >
+            تعديل التواريخ
           </Button>
           <Button 
             type="link" 
@@ -287,6 +357,57 @@ const ProjectsPage = () => {
         message.error('يرجى ملء جميع الحقول المطلوبة بشكل صحيح')
       } else {
         message.error('حدث خطأ أثناء حفظ المشروع')
+      }
+    }
+  }
+
+  // Handle updating project dates only
+  const handleUpdateDates = async () => {
+    try {
+      const values = await datesEditForm.validateFields()
+
+      // Fail-safe validation: Ensure endDate is after startDate if both are provided
+      if (values.startDate && values.endDate) {
+        const startMoment = moment(values.startDate)
+        const endMoment = moment(values.endDate)
+        
+        if (endMoment.isBefore(startMoment) || endMoment.isSame(startMoment)) {
+          message.error('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء')
+          return
+        }
+      }
+
+      if (!selectedProject) {
+        message.error('لم يتم اختيار مشروع')
+        return
+      }
+
+      // Prepare update data with only date fields
+      // Map frontend camelCase to backend snake_case format
+      const updateData = {
+        startDate: values.startDate ? moment(values.startDate).format('YYYY-MM-DD') : null,
+        endDate: values.endDate ? moment(values.endDate).format('YYYY-MM-DD') : null
+      }
+
+      // Call service to update project dates
+      const result = await projectsService.updateProject(selectedProject.id, updateData)
+
+      if (result.success) {
+        message.success('تم تحديث تواريخ المشروع بنجاح!')
+        setDatesEditModalVisible(false)
+        setSelectedProject(null)
+        datesEditForm.resetFields()
+        // Refresh projects list to reflect changes
+        await loadProjects()
+      } else {
+        message.error(result.error || 'فشل في تحديث تواريخ المشروع')
+      }
+    } catch (error) {
+      console.error('Error updating project dates:', error)
+      if (error.errorFields) {
+        message.error('يرجى التحقق من صحة التواريخ المدخلة')
+      } else {
+        message.error('حدث خطأ أثناء تحديث تواريخ المشروع')
       }
     }
   }
@@ -474,6 +595,82 @@ const ProjectsPage = () => {
           >
             <Input.TextArea rows={3} placeholder="ملاحظات إضافية..." />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Edit Dates Modal */}
+      <Modal
+        title={`تعديل تواريخ المشروع ${selectedProject?.name}`}
+        open={datesEditModalVisible}
+        onOk={handleUpdateDates}
+        onCancel={() => {
+          setDatesEditModalVisible(false)
+          setSelectedProject(null)
+          datesEditForm.resetFields()
+        }}
+        okText="حفظ"
+        cancelText="إلغاء"
+        width={500}
+      >
+        <Form form={datesEditForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Alert
+            type="info"
+            message="ملاحظة"
+            description="تحديث تواريخ المشروع يتم بشكل مستقل عن العقود المرتبطة. يمكن تعديل التواريخ السابقة للسماح بسيناريوهات البيانات المؤرخة."
+            style={{ marginBottom: 16 }}
+            showIcon
+          />
+          
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="startDate"
+                label="تاريخ البدء"
+                rules={[
+                  {
+                    validator: (_, value) => {
+                      if (!value) return Promise.resolve()
+                      const endDate = datesEditForm.getFieldValue('endDate')
+                      if (endDate && moment(value).isAfter(moment(endDate))) {
+                        return Promise.reject(new Error('تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء'))
+                      }
+                      return Promise.resolve()
+                    }
+                  }
+                ]}
+              >
+                <DatePicker 
+                  style={{ width: '100%' }} 
+                  format="YYYY-MM-DD"
+                  placeholder="اختر تاريخ البدء"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="endDate"
+                label="تاريخ الانتهاء"
+                rules={[
+                  {
+                    validator: (_, value) => {
+                      if (!value) return Promise.resolve()
+                      const startDate = datesEditForm.getFieldValue('startDate')
+                      if (startDate && moment(value).isBefore(moment(startDate))) {
+                        return Promise.reject(new Error('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء'))
+                      }
+                      return Promise.resolve()
+                    }
+                  }
+                ]}
+              >
+                <DatePicker 
+                  style={{ width: '100%' }} 
+                  format="YYYY-MM-DD"
+                  placeholder="اختر تاريخ الانتهاء"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
     </div>

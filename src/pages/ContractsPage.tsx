@@ -7,6 +7,7 @@ import customersService from '../services/customersService'
 import quotationsService from '../services/quotationsService'
 import paymentsService from '../services/paymentsService'
 import projectsService from '../services/projectsService'
+import treasuryService from '../services/treasuryService'
 import { useTenant } from '../contexts/TenantContext'
 import {
   Card,
@@ -29,7 +30,8 @@ import {
   InputNumber,
   AutoComplete,
   Tabs,
-  Switch
+  Switch,
+  Alert
 } from 'antd'
 import {
   SearchOutlined,
@@ -42,11 +44,11 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   PauseCircleOutlined,
-  PlusCircleOutlined
+  PlusCircleOutlined,
+  CalendarOutlined
 } from '@ant-design/icons'
 
 const { Option } = Select
-const { TabPane } = Tabs
 
 const ContractsPage = () => {
   const { industryType } = useTenant()
@@ -70,11 +72,15 @@ const ContractsPage = () => {
   const [selectedPaymentProject, setSelectedPaymentProject] = useState(null)
   const [availablePaymentWorkScopes, setAvailablePaymentWorkScopes] = useState([])
   const [isGeneralExpense, setIsGeneralExpense] = useState(false)
+  const [treasuryAccounts, setTreasuryAccounts] = useState([])
+  const [datesEditModalVisible, setDatesEditModalVisible] = useState(false)
+  const [datesEditForm] = Form.useForm()
 
   useEffect(() => {
     loadContracts()
     loadCustomers()
     loadQuotations()
+    loadTreasuryAccounts()
     if (industryType === 'engineering') {
       loadProjects()
     }
@@ -112,6 +118,16 @@ const ContractsPage = () => {
     } catch (error) {
       console.error('Error loading projects:', error)
       setProjects([])
+    }
+  }
+
+  const loadTreasuryAccounts = async () => {
+    try {
+      const accounts = await treasuryService.getAccounts()
+      setTreasuryAccounts(accounts || [])
+    } catch (error) {
+      console.error('Error loading treasury accounts:', error)
+      setTreasuryAccounts([])
     }
   }
 
@@ -290,6 +306,64 @@ const ContractsPage = () => {
       render: (projectName) => projectName || <span style={{ color: '#999' }}>غير محدد</span>
     },
     {
+      title: 'تاريخ البدء',
+      dataIndex: 'startDate',
+      key: 'startDate',
+      sorter: (a, b) => {
+        // Fail-safe sorting: handle both camelCase and snake_case, handle null/undefined values
+        const aDate = a.startDate || a.start_date
+        const bDate = b.startDate || b.start_date
+        if (!aDate && !bDate) return 0
+        if (!aDate) return 1
+        if (!bDate) return -1
+        return moment(aDate).valueOf() - moment(bDate).valueOf()
+      },
+      render: (startDate, record) => {
+        // Standardized date rendering: Use English locale with DD-MMM-YYYY format
+        const dateValue = startDate || record.start_date || record.startDate
+        if (!dateValue) {
+          return <span style={{ color: '#999' }}>-</span>
+        }
+        try {
+          // Use strict parsing for ISO format, then format for display
+          const parsed = moment(dateValue, 'YYYY-MM-DD', true)
+          return parsed.isValid() ? parsed.format('DD-MMM-YYYY') : '-'
+        } catch (error) {
+          console.error('Error formatting startDate:', error)
+          return <span style={{ color: '#999' }}>-</span>
+        }
+      }
+    },
+    {
+      title: 'تاريخ الانتهاء',
+      dataIndex: 'endDate',
+      key: 'endDate',
+      sorter: (a, b) => {
+        // Fail-safe sorting: handle both camelCase and snake_case, handle null/undefined values
+        const aDate = a.endDate || a.end_date
+        const bDate = b.endDate || b.end_date
+        if (!aDate && !bDate) return 0
+        if (!aDate) return 1
+        if (!bDate) return -1
+        return moment(aDate).valueOf() - moment(bDate).valueOf()
+      },
+      render: (endDate, record) => {
+        // Standardized date rendering: Use English locale with DD-MMM-YYYY format
+        const dateValue = endDate || record.end_date || record.endDate
+        if (!dateValue) {
+          return <span style={{ color: '#999' }}>-</span>
+        }
+        try {
+          // Use strict parsing for ISO format, then format for display
+          const parsed = moment(dateValue, 'YYYY-MM-DD', true)
+          return parsed.isValid() ? parsed.format('DD-MMM-YYYY') : '-'
+        } catch (error) {
+          console.error('Error formatting endDate:', error)
+          return <span style={{ color: '#999' }}>-</span>
+        }
+      }
+    },
+    {
       title: 'نوع العقد',
       dataIndex: 'contractType',
       key: 'contractType',
@@ -342,6 +416,78 @@ const ContractsPage = () => {
           </Button>
           <Button
             type="link"
+            icon={<CalendarOutlined />}
+            onClick={() => {
+              setSelectedContract(record)
+              
+              // CRITICAL FIX: Strict parsing to prevent 2072 year corruption
+              // Get date value from either startDate or start_date
+              const startDateValue = record.startDate || record.start_date
+              const endDateValue = record.endDate || record.end_date
+              
+              // Convert to moment object if date exists, otherwise null
+              // ALWAYS use strict parsing with explicit format to prevent corrupted years (2072 bug)
+              let startDateMoment = null
+              let endDateMoment = null
+              
+              if (startDateValue) {
+                // Type-safe: Check if already a moment object
+                if (moment.isMoment(startDateValue)) {
+                  startDateMoment = startDateValue.isValid() ? startDateValue.clone() : null
+                } else if (startDateValue instanceof Date) {
+                  // Date object - convert to moment with strict format
+                  const dateStr = moment(startDateValue).format('YYYY-MM-DD')
+                  startDateMoment = moment(dateStr, 'YYYY-MM-DD', true).isValid() 
+                    ? moment(dateStr, 'YYYY-MM-DD', true) 
+                    : null
+                } else if (typeof startDateValue === 'string') {
+                  // String - ALWAYS parse with explicit format in strict mode (prevents 2072 bug)
+                  const parsed = moment(startDateValue, 'YYYY-MM-DD', true)
+                  startDateMoment = parsed.isValid() ? parsed : null
+                } else {
+                  // Fallback: convert to string first, then strict parse
+                  const dateStr = String(startDateValue).split('T')[0]
+                  const parsed = moment(dateStr, 'YYYY-MM-DD', true)
+                  startDateMoment = parsed.isValid() ? parsed : null
+                }
+              }
+              
+              if (endDateValue) {
+                // Type-safe: Check if already a moment object
+                if (moment.isMoment(endDateValue)) {
+                  endDateMoment = endDateValue.isValid() ? endDateValue.clone() : null
+                } else if (endDateValue instanceof Date) {
+                  // Date object - convert to moment with strict format
+                  const dateStr = moment(endDateValue).format('YYYY-MM-DD')
+                  endDateMoment = moment(dateStr, 'YYYY-MM-DD', true).isValid() 
+                    ? moment(dateStr, 'YYYY-MM-DD', true) 
+                    : null
+                } else if (typeof endDateValue === 'string') {
+                  // String - ALWAYS parse with explicit format in strict mode (prevents 2072 bug)
+                  const parsed = moment(endDateValue, 'YYYY-MM-DD', true)
+                  endDateMoment = parsed.isValid() ? parsed : null
+                } else {
+                  // Fallback: convert to string first, then strict parse
+                  const dateStr = String(endDateValue).split('T')[0]
+                  const parsed = moment(dateStr, 'YYYY-MM-DD', true)
+                  endDateMoment = parsed.isValid() ? parsed : null
+                }
+              }
+              
+              // Pre-fill form with current dates as moment objects
+              // Ant Design DatePicker REQUIRES moment objects, not strings or Date objects
+              datesEditForm.setFieldsValue({
+                startDate: startDateMoment,
+                endDate: endDateMoment
+              })
+              
+              setDatesEditModalVisible(true)
+            }}
+          >
+            تعديل التواريخ
+          </Button>
+          <Button
+            type="link"
             icon={<EditOutlined />}
             onClick={async () => {
               setSelectedContract(record)
@@ -385,8 +531,10 @@ const ContractsPage = () => {
                 workType: record.workType,
                 totalAmount: record.totalAmount,
                 status: record.status,
-                startDate: record.startDate ? moment(record.startDate) : null,
-                endDate: record.endDate ? moment(record.endDate) : null,
+                startDate: record.startDate ? moment(record.startDate, 'YYYY-MM-DD', true).isValid() 
+                  ? moment(record.startDate, 'YYYY-MM-DD', true) : null : null,
+                endDate: record.endDate ? moment(record.endDate, 'YYYY-MM-DD', true).isValid()
+                  ? moment(record.endDate, 'YYYY-MM-DD', true) : null : null,
                 projectId: record.projectId,
                 projectName: record.projectName || '',
                 quotationId: record.quotationId,
@@ -545,6 +693,162 @@ const ContractsPage = () => {
     }
   }
 
+  // Handle updating contract dates only
+  const handleUpdateDates = async () => {
+    try {
+      const values = await datesEditForm.validateFields()
+
+      // CRITICAL FIX: Type-safe moment object handling
+      // Ant Design DatePicker returns moment objects, but we need to ensure type safety
+      let startMoment = null
+      let endMoment = null
+      
+      // Type-safe extraction and validation of startDate
+      if (values.startDate) {
+        // Check if it's already a moment object (expected from DatePicker)
+        if (moment.isMoment(values.startDate)) {
+          startMoment = values.startDate.isValid() ? values.startDate.clone() : null
+        } else if (values.startDate instanceof Date) {
+          // Date object - convert to moment
+          startMoment = moment(values.startDate)
+          if (!startMoment.isValid()) {
+            message.error('تاريخ البدء غير صحيح')
+            return
+          }
+        } else if (typeof values.startDate === 'string') {
+          // String - parse with explicit format (strict mode)
+          startMoment = moment(values.startDate, 'YYYY-MM-DD', true)
+          if (!startMoment.isValid()) {
+            message.error('تاريخ البدء غير صحيح')
+            return
+          }
+        } else {
+          // Fallback: try generic parsing
+          startMoment = moment(values.startDate)
+          if (!startMoment.isValid()) {
+            message.error('تاريخ البدء غير صحيح')
+            return
+          }
+        }
+        
+        // Normalize to start of day
+        if (startMoment) {
+          startMoment = startMoment.startOf('day')
+        }
+      }
+      
+      // Type-safe extraction and validation of endDate
+      if (values.endDate) {
+        // Check if it's already a moment object (expected from DatePicker)
+        if (moment.isMoment(values.endDate)) {
+          endMoment = values.endDate.isValid() ? values.endDate.clone() : null
+        } else if (values.endDate instanceof Date) {
+          // Date object - convert to moment
+          endMoment = moment(values.endDate)
+          if (!endMoment.isValid()) {
+            message.error('تاريخ الانتهاء غير صحيح')
+            return
+          }
+        } else if (typeof values.endDate === 'string') {
+          // String - parse with explicit format (strict mode)
+          endMoment = moment(values.endDate, 'YYYY-MM-DD', true)
+          if (!endMoment.isValid()) {
+            message.error('تاريخ الانتهاء غير صحيح')
+            return
+          }
+        } else {
+          // Fallback: try generic parsing
+          endMoment = moment(values.endDate)
+          if (!endMoment.isValid()) {
+            message.error('تاريخ الانتهاء غير صحيح')
+            return
+          }
+        }
+        
+        // Normalize to start of day
+        if (endMoment) {
+          endMoment = endMoment.startOf('day')
+        }
+      }
+
+      // Validate date range if both dates are provided
+      if (startMoment && endMoment) {
+        if (endMoment.isBefore(startMoment)) {
+          message.error('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء')
+          return
+        }
+      }
+
+      if (!selectedContract) {
+        message.error('لم يتم اختيار عقد')
+        return
+      }
+
+      // Format dates as YYYY-MM-DD strings for API
+      // Only call .format() on valid moment objects
+      const newStartDate = startMoment && startMoment.isValid() 
+        ? startMoment.format('YYYY-MM-DD') 
+        : null
+      const newEndDate = endMoment && endMoment.isValid() 
+        ? endMoment.format('YYYY-MM-DD') 
+        : null
+
+      // Prepare API payload (service expects camelCase)
+      const apiPayload = {
+        startDate: newStartDate,
+        endDate: newEndDate
+      }
+
+      console.log('🔵 [handleUpdateDates] Sending update:', apiPayload)
+      console.log('🔵 [handleUpdateDates] Start moment valid:', startMoment?.isValid(), 'End moment valid:', endMoment?.isValid())
+
+      const result = await contractsService.updateContract(selectedContract.id, apiPayload)
+
+      if (result.success) {
+        message.success('تم تحديث تواريخ العقد بنجاح!')
+        
+        // CRITICAL FIX: Force Table re-render using deep-copy approach with findIndex
+        // This ensures React detects the change by creating completely new object references
+        setContracts(prevContracts => {
+          // Create a new array copy
+          const updated = [...prevContracts]
+          const index = updated.findIndex(c => c.id === selectedContract.id)
+          
+          if (index !== -1) {
+            // Create a completely new object with all properties spread
+            updated[index] = {
+              ...updated[index],
+              // Update both camelCase and snake_case to ensure compatibility
+              startDate: newStartDate,   // React/camelCase naming (matches dataIndex)
+              start_date: newStartDate,  // Supabase/snake_case naming
+              endDate: newEndDate,       // React/camelCase naming (matches dataIndex)
+              end_date: newEndDate,      // Supabase/snake_case naming
+              // Force React to detect change with timestamp
+              lastUpdated: Date.now(),
+              // Ensure key is preserved for Table rowKey
+              key: updated[index].key || updated[index].id
+            }
+          }
+          
+          return updated
+        })
+
+        setDatesEditModalVisible(false)
+        setSelectedContract(null)
+        datesEditForm.resetFields()
+
+      } else {
+        message.error(result.error || 'فشل في تحديث تواريخ العقد')
+      }
+    } catch (error) {
+      console.error('🔴 [handleUpdateDates] Error:', error)
+      if (error.errorFields) {
+        message.error('يرجى التحقق من صحة التواريخ المدخلة')
+      } else {
+        message.error('حدث خطأ أثناء التحديث')
+      }
+    }
+  }
   // Handle payment project selection change
   const handlePaymentProjectChange = (projectId) => {
     setSelectedPaymentProject(projectId)
@@ -568,42 +872,74 @@ const ContractsPage = () => {
     try {
       const values = await paymentForm.validateFields()
 
-      // For general expenses, we don't need a contract
-      // But if no contract is selected and it's not a general expense, show error
-      if (!isGeneralExpense && !selectedContract) {
-        message.error('يرجى اختيار عقد أو تفعيل خيار المصروف العام')
+      // Contract payments are always income (incoming money from client)
+      if (!selectedContract) {
+        message.error('يرجى اختيار عقد')
         return
       }
 
+      // Validate treasury account
+      if (!values.treasuryAccountId) {
+        message.error('يرجى اختيار حساب الخزينة')
+        return
+      }
+
+      // Use paidDate if status is paid, otherwise use dueDate
+      const transactionDate = values.status === 'paid' && values.paidDate
+        ? moment(values.paidDate).format('YYYY-MM-DD')
+        : (values.dueDate ? moment(values.dueDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'))
+
+      // Contract payment data - this is INCOME (incoming money from client)
       const paymentData = {
-        contractId: isGeneralExpense ? null : (selectedContract?.id || null),
-        isGeneralExpense: isGeneralExpense,
-        category: isGeneralExpense ? values.category : null,
-        projectId: isGeneralExpense ? null : (industryType === 'engineering' ? (values.projectId || null) : null),
-        workScope: isGeneralExpense ? null : (industryType === 'engineering' ? (values.workScope || null) : null),
-        paymentType: isGeneralExpense ? 'expense' : (values.paymentType || 'expense'),
+        contractId: selectedContract.id,
+        projectId: selectedContract.projectId || null,
+        workScope: values.workScope || null,
+        paymentType: 'income', // Contract payments are income
         amount: values.amount,
         dueDate: moment(values.dueDate).format('YYYY-MM-DD'),
-        paidDate: values.status === 'paid' ? (values.paidDate ? moment(values.paidDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')) : null,
+        paidDate: values.status === 'paid' ? transactionDate : null,
         status: values.status || 'pending',
         paymentMethod: values.paymentMethod || null,
         referenceNumber: values.referenceNumber || null,
         notes: values.notes || '',
+        treasuryAccountId: values.treasuryAccountId, // For treasury transaction
         createdBy: 'user'
       }
 
       const result = await paymentsService.createPayment(paymentData)
 
       if (result.success) {
-        message.success(isGeneralExpense ? 'تم إضافة المصروف العام بنجاح!' : 'تم إضافة الدفعة بنجاح!')
+        // Create treasury transaction for contract payment (inflow - money coming in)
+        if (values.status === 'paid' && values.treasuryAccountId) {
+          try {
+            const treasuryResult = await treasuryService.createTransaction({
+              accountId: values.treasuryAccountId,
+              transactionType: 'inflow', // Inflow - money coming in from client
+              amount: values.amount,
+              referenceType: 'income',
+              referenceId: result.payment.id,
+              description: `دفعة عقد: ${selectedContract.contractNumber} - ${values.notes || 'دفعة من العميل'}`
+            })
+
+            if (!treasuryResult.success) {
+              console.error('Error creating treasury transaction:', treasuryResult.error)
+              message.warning('تم إضافة الدفعة بنجاح، لكن حدث خطأ في تحديث الخزينة')
+            }
+          } catch (error) {
+            console.error('Error creating treasury transaction:', error)
+            message.warning('تم إضافة الدفعة بنجاح، لكن حدث خطأ في تحديث الخزينة')
+          }
+        }
+
+        message.success('تم إضافة الدفعة بنجاح!')
         setPaymentModalVisible(false)
         setSelectedPaymentProject(null)
         setAvailablePaymentWorkScopes([])
-        setIsGeneralExpense(false)
         paymentForm.resetFields()
         if (selectedContract) {
           await loadContractPayments(selectedContract.id)
         }
+        loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
       } else {
         message.error(result.error || 'فشل في إضافة الدفعة')
       }
@@ -614,12 +950,10 @@ const ContractsPage = () => {
   }
 
   const createContract = () => {
-    setSelectedContract(null)
-    setSelectedCustomer(null)
-    setCustomerSearchOptions([])
-    setContractItems([])
-    form.resetFields()
-    setIsModalVisible(true)
+    // PHASE 1: Restrict direct contract creation - enforce Quotation -> Contract flow
+    message.warning('يجب البدء بعمل عرض سعر أولاً وتحويله إلى عقد. يرجى الانتقال إلى صفحة العروض (Quotations) وإنشاء عرض سعر جديد.', 5)
+    // Optionally navigate to quotations page
+    // navigate('/quotations')
   }
 
   return (
@@ -975,7 +1309,6 @@ const ContractsPage = () => {
             icon={<PlusCircleOutlined />}
             onClick={() => {
               paymentForm.resetFields()
-              setIsGeneralExpense(false)
               setSelectedPaymentProject(null)
               setAvailablePaymentWorkScopes([])
               setPaymentModalVisible(true)
@@ -990,181 +1323,204 @@ const ContractsPage = () => {
         width={900}
       >
         {selectedContract && (
-          <Tabs defaultActiveKey="details">
-            <TabPane tab="تفاصيل العقد" key="details">
-              <Descriptions column={2} size="small" style={{ marginTop: 16 }}>
-                <Descriptions.Item label="رقم العقد">
-                  {selectedContract.contractNumber}
-                </Descriptions.Item>
-                <Descriptions.Item label="التاريخ">
-                  {new Date(selectedContract.createdAt).toLocaleDateString('ar-SA')}
-                </Descriptions.Item>
-                <Descriptions.Item label="جهة الإسناد">
-                  {selectedContract.customerName}
-                </Descriptions.Item>
-                <Descriptions.Item label="الهاتف">
-                  {selectedContract.customerPhone}
-                </Descriptions.Item>
-                <Descriptions.Item label="نوع العقد">
-                  {contractTypeLabels[selectedContract.contractType]}
-                </Descriptions.Item>
-                <Descriptions.Item label="اسم المشروع">
-                  {selectedContract.projectName || 'غير محدد'}
-                </Descriptions.Item>
-                <Descriptions.Item label="نوع العمل">
-                  {getWorkTypeLabel(selectedContract.workType)}
-                </Descriptions.Item>
-                <Descriptions.Item label="المبلغ الإجمالي">
-                  {selectedContract.totalAmount.toLocaleString()} ريال
-                </Descriptions.Item>
-                <Descriptions.Item label="الحالة">
-                  <Tag color={statusLabels[selectedContract.status]?.color}>
-                    {statusLabels[selectedContract.status]?.text}
-                  </Tag>
-                </Descriptions.Item>
-                {selectedContract.startDate && (
-                  <Descriptions.Item label="تاريخ البدء">
-                    {new Date(selectedContract.startDate).toLocaleDateString('ar-SA')}
-                  </Descriptions.Item>
-                )}
-                {selectedContract.endDate && (
-                  <Descriptions.Item label="تاريخ الانتهاء">
-                    {new Date(selectedContract.endDate).toLocaleDateString('ar-SA')}
-                  </Descriptions.Item>
-                )}
-                {selectedContract.quotationId && (
-                  <Descriptions.Item label="العرض المصدر">
-                    {selectedContract.quotationId}
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
+          <Tabs 
+            defaultActiveKey="details"
+            items={[
+              {
+                key: 'details',
+                label: 'تفاصيل العقد',
+                children: (
+                  <>
+                    <Descriptions column={2} size="small" style={{ marginTop: 16 }}>
+                      <Descriptions.Item label="رقم العقد">
+                        {selectedContract.contractNumber}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="التاريخ">
+                        {selectedContract.createdAt ? moment(selectedContract.createdAt).format('DD-MMM-YYYY') : '-'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="جهة الإسناد">
+                        {selectedContract.customerName}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="الهاتف">
+                        {selectedContract.customerPhone}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="نوع العقد">
+                        {contractTypeLabels[selectedContract.contractType]}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="اسم المشروع">
+                        {selectedContract.projectName || 'غير محدد'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="نوع العمل">
+                        {getWorkTypeLabel(selectedContract.workType)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="المبلغ الإجمالي">
+                        {selectedContract.totalAmount.toLocaleString()} ريال
+                      </Descriptions.Item>
+                      <Descriptions.Item label="الحالة">
+                        <Tag color={statusLabels[selectedContract.status]?.color}>
+                          {statusLabels[selectedContract.status]?.text}
+                        </Tag>
+                      </Descriptions.Item>
+                      {selectedContract.startDate && (
+                        <Descriptions.Item label="تاريخ البدء">
+                          {moment(selectedContract.startDate, 'YYYY-MM-DD', true).isValid() 
+                            ? moment(selectedContract.startDate, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
+                            : '-'}
+                        </Descriptions.Item>
+                      )}
+                      {selectedContract.endDate && (
+                        <Descriptions.Item label="تاريخ الانتهاء">
+                          {moment(selectedContract.endDate, 'YYYY-MM-DD', true).isValid()
+                            ? moment(selectedContract.endDate, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
+                            : '-'}
+                        </Descriptions.Item>
+                      )}
+                      {selectedContract.quotationId && (
+                        <Descriptions.Item label="العرض المصدر">
+                          {(() => {
+                            // Find quotation by ID to get quoteNumber
+                            const quotation = quotations.find(q => q.id === selectedContract.quotationId)
+                            return quotation ? quotation.quoteNumber : (selectedContract.quotationId.length > 20 ? 'عرض سعر' : selectedContract.quotationId)
+                          })()}
+                        </Descriptions.Item>
+                      )}
+                    </Descriptions>
 
-              {selectedContract.items && selectedContract.items.length > 0 && (
-                <>
-                  <Divider />
-                  <h4>بنود العقد</h4>
+                    {selectedContract.items && selectedContract.items.length > 0 && (
+                      <>
+                        <Divider />
+                        <h4>بنود العقد</h4>
+                        <Table
+                          dataSource={selectedContract.items}
+                          columns={[
+                            { title: 'الوصف', dataIndex: 'itemDescription', key: 'description' },
+                            { title: 'الكمية', dataIndex: 'quantity', key: 'quantity' },
+                            {
+                              title: 'سعر الوحدة',
+                              dataIndex: 'unitPrice',
+                              key: 'unitPrice',
+                              render: (price) => `${price.toLocaleString()} ريال`
+                            },
+                            {
+                              title: 'الإجمالي',
+                              dataIndex: 'total',
+                              key: 'total',
+                              render: (total) => `${total.toLocaleString()} ريال`
+                            }
+                          ]}
+                          pagination={false}
+                          size="small"
+                        />
+                      </>
+                    )}
+
+                    {selectedContract.notes && (
+                      <>
+                        <Divider />
+                        <p><strong>ملاحظات:</strong> {selectedContract.notes}</p>
+                      </>
+                    )}
+                  </>
+                )
+              },
+              {
+                key: 'payments',
+                label: 'الدفعات',
+                children: (
                   <Table
-                    dataSource={selectedContract.items}
+                    dataSource={selectedContractPayments}
                     columns={[
-                      { title: 'الوصف', dataIndex: 'itemDescription', key: 'description' },
-                      { title: 'الكمية', dataIndex: 'quantity', key: 'quantity' },
+                      { 
+                        title: 'رقم الدفعة', 
+                        dataIndex: 'paymentNumber', 
+                        key: 'paymentNumber',
+                        render: (paymentNumber, record) => (
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{paymentNumber}</div>
+                            {record.isGeneralExpense && (
+                              <Tag color="purple" style={{ marginTop: 4 }}>
+                                مصروف عام / General
+                              </Tag>
+                            )}
+                          </div>
+                        )
+                      },
+                      ...(industryType === 'engineering' ? [{
+                        title: 'اسم المشروع / التصنيف',
+                        dataIndex: 'projectName',
+                        key: 'projectName',
+                        render: (projectName, record) => {
+                          if (record.isGeneralExpense && record.expenseCategory) {
+                            return (
+                              <div>
+                                <Tag color="purple">{record.expenseCategory}</Tag>
+                                <div style={{ fontSize: '12px', color: '#999', marginTop: 4 }}>
+                                  مصروف عام
+                                </div>
+                              </div>
+                            )
+                          }
+                          return (
+                            <span style={{ fontWeight: 500 }}>{projectName || 'غير محدد'}</span>
+                          )
+                        },
+                      }] : []),
                       {
-                        title: 'سعر الوحدة',
-                        dataIndex: 'unitPrice',
-                        key: 'unitPrice',
-                        render: (price) => `${price.toLocaleString()} ريال`
+                        title: 'المبلغ',
+                        dataIndex: 'amount',
+                        key: 'amount',
+                        render: (amount) => `${amount.toLocaleString()} ريال`
                       },
                       {
-                        title: 'الإجمالي',
-                        dataIndex: 'total',
-                        key: 'total',
-                        render: (total) => `${total.toLocaleString()} ريال`
+                        title: 'تاريخ الاستحقاق',
+                        dataIndex: 'dueDate',
+                        key: 'dueDate',
+                        render: (date) => date ? moment(date, 'YYYY-MM-DD', true).isValid() 
+                          ? moment(date, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
+                          : '-' : '-'
+                      },
+                      {
+                        title: 'تاريخ الدفع',
+                        dataIndex: 'paidDate',
+                        key: 'paidDate',
+                        render: (date) => date ? moment(date, 'YYYY-MM-DD', true).isValid()
+                          ? moment(date, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
+                          : '-' : '-'
+                      },
+                      {
+                        title: 'الحالة',
+                        dataIndex: 'status',
+                        key: 'status',
+                        render: (status) => {
+                          const statusConfig = {
+                            pending: { text: 'معلق', color: 'orange' },
+                            paid: { text: 'مدفوع', color: 'green' },
+                            overdue: { text: 'متأخر', color: 'red' },
+                            cancelled: { text: 'ملغي', color: 'default' }
+                          }
+                          const config = statusConfig[status] || { text: status, color: 'default' }
+                          return <Tag color={config.color}>{config.text}</Tag>
+                        }
                       }
                     ]}
                     pagination={false}
-                    size="small"
+                    rowKey="id"
                   />
-                </>
-              )}
-
-              {selectedContract.notes && (
-                <>
-                  <Divider />
-                  <p><strong>ملاحظات:</strong> {selectedContract.notes}</p>
-                </>
-              )}
-            </TabPane>
-
-            <TabPane tab="الدفعات" key="payments">
-              <Table
-                dataSource={selectedContractPayments}
-                columns={[
-                  { 
-                    title: 'رقم الدفعة', 
-                    dataIndex: 'paymentNumber', 
-                    key: 'paymentNumber',
-                    render: (paymentNumber, record) => (
-                      <div>
-                        <div style={{ fontWeight: 500 }}>{paymentNumber}</div>
-                        {record.isGeneralExpense && (
-                          <Tag color="purple" style={{ marginTop: 4 }}>
-                            مصروف عام / General
-                          </Tag>
-                        )}
-                      </div>
-                    )
-                  },
-                  ...(industryType === 'engineering' ? [{
-                    title: 'اسم المشروع / التصنيف',
-                    dataIndex: 'projectName',
-                    key: 'projectName',
-                    render: (projectName, record) => {
-                      if (record.isGeneralExpense && record.expenseCategory) {
-                        return (
-                          <div>
-                            <Tag color="purple">{record.expenseCategory}</Tag>
-                            <div style={{ fontSize: '12px', color: '#999', marginTop: 4 }}>
-                              مصروف عام
-                            </div>
-                          </div>
-                        )
-                      }
-                      return (
-                        <span style={{ fontWeight: 500 }}>{projectName || 'غير محدد'}</span>
-                      )
-                    },
-                  }] : []),
-                  {
-                    title: 'المبلغ',
-                    dataIndex: 'amount',
-                    key: 'amount',
-                    render: (amount) => `${amount.toLocaleString()} ريال`
-                  },
-                  {
-                    title: 'تاريخ الاستحقاق',
-                    dataIndex: 'dueDate',
-                    key: 'dueDate',
-                    render: (date) => new Date(date).toLocaleDateString('ar-SA')
-                  },
-                  {
-                    title: 'تاريخ الدفع',
-                    dataIndex: 'paidDate',
-                    key: 'paidDate',
-                    render: (date) => date ? new Date(date).toLocaleDateString('ar-SA') : '-'
-                  },
-                  {
-                    title: 'الحالة',
-                    dataIndex: 'status',
-                    key: 'status',
-                    render: (status) => {
-                      const statusConfig = {
-                        pending: { text: 'معلق', color: 'orange' },
-                        paid: { text: 'مدفوع', color: 'green' },
-                        overdue: { text: 'متأخر', color: 'red' },
-                        cancelled: { text: 'ملغي', color: 'default' }
-                      }
-                      const config = statusConfig[status] || { text: status, color: 'default' }
-                      return <Tag color={config.color}>{config.text}</Tag>
-                    }
-                  }
-                ]}
-                pagination={false}
-                rowKey="id"
-              />
-            </TabPane>
-          </Tabs>
+                )
+              }
+            ]}
+          />
         )}
       </Modal>
 
       <Modal
-        title={isGeneralExpense ? "إضافة مصروف عام جديد" : "إضافة دفعة جديدة"}
+        title="إضافة دفعة جديدة"
         open={paymentModalVisible}
         onOk={handleAddPayment}
         onCancel={() => {
           setPaymentModalVisible(false)
           setSelectedPaymentProject(null)
           setAvailablePaymentWorkScopes([])
-          setIsGeneralExpense(false)
           paymentForm.resetFields()
         }}
         okText="إضافة"
@@ -1172,45 +1528,8 @@ const ContractsPage = () => {
         width={600}
       >
         <Form form={paymentForm} layout="vertical" style={{ marginTop: 24 }}>
-          {/* General Expense Toggle */}
-          <Form.Item label="مصروف عام؟">
-            <Switch
-              checked={isGeneralExpense}
-              onChange={(checked) => {
-                setIsGeneralExpense(checked)
-                if (checked) {
-                  // Clear project and work scope when enabling general expense
-                  setSelectedPaymentProject(null)
-                  setAvailablePaymentWorkScopes([])
-                  paymentForm.setFieldsValue({ projectId: undefined, workScope: undefined })
-                }
-              }}
-              checkedChildren="نعم"
-              unCheckedChildren="لا"
-            />
-            <span style={{ marginRight: 8, color: '#666' }}>مصروف عام (غير مرتبط بمشروع)</span>
-          </Form.Item>
-
-          {/* Category for General Expenses */}
-          {isGeneralExpense && (
-            <Form.Item
-              name="category"
-              label="تصنيف المصروف العام"
-              rules={[{ required: true, message: 'يرجى اختيار تصنيف المصروف' }]}
-            >
-              <Select placeholder="اختر تصنيف المصروف">
-                <Option value="Office Rent">إيجار المكتب (Office Rent)</Option>
-                <Option value="Salaries">الرواتب (Salaries)</Option>
-                <Option value="Marketing">التسويق (Marketing)</Option>
-                <Option value="Utilities">المرافق (Utilities)</Option>
-                <Option value="Supplies">المستلزمات (Supplies)</Option>
-                <Option value="Other">أخرى (Other)</Option>
-              </Select>
-            </Form.Item>
-          )}
-
-          {/* Project and Work Scope - Only show if NOT general expense */}
-          {!isGeneralExpense && industryType === 'engineering' && (
+          {/* Project and Work Scope - Only show for engineering industry */}
+          {industryType === 'engineering' && (
             <>
               <Form.Item
                 name="projectId"
@@ -1236,7 +1555,7 @@ const ContractsPage = () => {
               {selectedPaymentProject && availablePaymentWorkScopes.length > 0 && (
                 <Form.Item
                   name="workScope"
-                  label="نطاق العمل"
+                  label="نطاق العمل (اختياري)"
                 >
                   <Select
                     placeholder="اختر نطاق العمل"
@@ -1311,33 +1630,148 @@ const ContractsPage = () => {
             }
           </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="paymentMethod"
-                label="طريقة الدفع (اختياري)"
-              >
-                <Select placeholder="اختر طريقة الدفع" allowClear>
-                  <Option value="cash">نقدي</Option>
-                  <Option value="bank_transfer">تحويل بنكي</Option>
-                  <Option value="check">شيك</Option>
-                  <Option value="other">أخرى</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="referenceNumber"
-                label="رقم المرجع (اختياري)"
-              >
-                <Input placeholder="رقم المرجع أو رقم الإيصال" />
-              </Form.Item>
-            </Col>
-          </Row>
+          {/* Treasury Account Selection */}
+          {treasuryAccounts.length === 0 && (
+            <Alert
+              type="error"
+              description="تنبيه: لا يوجد حسابات خزينة معرفة. يرجى إنشاء حساب في صفحة الخزينة أولاً"
+              style={{ marginBottom: 16 }}
+              showIcon
+            />
+          )}
+
+          <Form.Item
+            name="treasuryAccountId"
+            label="حساب الخزينة"
+            rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة' }]}
+            tooltip="اختر الحساب الذي سيتم إيداع المبلغ فيه"
+          >
+            <Select
+              placeholder="اختر حساب الخزينة"
+              disabled={treasuryAccounts.length === 0}
+              notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+            >
+              {treasuryAccounts.map(acc => (
+                <Option key={acc.id} value={acc.id}>
+                  {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
 
           <Form.Item name="notes" label="ملاحظات (اختياري)">
             <Input.TextArea rows={3} placeholder="ملاحظات إضافية..." />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Edit Dates Modal */}
+      <Modal
+        title={`تعديل تواريخ العقد ${selectedContract?.contractNumber}`}
+        open={datesEditModalVisible}
+        onOk={handleUpdateDates}
+        onCancel={() => {
+          setDatesEditModalVisible(false)
+          setSelectedContract(null)
+          datesEditForm.resetFields()
+        }}
+        okText="حفظ"
+        cancelText="إلغاء"
+        width={500}
+      >
+        <Form form={datesEditForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Alert
+            type="info"
+            title="ملاحظة"
+            description="تغيير تواريخ العقد قد يؤدي إلى تحديث تلقائي لتواريخ المشروع المرتبط (حسب منطق قاعدة البيانات). يمكن تعديل التواريخ السابقة للسماح بسيناريوهات البيانات المؤرخة."
+            style={{ marginBottom: 16 }}
+            showIcon
+          />
+          
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="startDate"
+                label="تاريخ البدء"
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      // Fail-safe: If either date is missing, pass (let required rule handle it)
+                      if (!value) {
+                        return Promise.resolve()
+                      }
+                      
+                      const endDate = getFieldValue('endDate')
+                      if (!endDate) {
+                        return Promise.resolve()
+                      }
+                      
+                      // Strict Moment comparison
+                      // Note: Antd DatePicker values are Moment objects, so .isAfter works.
+                      // We use .startOf('day') to ignore time differences.
+                      const startMoment = moment(value).startOf('day')
+                      const endMoment = moment(endDate).startOf('day')
+                      
+                      // Start date must be before end date (not equal, not after)
+                      if (startMoment.isAfter(endMoment) || startMoment.isSame(endMoment)) {
+                        return Promise.reject(new Error('تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء'))
+                      }
+                      
+                      return Promise.resolve()
+                    }
+                  })
+                ]}
+                dependencies={['endDate']}
+              >
+                <DatePicker 
+                  style={{ width: '100%' }} 
+                  format="YYYY-MM-DD"
+                  placeholder="اختر تاريخ البدء"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="endDate"
+                label="تاريخ الانتهاء"
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      // Fail-safe: If either date is missing, pass (let required rule handle it)
+                      if (!value) {
+                        return Promise.resolve()
+                      }
+                      
+                      const startDate = getFieldValue('startDate')
+                      if (!startDate) {
+                        return Promise.resolve()
+                      }
+                      
+                      // Strict Moment comparison
+                      // Note: Antd DatePicker values are Moment objects, so .isBefore works.
+                      // We use .startOf('day') to ignore time differences.
+                      const startMoment = moment(startDate).startOf('day')
+                      const endMoment = moment(value).startOf('day')
+                      
+                      // End date must be after start date (not equal, not before)
+                      if (endMoment.isBefore(startMoment) || endMoment.isSame(startMoment)) {
+                        return Promise.reject(new Error('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء'))
+                      }
+                      
+                      return Promise.resolve()
+                    }
+                  })
+                ]}
+                dependencies={['startDate']}
+              >
+                <DatePicker 
+                  style={{ width: '100%' }} 
+                  format="YYYY-MM-DD"
+                  placeholder="اختر تاريخ الانتهاء"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
     </div>

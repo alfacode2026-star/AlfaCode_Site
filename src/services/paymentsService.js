@@ -3,6 +3,7 @@ import contractsService from './contractsService'
 import ordersService from './ordersService'
 import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
+import treasuryService from './treasuryService'
 
 class PaymentsService {
   // Get current user ID from Supabase auth
@@ -542,6 +543,7 @@ class PaymentsService {
   }
 
   // Update payment status only
+  // CRITICAL: Treasury transactions are created ONLY when status changes to 'approved' (advances) or 'paid' (expenses)
   async updatePaymentStatus(id, newStatus) {
     try {
       if (!id) {
@@ -570,6 +572,19 @@ class PaymentsService {
         }
       }
 
+      // Get current payment to check previous status and payment details
+      const currentPayment = await this.getPayment(id)
+      if (!currentPayment) {
+        return {
+          success: false,
+          error: 'الدفعة غير موجودة',
+          errorCode: 'PAYMENT_NOT_FOUND'
+        }
+      }
+
+      const previousStatus = currentPayment.status
+
+      // Update payment status
       const { data, error } = await supabase
         .from('payments')
         .update({ status: newStatus })
@@ -580,9 +595,77 @@ class PaymentsService {
 
       if (error) throw error
 
+      const updatedPayment = this.mapToCamelCase(data)
+
+      // CRITICAL LOGIC: Create treasury transaction ONLY when status changes to 'approved' or 'paid'
+      // - For advances: create transaction when status changes to 'approved'
+      // - For expenses: create transaction when status changes to 'paid'
+      // - If rejected: no treasury transaction (just update status)
+      const shouldCreateTreasuryTransaction = 
+        previousStatus !== newStatus && // Status actually changed
+        (
+          (currentPayment.transactionType === 'advance' && newStatus === 'approved') ||
+          (currentPayment.transactionType === 'regular' && newStatus === 'paid')
+        )
+
+      if (shouldCreateTreasuryTransaction) {
+        try {
+          // Get first available treasury account (or default account if available)
+          const treasuryAccounts = await treasuryService.getAccounts()
+          if (treasuryAccounts && treasuryAccounts.length > 0) {
+            // Use first available account (can be enhanced to use default account later)
+            const treasuryAccount = treasuryAccounts[0]
+            const amount = parseFloat(currentPayment.amount) || 0
+
+            if (amount > 0) {
+              // Determine transaction type and description
+              const transactionType = 'outflow' // Money going out
+              let description = ''
+              
+              if (currentPayment.transactionType === 'advance') {
+                description = `عهدة مدير: ${currentPayment.managerName || ''} - ${currentPayment.referenceNumber || currentPayment.paymentNumber || ''} - ${currentPayment.notes || ''}`
+              } else if (currentPayment.transactionType === 'regular' && currentPayment.expenseCategory) {
+                description = `مصروف إداري: ${currentPayment.expenseCategory || ''} - ${currentPayment.notes || ''}`
+              } else {
+                description = `دفعة: ${currentPayment.referenceNumber || currentPayment.paymentNumber || ''} - ${currentPayment.notes || ''}`
+              }
+
+              const treasuryResult = await treasuryService.createTransaction({
+                accountId: treasuryAccount.id,
+                transactionType: transactionType,
+                amount: amount,
+                referenceType: 'expense',
+                referenceId: id,
+                description: description
+              })
+
+              if (treasuryResult.success) {
+                console.log('✅ Treasury transaction created on approval:', {
+                  paymentId: id,
+                  transactionId: treasuryResult.transaction?.id,
+                  accountId: treasuryAccount.id,
+                  accountName: treasuryResult.accountName,
+                  newBalance: treasuryResult.newBalance,
+                  amount: amount
+                })
+              } else {
+                console.error('❌ Failed to create treasury transaction on approval:', treasuryResult.error)
+                // Don't fail the approval if treasury transaction fails - log error but continue
+              }
+            }
+          } else {
+            console.warn('⚠️ No treasury accounts available - skipping treasury transaction creation')
+            // Don't fail the approval if no treasury accounts exist
+          }
+        } catch (treasuryError) {
+          console.error('❌ Error creating treasury transaction on approval:', treasuryError)
+          // Don't fail the approval if treasury transaction creation fails - log error but continue
+        }
+      }
+
       return {
         success: true,
-        payment: this.mapToCamelCase(data)
+        payment: updatedPayment
       }
     } catch (error) {
       console.error('Error updating payment status:', error.message)

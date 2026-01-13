@@ -33,7 +33,8 @@ import {
   DatePicker,
   Select,
   Tabs,
-  Alert
+  Alert,
+  Checkbox
 } from 'antd'
 import {
   ArrowLeftOutlined,
@@ -73,6 +74,11 @@ const ProjectDetails = () => {
   const [hasExistingIncomes, setHasExistingIncomes] = useState<boolean>(false)
   const [loadingProjectIncomes, setLoadingProjectIncomes] = useState(false)
   const [paymentsWithTreasuryAccounts, setPaymentsWithTreasuryAccounts] = useState<any[]>([])
+  const [expenseModalVisible, setExpenseModalVisible] = useState(false)
+  const [expenseForm] = Form.useForm()
+  const [engineerAdvances, setEngineerAdvances] = useState<any[]>([])
+  const [previousCompletionPercentage, setPreviousCompletionPercentage] = useState<number | null>(null)
+  const [isCorrectionMode, setIsCorrectionMode] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -94,6 +100,46 @@ const ProjectDetails = () => {
       setHasExistingIncomes(false)
     } finally {
       setLoadingProjectIncomes(false)
+    }
+  }
+
+  // Get previous completion percentage for smart validation
+  const getPreviousCompletionPercentage = async () => {
+    if (!id || !project) return null
+    try {
+      // Get the highest completion percentage from existing incomes
+      const { data: payments, error } = await supabase
+        .from('payments')
+        .select('completion_percentage')
+        .eq('tenant_id', tenantStore.getTenantId())
+        .eq('project_id', id)
+        .or('contract_id.not.is.null,payment_type.eq.income')
+        .not('completion_percentage', 'is', null)
+        .order('completion_percentage', { ascending: false })
+        .limit(1)
+
+      if (error) throw error
+      
+      if (payments && payments.length > 0 && payments[0].completion_percentage !== null) {
+        return parseFloat(payments[0].completion_percentage)
+      }
+      
+      // Fallback to project's current completion percentage
+      return project.completionPercentage || 0
+    } catch (error) {
+      console.error('Error fetching previous completion percentage:', error)
+      return project.completionPercentage || 0
+    }
+  }
+
+  // Load engineer advances for custody deduction
+  const loadEngineerAdvances = async (engineerName: string) => {
+    try {
+      const advances = await laborGroupsService.getEngineerAdvances(engineerName, null)
+      setEngineerAdvances(advances || [])
+    } catch (error) {
+      console.error('Error loading engineer advances:', error)
+      setEngineerAdvances([])
     }
   }
 
@@ -1171,6 +1217,116 @@ const ProjectDetails = () => {
         />
       </Card>
 
+      {/* Project Expenses Section */}
+      <Card 
+        title={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ShoppingOutlined />
+              <Title level={4} style={{ margin: 0 }}>مصاريف المشروع</Title>
+            </div>
+            <Button 
+              type="primary" 
+              icon={<PlusOutlined />}
+              onClick={() => {
+                expenseForm.resetFields()
+                expenseForm.setFieldsValue({ date: moment() })
+                setExpenseModalVisible(true)
+              }}
+            >
+              إضافة مصروف جديد
+            </Button>
+          </div>
+        }
+      >
+        <Alert
+          message="تنبيه: المصاريف المدخلة هنا مرتبطة حصرياً بهذا المشروع"
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Table
+          columns={[
+            {
+              title: 'التاريخ',
+              dataIndex: 'date',
+              key: 'date',
+              render: (date: string) => moment(date).format('YYYY-MM-DD'),
+              width: 120,
+            },
+            {
+              title: 'نوع المصروف',
+              dataIndex: 'expenseType',
+              key: 'expenseType',
+              render: (type: string) => {
+                const typeMap: Record<string, { color: string; text: string }> = {
+                  'purchase_order': { color: 'blue', text: 'أمر شراء' },
+                  'custody_deduction': { color: 'orange', text: 'خصم من عهدة' },
+                  'general_expense': { color: 'purple', text: 'مصروف عام' },
+                }
+                const config = typeMap[type] || { color: 'default', text: type }
+                return <Tag color={config.color}>{config.text}</Tag>
+              },
+              width: 150,
+            },
+            {
+              title: 'نوع العنصر',
+              dataIndex: 'itemType',
+              key: 'itemType',
+              render: (itemType: string) => itemType || '-',
+            },
+            {
+              title: 'المبلغ',
+              dataIndex: 'amount',
+              key: 'amount',
+              render: (amount: number) => (
+                <span style={{ fontWeight: 'bold', color: '#ff4d4f', fontSize: '16px' }}>
+                  {formatCurrency(amount || 0)}
+                </span>
+              ),
+              align: 'right' as const,
+              width: 150,
+            },
+            {
+              title: 'المهندس',
+              dataIndex: 'engineerName',
+              key: 'engineerName',
+              render: (name: string) => name || '-',
+              width: 150,
+            },
+            {
+              title: 'الوصف',
+              dataIndex: 'description',
+              key: 'description',
+            },
+          ]}
+          dataSource={payments
+            .filter((p: any) => {
+              // Only show project expenses (not general expenses, not income)
+              const isExpense = p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)
+              const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
+              const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
+              return isExpense && !isGeneralExpense && !isIncome && p.projectId === id
+            })
+            .map((p: any, index: number) => ({
+              key: `expense-${p.id}-${index}`,
+              date: p.paidDate || p.dueDate,
+              expenseType: p.transactionType === 'advance' ? 'custody_deduction' : 
+                          p.expenseCategory ? 'general_expense' : 'purchase_order',
+              itemType: p.expenseCategory || 'مصروف مشروع',
+              amount: parseFloat(p.amount) || 0,
+              engineerName: p.managerName || null,
+              description: p.notes || '-',
+            }))}
+          pagination={{ 
+            pageSize: 10, 
+            showSizeChanger: true, 
+            showTotal: (total) => `إجمالي ${total} مصروف`
+          }}
+          locale={{ emptyText: 'لا توجد مصاريف مسجلة' }}
+        />
+      </Card>
+
       {/* Unified Ledger Table */}
       <Card 
         title={
@@ -1227,21 +1383,28 @@ const ProjectDetails = () => {
         onCancel={() => {
           setInvoiceModalVisible(false)
           form.resetFields()
+          setIsCorrectionMode(false)
         }}
         okText="حفظ"
         cancelText="إلغاء"
         width={600}
-        afterOpenChange={(open) => {
+        afterOpenChange={async (open) => {
           if (open) {
             // Reset form when modal opens
             form.resetFields()
+            // Reset correction mode
+            setIsCorrectionMode(false)
             // Set default transaction type to investor_inflow
             form.setFieldsValue({ transactionType: 'investor_inflow' })
             // Set default income type when modal opens
             if (hasExistingIncomes) {
               form.setFieldsValue({ incomeType: 'advance' })
+              // Fetch previous completion percentage for smart validation
+              const prevCompletion = await getPreviousCompletionPercentage()
+              setPreviousCompletionPercentage(prevCompletion)
             } else {
               form.setFieldsValue({ incomeType: 'down_payment' })
+              setPreviousCompletionPercentage(null)
             }
           }
         }}
@@ -1299,9 +1462,14 @@ const ProjectDetails = () => {
                       placeholder="اختر نوع الوارد"
                       disabled={hasExistingIncomes ? false : true}
                       loading={loadingProjectIncomes}
-                      onChange={(value) => {
+                      onChange={async (value) => {
                         if (value !== 'advance') {
                           form.setFieldsValue({ completionPercentage: undefined })
+                          setPreviousCompletionPercentage(null)
+                        } else {
+                          // Fetch previous completion percentage when advance is selected
+                          const prevCompletion = await getPreviousCompletionPercentage()
+                          setPreviousCompletionPercentage(prevCompletion)
                         }
                       }}
                     >
@@ -1420,24 +1588,53 @@ const ProjectDetails = () => {
               // Show completion percentage if advance is selected AND project has existing incomes
               if (incomeType === 'advance' && id) {
                 return (
-                  <Form.Item
-                    name="completionPercentage"
-                    label="نسبة الإنجاز السابقة (%)"
-                    rules={[
-                      { required: true, message: 'يرجى إدخال نسبة الإنجاز السابقة' },
-                      { type: 'number', min: 0, max: 100, message: 'يجب أن تكون النسبة بين 0 و 100' }
-                    ]}
-                    tooltip="نسبة الإنجاز السابقة للمشروع قبل استلام هذه السلفة"
-                  >
-                    <InputNumber
-                      min={0}
-                      max={100}
-                      style={{ width: '100%' }}
-                      placeholder="0"
-                      formatter={value => `${value}%`}
-                      parser={value => value!.replace('%', '')}
-                    />
-                  </Form.Item>
+                  <>
+                    {previousCompletionPercentage !== null && (
+                      <Alert
+                        message={`النسبة السابقة: ${previousCompletionPercentage}%`}
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 16 }}
+                      />
+                    )}
+                    <Form.Item
+                      name="completionPercentage"
+                      label="نسبة الإنجاز السابقة (%)"
+                      rules={[
+                        { required: true, message: 'يرجى إدخال نسبة الإنجاز السابقة' },
+                        { type: 'number', min: 0, max: 100, message: 'يجب أن تكون النسبة بين 0 و 100' },
+                        ({ getFieldValue }) => ({
+                          validator(_, value) {
+                            if (!value) {
+                              return Promise.resolve()
+                            }
+                            if (previousCompletionPercentage !== null && value < previousCompletionPercentage && !isCorrectionMode) {
+                              return Promise.reject(new Error('عفواً، نسبة الإنجاز لا يمكن أن تقل عن النسبة الحالية. قم بتفعيل وضع التصحيح إذا كنت تعدل خطأ سابقاً.'))
+                            }
+                            return Promise.resolve()
+                          }
+                        })
+                      ]}
+                      tooltip="نسبة الإنجاز السابقة للمشروع قبل استلام هذه السلفة"
+                    >
+                      <InputNumber
+                        min={isCorrectionMode ? 0 : (previousCompletionPercentage !== null ? previousCompletionPercentage : 0)}
+                        max={100}
+                        style={{ width: '100%' }}
+                        placeholder="0"
+                        formatter={value => `${value}%`}
+                        parser={value => value!.replace('%', '')}
+                      />
+                    </Form.Item>
+                    <Form.Item>
+                      <Checkbox
+                        checked={isCorrectionMode}
+                        onChange={(e) => setIsCorrectionMode(e.target.checked)}
+                      >
+                        تفعيل وضع التصحيح (السماح بنسبة أقل من السابق)
+                      </Checkbox>
+                    </Form.Item>
+                  </>
                 )
               }
               return null
@@ -1519,6 +1716,290 @@ const ProjectDetails = () => {
             label="رقم المرجع (اختياري)"
           >
             <Input placeholder="رقم المرجع أو رقم الإيصال" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Project Expense Modal */}
+      <Modal
+        title="إضافة مصروف جديد للمشروع"
+        open={expenseModalVisible}
+        onOk={() => expenseForm.submit()}
+        onCancel={() => {
+          setExpenseModalVisible(false)
+          expenseForm.resetFields()
+          setEngineerAdvances([])
+        }}
+        okText="حفظ"
+        cancelText="إلغاء"
+        width={700}
+      >
+        <Alert
+          message="المصاريف المدخلة هنا مرتبطة حصرياً بهذا المشروع"
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form
+          form={expenseForm}
+          layout="vertical"
+          onFinish={async (values) => {
+            try {
+              if (!id) {
+                message.error('معرف المشروع غير موجود')
+                return
+              }
+
+              // Handle different expense types
+              if (values.expenseType === 'purchase_order') {
+                // Link to PO creation - navigate to orders page with project pre-selected
+                message.info('سيتم توجيهك إلى صفحة أوامر الشراء لإنشاء أمر شراء جديد')
+                navigate(`/orders?projectId=${id}`)
+                setExpenseModalVisible(false)
+                return
+              } else if (values.expenseType === 'general_expense') {
+                // Create general expense payment
+                if (!values.treasuryAccountId) {
+                  message.error('يرجى اختيار حساب الخزينة')
+                  return
+                }
+
+                const expenseData = {
+                  projectId: id,
+                  amount: values.amount,
+                  dueDate: moment(values.date).format('YYYY-MM-DD'),
+                  paidDate: moment(values.date).format('YYYY-MM-DD'),
+                  status: 'paid',
+                  expenseCategory: values.expenseCategory || 'Other',
+                  notes: values.description || null,
+                  isGeneralExpense: false, // Linked to project, not general
+                  paymentType: 'expense',
+                  treasuryAccountId: values.treasuryAccountId
+                }
+
+                const result = await paymentsService.createPayment(expenseData)
+                
+                if (result.success) {
+                  // Create treasury transaction
+                  await treasuryService.createTransaction({
+                    accountId: values.treasuryAccountId,
+                    transactionType: 'outflow',
+                    amount: values.amount,
+                    referenceType: 'expense',
+                    referenceId: result.payment.id,
+                    description: `مصروف مشروع: ${values.description || ''} - مشروع: ${project?.name || ''}`
+                  })
+
+                  message.success('تم إنشاء المصروف بنجاح')
+                  setExpenseModalVisible(false)
+                  expenseForm.resetFields()
+                  await loadProjectDetails()
+                } else {
+                  message.error(result.error || 'فشل في إنشاء المصروف')
+                }
+              } else if (values.expenseType === 'custody_deduction') {
+                // Deduct from custody
+                if (!values.linkedAdvanceId) {
+                  message.error('يرجى اختيار العهدة')
+                  return
+                }
+                if (!values.engineerName) {
+                  message.error('يرجى إدخال اسم المهندس')
+                  return
+                }
+
+                const selectedAdvance = engineerAdvances.find(a => a.id === values.linkedAdvanceId)
+                if (!selectedAdvance) {
+                  message.error('العهدة المحددة غير موجودة')
+                  return
+                }
+
+                const remaining = selectedAdvance.remainingAmount !== null && selectedAdvance.remainingAmount !== undefined
+                  ? parseFloat(selectedAdvance.remainingAmount)
+                  : parseFloat(selectedAdvance.amount || 0)
+
+                if (values.amount > remaining) {
+                  message.error(`رصيد العهدة غير كاف. المتاح: ${remaining.toFixed(2)} ريال`)
+                  return
+                }
+
+                const expenseData = {
+                  projectId: id,
+                  amount: values.amount,
+                  dueDate: moment(values.date).format('YYYY-MM-DD'),
+                  paidDate: moment(values.date).format('YYYY-MM-DD'),
+                  status: 'paid',
+                  transactionType: 'expense',
+                  managerName: values.engineerName,
+                  linkedAdvanceId: values.linkedAdvanceId,
+                  notes: values.description || `خصم من عهدة: ${selectedAdvance.referenceNumber || selectedAdvance.paymentNumber}`,
+                  isGeneralExpense: false,
+                  paymentType: 'expense'
+                }
+
+                const result = await paymentsService.createPayment(expenseData)
+                
+                if (result.success) {
+                  // Update advance remaining amount
+                  const newRemaining = remaining - values.amount
+                  await paymentsService.updatePayment(values.linkedAdvanceId, {
+                    remainingAmount: Math.max(0, newRemaining)
+                  })
+
+                  message.success('تم خصم المصروف من العهدة بنجاح')
+                  setExpenseModalVisible(false)
+                  expenseForm.resetFields()
+                  setEngineerAdvances([])
+                  await loadProjectDetails()
+                } else {
+                  message.error(result.error || 'فشل في خصم المصروف')
+                }
+              }
+            } catch (error) {
+              console.error('Error creating expense:', error)
+              message.error('حدث خطأ أثناء إنشاء المصروف')
+            }
+          }}
+          style={{ marginTop: 24 }}
+        >
+          <Form.Item
+            name="date"
+            label="التاريخ"
+            rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
+            initialValue={moment()}
+          >
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+          </Form.Item>
+
+          <Form.Item
+            name="expenseType"
+            label="نوع المصروف"
+            rules={[{ required: true, message: 'يرجى اختيار نوع المصروف' }]}
+          >
+            <Select
+              placeholder="اختر نوع المصروف"
+              onChange={(value) => {
+                expenseForm.setFieldsValue({
+                  treasuryAccountId: undefined,
+                  linkedAdvanceId: undefined,
+                  engineerName: undefined,
+                  expenseCategory: undefined
+                })
+                setEngineerAdvances([])
+              }}
+            >
+              <Option value="purchase_order">أمر شراء</Option>
+              <Option value="custody_deduction">خصم من عهدة</Option>
+              <Option value="general_expense">مصروف عام</Option>
+            </Select>
+          </Form.Item>
+
+          {/* Conditional: Show custody selection for custody deduction */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.expenseType !== currentValues.expenseType}
+          >
+            {({ getFieldValue }) => {
+              const expenseType = getFieldValue('expenseType')
+              
+              if (expenseType === 'custody_deduction') {
+                return (
+                  <>
+                    <Form.Item
+                      name="engineerName"
+                      label="اسم المهندس"
+                      rules={[{ required: true, message: 'يرجى إدخال اسم المهندس' }]}
+                    >
+                      <Input
+                        placeholder="اسم المهندس"
+                        onChange={async (e) => {
+                          const name = e.target.value
+                          if (name && name.trim()) {
+                            await loadEngineerAdvances(name.trim())
+                          } else {
+                            setEngineerAdvances([])
+                          }
+                        }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="linkedAdvanceId"
+                      label="اختر العهدة"
+                      rules={[{ required: true, message: 'يرجى اختيار العهدة' }]}
+                    >
+                      <Select
+                        placeholder="اختر العهدة"
+                        disabled={engineerAdvances.length === 0}
+                        notFoundContent={engineerAdvances.length === 0 ? "لا توجد عهد متاحة" : null}
+                      >
+                        {engineerAdvances.map(advance => {
+                          const remaining = advance.remainingAmount !== null && advance.remainingAmount !== undefined
+                            ? parseFloat(advance.remainingAmount)
+                            : parseFloat(advance.amount || 0)
+                          const refNumber = advance.referenceNumber || advance.paymentNumber || 'ADV-XXX'
+                          return (
+                            <Option key={advance.id} value={advance.id}>
+                              {refNumber} - متاح: {remaining.toFixed(2)} ريال
+                            </Option>
+                          )
+                        })}
+                      </Select>
+                    </Form.Item>
+                  </>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
+
+          {/* Conditional: Show treasury account for general expense */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.expenseType !== currentValues.expenseType}
+          >
+            {({ getFieldValue }) => {
+              const expenseType = getFieldValue('expenseType')
+              
+              if (expenseType === 'general_expense') {
+                return (
+                  <Form.Item
+                    name="treasuryAccountId"
+                    label="الخزينة/الصندوق"
+                    rules={[{ required: true, message: 'يرجى اختيار الخزينة/الصندوق' }]}
+                  >
+                    <Select placeholder="اختر الخزينة/الصندوق">
+                      {treasuryAccounts.map(acc => (
+                        <Option key={acc.id} value={acc.id}>
+                          {acc.name} ({acc.type === 'bank' ? 'بنك' : acc.type === 'cash_box' ? 'صندوق' : acc.type})
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
+
+          <Form.Item
+            name="amount"
+            label="المبلغ (ريال)"
+            rules={[{ required: true, message: 'يرجى إدخال المبلغ' }]}
+          >
+            <InputNumber
+              min={0}
+              style={{ width: '100%' }}
+              placeholder="0"
+              formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="الوصف"
+            rules={[{ required: true, message: 'يرجى إدخال الوصف' }]}
+          >
+            <TextArea rows={3} placeholder="وصف المصروف..." />
           </Form.Item>
         </Form>
       </Modal>

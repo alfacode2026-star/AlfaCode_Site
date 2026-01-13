@@ -8,7 +8,6 @@ import {
   Tag,
   Space,
   message,
-  Tabs,
   Typography
 } from 'antd'
 import {
@@ -24,31 +23,28 @@ import dayjs from 'dayjs'
 
 const { Title } = Typography
 
-type PaymentType = 'expenses' | 'advances'
-
 const AdminApprovals = () => {
   const [expenses, setExpenses] = useState<any[]>([])
   const [advances, setAdvances] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<PaymentType>('expenses')
+  const [loadingExpenses, setLoadingExpenses] = useState(true)
+  const [loadingAdvances, setLoadingAdvances] = useState(true)
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set())
 
+  // Load both expenses and advances on mount
   useEffect(() => {
-    loadPendingPayments()
+    loadPendingExpenses()
+    loadPendingAdvances()
   }, [])
 
-  const loadPendingPayments = async () => {
-    setLoading(true)
+  const loadPendingExpenses = async () => {
+    setLoadingExpenses(true)
     try {
       // Fetch all pending payments
       const pendingPayments = await paymentsService.getPaymentsByStatus('pending')
       
-      // Separate expenses and advances
+      // Filter expenses
       const expensesList = pendingPayments.filter(p => 
         p.transactionType === 'regular' && p.expenseCategory !== null
-      )
-      const advancesList = pendingPayments.filter(p => 
-        p.transactionType === 'advance'
       )
 
       // Fetch project names for payments that have projectId
@@ -63,6 +59,27 @@ const AdminApprovals = () => {
         })
       )
 
+      setExpenses(expensesWithProjects)
+    } catch (error) {
+      console.error('Error loading pending expenses:', error)
+      message.error('فشل في تحميل طلبات المصاريف المعلقة')
+    } finally {
+      setLoadingExpenses(false)
+    }
+  }
+
+  const loadPendingAdvances = async () => {
+    setLoadingAdvances(true)
+    try {
+      // Fetch all pending payments
+      const pendingPayments = await paymentsService.getPaymentsByStatus('pending')
+      
+      // Filter advances
+      const advancesList = pendingPayments.filter(p => 
+        p.transactionType === 'advance'
+      )
+
+      // Fetch project names for payments that have projectId
       const advancesWithProjects = await Promise.all(
         advancesList.map(async (payment) => {
           let projectName = null
@@ -74,24 +91,35 @@ const AdminApprovals = () => {
         })
       )
 
-      setExpenses(expensesWithProjects)
       setAdvances(advancesWithProjects)
     } catch (error) {
-      console.error('Error loading pending payments:', error)
-      message.error('فشل في تحميل الطلبات المعلقة')
+      console.error('Error loading pending advances:', error)
+      message.error('فشل في تحميل طلبات العهد المعلقة')
     } finally {
-      setLoading(false)
+      setLoadingAdvances(false)
     }
   }
 
-  const handleApprove = async (id: string) => {
+  const reloadAll = async () => {
+    await Promise.all([
+      loadPendingExpenses(),
+      loadPendingAdvances()
+    ])
+  }
+
+  const handleApprove = async (id: string, payment: any) => {
     setUpdatingIds(prev => new Set(prev).add(id))
     try {
-      const result = await paymentsService.updatePaymentStatus(id, 'approved')
+      // Determine correct approval status:
+      // - Advances: approve to 'approved'
+      // - Expenses: approve to 'paid'
+      const approvalStatus = payment.transactionType === 'advance' ? 'approved' : 'paid'
+      
+      const result = await paymentsService.updatePaymentStatus(id, approvalStatus)
       if (result.success) {
-        message.success('تمت الموافقة بنجاح')
-        // Reload data
-        await loadPendingPayments()
+        message.success('تمت الموافقة بنجاح - تم خصم المبلغ من الخزينة')
+        // Reload all data
+        await reloadAll()
       } else {
         message.error(result.error || 'فشل في الموافقة على الطلب')
       }
@@ -113,8 +141,8 @@ const AdminApprovals = () => {
       const result = await paymentsService.updatePaymentStatus(id, 'rejected')
       if (result.success) {
         message.success('تم رفض الطلب بنجاح')
-        // Reload data
-        await loadPendingPayments()
+        // Reload all data
+        await reloadAll()
       } else {
         message.error(result.error || 'فشل في رفض الطلب')
       }
@@ -132,25 +160,17 @@ const AdminApprovals = () => {
 
   const columns = [
     {
-      title: 'رقم المرجع',
-      dataIndex: 'referenceNumber',
-      key: 'referenceNumber',
-      width: 150,
-      render: (text: string) => text || '-'
-    },
-    {
       title: 'التاريخ',
       dataIndex: 'dueDate',
       key: 'dueDate',
-      width: 120,
+      width: 150,
       render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-'
     },
     {
-      title: 'اسم المدير / المستلم',
-      key: 'recipientOrManager',
+      title: 'المقدم',
+      key: 'requester',
       width: 200,
       render: (_: any, record: any) => {
-        // For expenses, use recipientName; for advances, use managerName
         const name = record.recipientName || record.managerName || '-'
         return <Tag color="blue">{name}</Tag>
       }
@@ -159,7 +179,7 @@ const AdminApprovals = () => {
       title: 'المبلغ (ريال)',
       dataIndex: 'amount',
       key: 'amount',
-      width: 120,
+      width: 150,
       align: 'right' as const,
       render: (amount: number) => {
         const formatted = parseFloat(amount?.toString() || '0').toLocaleString('ar-SA', {
@@ -177,16 +197,9 @@ const AdminApprovals = () => {
       render: (text: string) => text || '-'
     },
     {
-      title: 'اسم المشروع',
-      dataIndex: 'projectName',
-      key: 'projectName',
-      width: 200,
-      render: (text: string) => text ? <Tag color="green">{text}</Tag> : '-'
-    },
-    {
       title: 'الإجراءات',
       key: 'actions',
-      width: 150,
+      width: 200,
       fixed: 'right' as const,
       render: (_: any, record: any) => {
         const isUpdating = updatingIds.has(record.id)
@@ -196,7 +209,7 @@ const AdminApprovals = () => {
               type="primary"
               icon={<CheckOutlined />}
               size="small"
-              onClick={() => handleApprove(record.id)}
+              onClick={() => handleApprove(record.id, record)}
               loading={isUpdating}
               style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
             >
@@ -219,67 +232,62 @@ const AdminApprovals = () => {
 
   return (
     <div style={{ padding: '24px', direction: 'rtl' }}>
-      <Card>
-        <Title level={2} style={{ marginBottom: 24 }}>
+      {/* Main Title Card */}
+      <Card style={{ marginBottom: 24 }}>
+        <Title level={2} style={{ margin: 0 }}>
           <SafetyOutlined style={{ marginLeft: 8 }} />
-          اعتمادات الإدارة
+          لوحة الاعتمادات
         </Title>
+      </Card>
 
-        <Tabs
-          activeKey={activeTab}
-          onChange={(key) => setActiveTab(key as PaymentType)}
-          items={[
-            {
-              key: 'expenses',
-              label: (
-                <span>
-                  <BankOutlined />
-                  طلبات المصاريف
-                </span>
-              ),
-              children: (
-                <Table
-                  columns={columns}
-                  dataSource={expenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
-                  loading={loading}
-                  scroll={{ x: 1200 }}
-                  pagination={{
-                    pageSize: 20,
-                    showSizeChanger: true,
-                    showTotal: (total) => `إجمالي ${total} طلب`
-                  }}
-                  locale={{
-                    emptyText: 'لا توجد طلبات مصاريف معلقة'
-                  }}
-                />
-              )
-            },
-            {
-              key: 'advances',
-              label: (
-                <span>
-                  <WalletOutlined />
-                  طلبات العُهد
-                </span>
-              ),
-              children: (
-                <Table
-                  columns={columns}
-                  dataSource={advances.map((a, idx) => ({ ...a, key: a.id || idx }))}
-                  loading={loading}
-                  scroll={{ x: 1200 }}
-                  pagination={{
-                    pageSize: 20,
-                    showSizeChanger: true,
-                    showTotal: (total) => `إجمالي ${total} طلب`
-                  }}
-                  locale={{
-                    emptyText: 'لا توجد طلبات عُهد معلقة'
-                  }}
-                />
-              )
-            }
-          ]}
+      {/* Section 1: Expense Requests */}
+      <Card
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BankOutlined />
+            <Title level={4} style={{ margin: 0 }}>طلبات المصاريف</Title>
+          </div>
+        }
+        style={{ marginBottom: 24 }}
+      >
+        <Table
+          columns={columns}
+          dataSource={expenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
+          loading={loadingExpenses}
+          scroll={{ x: 1000 }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            showTotal: (total) => `إجمالي ${total} طلب`
+          }}
+          locale={{
+            emptyText: 'لا توجد طلبات مصاريف معلقة'
+          }}
+        />
+      </Card>
+
+      {/* Section 2: Advance Requests */}
+      <Card
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <WalletOutlined />
+            <Title level={4} style={{ margin: 0 }}>طلبات العهد</Title>
+          </div>
+        }
+      >
+        <Table
+          columns={columns}
+          dataSource={advances.map((a, idx) => ({ ...a, key: a.id || idx }))}
+          loading={loadingAdvances}
+          scroll={{ x: 1000 }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            showTotal: (total) => `إجمالي ${total} طلب`
+          }}
+          locale={{
+            emptyText: 'لا توجد طلبات عهد معلقة'
+          }}
         />
       </Card>
     </div>

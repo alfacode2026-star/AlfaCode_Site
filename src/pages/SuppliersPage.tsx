@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import moment from 'moment'
 import customersService from '../services/customersService'
 import ordersService from '../services/ordersService'
 import paymentsService from '../services/paymentsService'
@@ -362,8 +363,8 @@ const SuppliersPage = () => {
       key: 'date',
       render: (date) => {
         if (!date) return 'غير محدد'
-        const dateObj = new Date(date)
-        return dateObj.toLocaleDateString('ar-SA') + ' ' + dateObj.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+        const parsed = moment(date)
+        return parsed.isValid() ? parsed.format('DD-MMM-YYYY HH:mm') : '-'
       },
       sorter: (a, b) => {
         const dateA = a?.date ? new Date(a.date).getTime() : 0

@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import moment from 'moment'
 import ordersService from '../services/ordersService'
 import customersService from '../services/customersService'
 import projectsService from '../services/projectsService'
 import treasuryService from '../services/treasuryService'
+import paymentsService from '../services/paymentsService'
 import { useTenant } from '../contexts/TenantContext'
 import { 
   Card, 
@@ -129,15 +131,51 @@ const OrdersPage = () => {
     try {
       const data = await ordersService.loadOrders()
       
-      // Fetch project names for orders that have project_id
+      // Fetch project names and engineer names for orders
       const ordersWithProjects = await Promise.all(
         (data || []).map(async (order) => {
           let projectName = null
+          let engineerName = null
+          
           if (order.projectId) {
             const project = await projectsService.getProjectById(order.projectId)
             projectName = project?.name || null
           }
-          return { ...order, projectName }
+          
+          // Check if this is a settlement order and fetch engineer name
+          const isSettlement = order.notes && typeof order.notes === 'string' && order.notes.includes('تسوية عهدة')
+          if (isSettlement && order.projectId) {
+            try {
+              // Extract reference number from notes (format: "تسوية عهدة رقم XXX")
+              const notesMatch = order.notes.match(/تسوية عهدة رقم\s+([^\s-]+)/)
+              if (notesMatch && notesMatch[1]) {
+                const referenceNumber = notesMatch[1].trim()
+                // Find settlement payment by reference number
+                const allPayments = await paymentsService.getPayments()
+                const settlementPayment = allPayments.find(p => 
+                  p.transactionType === 'settlement' && 
+                  (p.paymentNumber === referenceNumber || p.referenceNumber === referenceNumber)
+                )
+                
+                if (settlementPayment) {
+                  // Try to get managerName from settlement payment first
+                  engineerName = settlementPayment.managerName || null
+                  
+                  // If not found, get from linked advance
+                  if (!engineerName && settlementPayment.linkedAdvanceId) {
+                    const linkedAdvance = await paymentsService.getPayment(settlementPayment.linkedAdvanceId)
+                    if (linkedAdvance) {
+                      engineerName = linkedAdvance.managerName || null
+                    }
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error fetching engineer name for settlement order:', error)
+            }
+          }
+          
+          return { ...order, projectName, engineerName }
         })
       )
       
@@ -209,7 +247,7 @@ const OrdersPage = () => {
     if (!order) return
     
     const orderId = order.id || 'غير معروف'
-    const orderDate = order.dates?.created || order.createdAt || new Date().toLocaleDateString('ar-SA')
+    const orderDate = order.dates?.created || order.createdAt || moment().format('DD-MMM-YYYY')
     const customerName = order.customer?.name || order.customerName || 'عميل غير معروف'
     const customerPhone = order.customer?.phone || order.customerPhone || 'لا يوجد'
     const customerEmail = order.customer?.email || order.customerEmail || ''
@@ -328,6 +366,69 @@ const OrdersPage = () => {
       ),
     }] : []),
     {
+      title: 'نوع البند',
+      dataIndex: 'items',
+      key: 'itemType',
+      width: 120,
+      render: (items) => {
+        if (!items || !Array.isArray(items) || items.length === 0) return '-'
+        // Check if all items are manual entries (purchase orders) or have product IDs (inventory items)
+        const hasInventoryItems = items.some(item => item.productId && !item.isManualEntry)
+        const hasManualItems = items.some(item => !item.productId || item.isManualEntry)
+        if (hasInventoryItems && hasManualItems) {
+          return <Tag color="purple">مختلط</Tag>
+        } else if (hasInventoryItems) {
+          return <Tag color="blue">مخزون</Tag>
+        } else {
+          return <Tag color="orange">يدوي</Tag>
+        }
+      },
+    },
+    {
+      title: 'الكمية الإجمالية',
+      dataIndex: 'items',
+      key: 'totalQuantity',
+      width: 120,
+      render: (items) => {
+        if (!items || !Array.isArray(items)) return '-'
+        const totalQty = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0)
+        return <span style={{ fontWeight: 500 }}>{totalQty.toLocaleString()}</span>
+      },
+      sorter: (a, b) => {
+        const aQty = (a.items || []).reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0)
+        const bQty = (b.items || []).reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0)
+        return aQty - bQty
+      },
+    },
+    {
+      title: 'نوع أمر الشراء',
+      dataIndex: 'notes',
+      key: 'poType',
+      width: 150,
+      render: (notes, record) => {
+        // Check if this is a settlement order by looking at notes
+        const isSettlement = notes && typeof notes === 'string' && notes.includes('تسوية عهدة')
+        if (isSettlement) {
+          return <Tag color="cyan">تسوية عهدة</Tag>
+        }
+        return <Tag color="green">شراء</Tag>
+      },
+    },
+    {
+      title: 'اسم المهندس',
+      dataIndex: 'engineerName',
+      key: 'engineerName',
+      width: 150,
+      render: (engineerName, record) => {
+        // Only show for settlement orders
+        const isSettlement = record.notes && typeof record.notes === 'string' && record.notes.includes('تسوية عهدة')
+        if (isSettlement && engineerName) {
+          return <Tag color="purple">{engineerName}</Tag>
+        }
+        return '-'
+      },
+    },
+    {
       title: 'المبلغ الإجمالي',
       dataIndex: 'total',
       key: 'total',
@@ -367,8 +468,8 @@ const OrdersPage = () => {
       key: 'createdAt',
       render: (date) => {
         if (!date) return 'غير محدد'
-        const dateObj = new Date(date)
-        return dateObj.toLocaleDateString('ar-SA')
+        const parsed = moment(date, 'YYYY-MM-DD', true)
+        return parsed.isValid() ? parsed.format('DD-MMM-YYYY') : '-'
       },
       sorter: (a, b) => {
         const dateA = a?.createdAt ? new Date(a.createdAt).getTime() : 0
@@ -1117,8 +1218,8 @@ const OrdersPage = () => {
                   <Col span={12}>
                     <Form.Item
                       name="projectId"
-                      label={<span style={{ fontWeight: 'bold' }}>المشروع</span>}
-                      rules={[{ required: true, message: 'يرجى اختيار المشروع' }]}
+                      label={<span style={{ fontWeight: 'bold' }}>المشروع <span style={{ color: 'red' }}>*</span></span>}
+                      rules={[{ required: true, message: 'يرجى اختيار المشروع (مطلوب)' }]}
                     >
                       <Select
                         placeholder="اختر المشروع"
@@ -1141,8 +1242,7 @@ const OrdersPage = () => {
                     {selectedProject && availableWorkScopes.length > 0 && (
                       <Form.Item
                         name="workScope"
-                        label={<span style={{ fontWeight: 'bold' }}>نطاق العمل</span>}
-                        rules={[{ required: true, message: 'يرجى اختيار نطاق العمل' }]}
+                        label={<span style={{ fontWeight: 'bold' }}>نطاق العمل (اختياري)</span>}
                       >
                         <Select
                           placeholder="اختر نطاق العمل"

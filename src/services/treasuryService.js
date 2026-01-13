@@ -197,10 +197,117 @@ class TreasuryService {
         .limit(1000)
 
       if (error) throw error
-      return (data || []).map(txn => this.mapTransactionToCamelCase(txn))
+
+      // Fetch project names for transactions
+      const transactionsWithProjects = await this.enrichTransactionsWithProjectNames(data || [])
+
+      return transactionsWithProjects.map(txn => this.mapTransactionToCamelCase(txn))
     } catch (error) {
       console.error('Error fetching treasury transactions:', error.message)
       return []
+    }
+  }
+
+  // Helper: Enrich transactions with project names
+  async enrichTransactionsWithProjectNames(transactions) {
+    if (!transactions || transactions.length === 0) {
+      return []
+    }
+
+    try {
+      // Collect all reference IDs by type
+      const paymentIds = []
+      const orderIds = []
+
+      transactions.forEach(txn => {
+        if ((txn.reference_type === 'payment' || txn.reference_type === 'expense') && txn.reference_id) {
+          paymentIds.push(txn.reference_id)
+        } else if (txn.reference_type === 'order' && txn.reference_id) {
+          orderIds.push(txn.reference_id)
+        }
+      })
+
+      // Fetch payments with project_ids
+      const paymentProjectMap = {}
+      if (paymentIds.length > 0) {
+        const { data: payments, error: paymentsError } = await supabase
+          .from('payments')
+          .select('id, project_id')
+          .in('id', paymentIds)
+          .eq('tenant_id', tenantStore.getTenantId())
+
+        if (!paymentsError && payments) {
+          payments.forEach(payment => {
+            if (payment.project_id) {
+              paymentProjectMap[payment.id] = payment.project_id
+            }
+          })
+        }
+      }
+
+      // Fetch orders with project_ids
+      const orderProjectMap = {}
+      if (orderIds.length > 0) {
+        const { data: orders, error: ordersError } = await supabase
+          .from('orders')
+          .select('id, project_id')
+          .in('id', orderIds)
+
+        if (!ordersError && orders) {
+          orders.forEach(order => {
+            if (order.project_id) {
+              orderProjectMap[order.id] = order.project_id
+            }
+          })
+        }
+      }
+
+      // Collect all unique project IDs
+      const projectIds = new Set()
+      Object.values(paymentProjectMap).forEach(pid => {
+        if (pid) projectIds.add(pid)
+      })
+      Object.values(orderProjectMap).forEach(pid => {
+        if (pid) projectIds.add(pid)
+      })
+
+      // Fetch project names
+      const projectNameMap = {}
+      if (projectIds.size > 0) {
+        const { data: projects, error: projectsError } = await supabase
+          .from('projects')
+          .select('id, name')
+          .in('id', Array.from(projectIds))
+          .eq('tenant_id', tenantStore.getTenantId())
+
+        if (!projectsError && projects) {
+          projects.forEach(project => {
+            projectNameMap[project.id] = project.name
+          })
+        }
+      }
+
+      // Enrich transactions with project names
+      return transactions.map(txn => {
+        let projectId = null
+        if ((txn.reference_type === 'payment' || txn.reference_type === 'expense') && txn.reference_id) {
+          projectId = paymentProjectMap[txn.reference_id] || null
+        } else if (txn.reference_type === 'order' && txn.reference_id) {
+          projectId = orderProjectMap[txn.reference_id] || null
+        }
+
+        const projectName = projectId ? (projectNameMap[projectId] || null) : null
+
+        return {
+          ...txn,
+          project_id: projectId,
+          project_name: projectName
+        }
+      })
+    } catch (error) {
+      console.error('Error enriching transactions with project names:', error.message)
+      // Return transactions without project names if enrichment fails
+      return transactions
     }
   }
 
@@ -393,7 +500,9 @@ class TreasuryService {
       referenceType: data.reference_type,
       referenceId: data.reference_id,
       description: data.description,
-      createdAt: data.created_at
+      createdAt: data.created_at,
+      projectId: data.project_id || null,
+      projectName: data.project_name || null
     }
   }
 }

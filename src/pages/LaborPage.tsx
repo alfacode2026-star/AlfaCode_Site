@@ -238,19 +238,23 @@ const LaborPage = () => {
     }
   }
 
-  const handleAddGroup = () => {
+  const handleAddGroup = async () => {
     setSelectedGroup(null)
     groupForm.resetFields()
+    // Refresh projects to ensure we have latest start dates (in case they were backdated via Contracts)
+    await loadProjects()
     // Don't auto-fill start date - let user select manually
     setIsGroupModalVisible(true)
   }
 
-  const handleEditGroup = (group) => {
+  const handleEditGroup = async (group) => {
     if (group.status !== 'active') {
       message.warning('لا يمكن تعديل مجموعة غير نشطة')
       return
     }
     setSelectedGroup(group)
+    // Refresh projects to ensure we have latest start dates (in case they were backdated via Contracts)
+    await loadProjects()
     // Handle both single projectId and multiple projectIds
     const projectIds = group.projectIds || (group.projectId ? [group.projectId] : [])
     groupForm.setFieldsValue({
@@ -384,6 +388,29 @@ const LaborPage = () => {
       if (!manualEndDate) {
         message.error('تاريخ النهاية مطلوب')
         return
+      }
+
+      // CRITICAL: Validate startDate >= earliest project start date (same as create)
+      if (manualStartDate && selectedGroup.projectIds && selectedGroup.projectIds.length > 0) {
+        const selectedProjects = projects.filter(p => selectedGroup.projectIds.includes(p.id))
+        if (selectedProjects.length > 0) {
+          const projectStartDates = selectedProjects
+            .map(p => p.startDate ? dayjs(p.startDate) : null)
+            .filter(d => d !== null)
+            .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
+          
+          const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+          
+          if (earliestProjectStartDate) {
+            const groupStartDate = dayjs(manualStartDate).startOf('day')
+            const projectStartDate = earliestProjectStartDate.startOf('day')
+            
+            if (groupStartDate.isBefore(projectStartDate, 'day')) {
+              message.error(`تاريخ بداية المجموعة (${manualStartDate}) لا يمكن أن يكون قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`)
+              return
+            }
+          }
+        }
       }
 
       // Validate: endDate must not be more than 7 days from today
@@ -1319,6 +1346,57 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               filterOption={(input, option) =>
                 (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
               }
+              onChange={(selectedProjectIds: string[]) => {
+                // REACTIVE RESET: When project selection changes, validate and reset date if needed
+                const currentDate = groupForm.getFieldValue('startDate')
+                
+                if (!currentDate) {
+                  // No date selected, nothing to validate
+                  return
+                }
+                
+                // If no projects selected, reset date (DatePicker will be disabled anyway)
+                if (!selectedProjectIds || selectedProjectIds.length === 0) {
+                  groupForm.setFieldsValue({ startDate: null })
+                  return
+                }
+                
+                // Lookup selected projects from the projects array (explicit lookup, no assumptions)
+                const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
+                
+                if (selectedProjects.length === 0) {
+                  // Projects not found in array, reset date for safety
+                  groupForm.setFieldsValue({ startDate: null })
+                  return
+                }
+                
+                // Find the earliest (oldest) project start date
+                const projectStartDates = selectedProjects
+                  .map(p => {
+                    // Explicit project lookup - ensure project exists and has startDate
+                    const project = projects.find(proj => proj.id === p.id)
+                    return project && project.startDate ? dayjs(project.startDate) : null
+                  })
+                  .filter(d => d !== null)
+                  .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
+                
+                const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+                
+                if (!earliestProjectStartDate) {
+                  // No valid start dates found, reset date
+                  groupForm.setFieldsValue({ startDate: null })
+                  return
+                }
+                
+                // Validate current date against the earliest project start date
+                const currentDateDayjs = dayjs(currentDate).startOf('day')
+                const minAllowedDate = earliestProjectStartDate.startOf('day')
+                
+                // If current date is before the earliest project start date, reset it
+                if (currentDateDayjs.isBefore(minAllowedDate, 'day')) {
+                  groupForm.setFieldsValue({ startDate: null })
+                }
+              }}
             >
               {projects.map(project => (
                 <Option key={project.id} value={project.id}>
@@ -1335,80 +1413,143 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             <Input placeholder="اسم المهندس المسؤول" />
           </Form.Item>
 
-          <Form.Item
-            name="startDate"
-            label="تاريخ البداية"
-            rules={[
-              { required: true, message: 'يرجى اختيار تاريخ البداية' },
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value) {
-                    return Promise.resolve()
-                  }
-                  const selectedProjectIds = getFieldValue('projectIds') || []
-                  if (selectedProjectIds.length === 0) {
-                    return Promise.resolve() // Will be caught by projectIds validation
-                  }
-                  
-                  // Get selected projects and find the earliest (oldest) start date
-                  // CRITICAL: Use dayjs for all date comparisons to prevent timezone errors
-                  const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
-                  const projectStartDates = selectedProjects
-                    .map(p => p.startDate ? dayjs(p.startDate) : null)
-                    .filter(d => d !== null)
-                    .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
-                  
-                  const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
-                  
-                  if (earliestProjectStartDate) {
-                    const selectedStartDate = dayjs(value).startOf('day')
-                    const projectStartDate = earliestProjectStartDate.startOf('day')
-                    // CRITICAL: startDate must be >= earliest project start date
-                    if (selectedStartDate.isBefore(projectStartDate, 'day')) {
-                      return Promise.reject(new Error(`لا يمكن بدء مجموعة العمل قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`))
-                    }
-                  }
-                  return Promise.resolve()
-                }
-              })
-            ]}
-            shouldUpdate={(prevValues, currentValues) => 
-              prevValues.projectIds !== currentValues.projectIds
-            }
-          >
+          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.projectIds !== curr.projectIds}>
             {({ getFieldValue }) => {
               const selectedProjectIds = getFieldValue('projectIds') || []
-              // Get selected projects and find the earliest (oldest) start date
+              const hasSelectedProjects = selectedProjectIds.length > 0
+              
+              // THE LOCK: Explicit project lookup from projects array (no assumptions)
+              // Calculate minDate from selected projects with explicit lookup
               const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
+              
+              // Extract and validate project start dates with explicit project lookup
               const projectStartDates = selectedProjects
-                .map(p => p.startDate ? dayjs(p.startDate) : null)
-                .filter(d => d !== null)
+                .map(project => {
+                  // Fail-safe: Only use valid projects with startDate
+                  // Explicit check: Ensure project exists and has startDate
+                  if (!project || !project.startDate) {
+                    return null
+                  }
+                  return dayjs(project.startDate)
+                })
+                .filter(d => d !== null && d.isValid()) // Filter out nulls and invalid dates
                 .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
               
-              const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+              // Get the earliest (oldest) project start date
+              const minDate = projectStartDates.length > 0 ? projectStartDates[0] : null
               
               return (
-                <DatePicker
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                  disabledDate={(current) => {
-                    if (!current) return false
-                    if (selectedProjectIds.length === 0) {
-                      return false // Allow all dates if no project selected yet
-                    }
-                    
-                    if (earliestProjectStartDate) {
+                <Form.Item
+                  name="startDate"
+                  label="تاريخ البداية"
+                  rules={[
+                    { required: true, message: 'يرجى اختيار تاريخ البداية' },
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        if (!value) {
+                          return Promise.resolve()
+                        }
+                        const selectedProjectIds = getFieldValue('projectIds') || []
+                        if (selectedProjectIds.length === 0) {
+                          return Promise.resolve() // Will be caught by projectIds validation
+                        }
+                        
+                        // Get selected projects and find the earliest (oldest) start date
+                        // CRITICAL: Use dayjs for all date comparisons to prevent timezone errors
+                        const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
+                        const projectStartDates = selectedProjects
+                          .map(p => {
+                            // Explicit project lookup
+                            const project = projects.find(proj => proj.id === p.id)
+                            return project && project.startDate ? dayjs(project.startDate) : null
+                          })
+                          .filter(d => d !== null && d.isValid())
+                          .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
+                        
+                        const earliestProjectStartDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+                        
+                        if (earliestProjectStartDate) {
+                          const selectedStartDate = dayjs(value).startOf('day')
+                          const projectStartDate = earliestProjectStartDate.startOf('day')
+                          // CRITICAL: startDate must be >= earliest project start date
+                          if (selectedStartDate.isBefore(projectStartDate, 'day')) {
+                            return Promise.reject(new Error(`لا يمكن بدء مجموعة العمل قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`))
+                          }
+                        }
+                        return Promise.resolve()
+                      }
+                    })
+                  ]}
+                >
+                  <DatePicker
+                    style={{ width: '100%' }}
+                    format="YYYY-MM-DD"
+                    // THE LOCK: Completely disable DatePicker if no projects selected
+                    disabled={!hasSelectedProjects}
+                    disabledDate={(current) => {
+                      // THE SHIELD: Fail-safe disabledDate function
+                      if (!current) {
+                        return false // Allow null/undefined
+                      }
+                      
+                      // Lock check: If no projects selected, disable all dates (DatePicker is already disabled, but this is extra safety)
+                      if (!hasSelectedProjects) {
+                        return true // Disable all dates when no project selected
+                      }
+                      
+                      // CRITICAL FIX: Recalculate minDate dynamically on each call to ensure we use latest project data
+                      // This prevents stale closure values when project start dates are updated
+                      const selectedProjectIds = getFieldValue('projectIds') || []
+                      const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
+                      
+                      // Extract and validate project start dates with explicit project lookup
+                      const projectStartDates = selectedProjects
+                        .map(project => {
+                          // Fail-safe: Only use valid projects with startDate
+                          if (!project || !project.startDate) {
+                            return null
+                          }
+                          const projectDate = dayjs(project.startDate)
+                          // DEBUG: Log project start dates to diagnose stale data issues
+                          console.log('[disabledDate] Project:', project.name, 'Start Date:', project.startDate, 'Parsed:', projectDate.format('YYYY-MM-DD'))
+                          return projectDate
+                        })
+                        .filter(d => d !== null && d.isValid()) // Filter out nulls and invalid dates
+                        .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
+                      
+                      // Get the earliest (oldest) project start date (recalculated dynamically)
+                      const dynamicMinDate = projectStartDates.length > 0 ? projectStartDates[0] : null
+                      
+                      // DEBUG: Log the calculated minDate
+                      if (dynamicMinDate) {
+                        console.log('[disabledDate] Calculated minDate:', dynamicMinDate.format('YYYY-MM-DD'), 'Current date:', dayjs(current).format('YYYY-MM-DD'))
+                      } else {
+                        console.log('[disabledDate] WARNING: No valid minDate found - allowing all dates')
+                      }
+                      
+                      // FIX: If no valid minDate found, allow ALL dates (don't block)
+                      // Previously this was blocking all dates, which was too restrictive
+                      // If project has no startDate, we shouldn't block date selection
+                      if (!dynamicMinDate || !dynamicMinDate.isValid()) {
+                        console.log('[disabledDate] No valid project start date - allowing all dates')
+                        return false // Allow all dates if no valid project start date
+                      }
+                      
                       // CRITICAL: Use dayjs for all date comparisons to prevent timezone errors
                       const currentDate = dayjs(current).startOf('day')
-                      const minAllowedDate = earliestProjectStartDate.startOf('day')
-                      // Disable dates before the earliest project start date (startDate must be >= earliest project start date)
-                      if (currentDate.isBefore(minAllowedDate, 'day')) {
-                        return true // Disable dates before project start date
+                      const minAllowedDate = dynamicMinDate.startOf('day')
+                      
+                      // THE SHIELD: Disable dates before the earliest project start date
+                      // startDate must be >= earliest project start date (strict chronological validation)
+                      const shouldDisable = currentDate.isBefore(minAllowedDate, 'day')
+                      if (shouldDisable) {
+                        console.log('[disabledDate] Disabling date:', currentDate.format('YYYY-MM-DD'), 'because it is before minDate:', minAllowedDate.format('YYYY-MM-DD'))
                       }
-                    }
-                    return false
-                  }}
-                />
+                      
+                      return shouldDisable // Disable dates before project start date
+                    }}
+                  />
+                </Form.Item>
               )
             }}
           </Form.Item>
@@ -2029,9 +2170,29 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                       const remaining = advance.remainingAmount !== null && advance.remainingAmount !== undefined
                         ? parseFloat(advance.remainingAmount)
                         : parseFloat(advance.amount || 0)
+                      const managerName = advance.managerName || 'غير محدد'
+                      // Format reference number as ADV-XXX
+                      let formattedRef = 'ADV-XXX'
+                      const refNumber = advance.referenceNumber || advance.paymentNumber
+                      if (refNumber) {
+                        if (refNumber.startsWith('ADV-')) {
+                          formattedRef = refNumber
+                        } else {
+                          // Extract number from reference or use last 3 chars of ID
+                          const match = refNumber.match(/ADV-?(\d+)/i) || refNumber.match(/(\d+)/)
+                          if (match && match[1]) {
+                            formattedRef = `ADV-${match[1].padStart(3, '0')}`
+                          } else {
+                            formattedRef = `ADV-${advance.id.slice(-3).toUpperCase()}`
+                          }
+                        }
+                      } else {
+                        // Fallback: use last 3 chars of ID
+                        formattedRef = `ADV-${advance.id.slice(-3).toUpperCase()}`
+                      }
                       return (
                         <Option key={advance.id} value={advance.id}>
-                          {advance.referenceNumber || advance.id} - متبقي: {remaining.toFixed(2)} ريال
+                          {managerName} - [Ref: {formattedRef}] - (Available: {remaining.toFixed(2)} ريال)
                         </Option>
                       )
                     })}

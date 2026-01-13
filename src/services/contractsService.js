@@ -354,6 +354,10 @@ class ContractsService {
   // Update contract
   async updateContract(id, contractData) {
     try {
+      // DEBUG: Log received updates
+      console.log('🔵 [updateContract] Service received updates:', contractData)
+      console.log('🔵 [updateContract] Contract ID:', id)
+
       if (!id) {
         return {
           success: false,
@@ -372,43 +376,107 @@ class ContractsService {
         }
       }
 
-      const updateData = {}
-      if (contractData.customerName !== undefined) updateData.customer_name = contractData.customerName
-      if (contractData.customerPhone !== undefined) updateData.customer_phone = contractData.customerPhone
+      // Create dbPayload object with explicit snake_case mapping
+      // This ensures camelCase keys from frontend are properly converted
+      const dbPayload = {}
+      
+      // Map date fields explicitly (critical fix for date persistence)
+      // Handle both null and undefined, and ensure proper string format
+      if (contractData.startDate !== undefined) {
+        // Explicitly set to null if empty/falsy, otherwise ensure it's a string
+        if (contractData.startDate === null || contractData.startDate === '') {
+          dbPayload.start_date = null
+        } else {
+          // Handle different date formats: string, moment object, or Date object
+          let startDateStr = null
+          if (typeof contractData.startDate === 'string') {
+            // Already a string - use it directly (should be YYYY-MM-DD format)
+            startDateStr = contractData.startDate
+          } else if (contractData.startDate && typeof contractData.startDate.format === 'function') {
+            // Moment object - use format method
+            startDateStr = contractData.startDate.format('YYYY-MM-DD')
+          } else if (contractData.startDate instanceof Date) {
+            // Date object - format to YYYY-MM-DD
+            startDateStr = contractData.startDate.toISOString().split('T')[0]
+          } else {
+            // Fallback: try to convert to string and extract date part
+            startDateStr = String(contractData.startDate).split('T')[0]
+          }
+          dbPayload.start_date = startDateStr
+        }
+        console.log('🔵 [updateContract] Mapped startDate:', contractData.startDate, '->', dbPayload.start_date)
+      }
+      
+      if (contractData.endDate !== undefined) {
+        // Explicitly set to null if empty/falsy, otherwise ensure it's a string
+        if (contractData.endDate === null || contractData.endDate === '') {
+          dbPayload.end_date = null
+        } else {
+          // Handle different date formats: string, moment object, or Date object
+          let endDateStr = null
+          if (typeof contractData.endDate === 'string') {
+            // Already a string - use it directly (should be YYYY-MM-DD format)
+            endDateStr = contractData.endDate
+          } else if (contractData.endDate && typeof contractData.endDate.format === 'function') {
+            // Moment object - use format method
+            endDateStr = contractData.endDate.format('YYYY-MM-DD')
+          } else if (contractData.endDate instanceof Date) {
+            // Date object - format to YYYY-MM-DD
+            endDateStr = contractData.endDate.toISOString().split('T')[0]
+          } else {
+            // Fallback: try to convert to string and extract date part
+            endDateStr = String(contractData.endDate).split('T')[0]
+          }
+          dbPayload.end_date = endDateStr
+        }
+        console.log('🔵 [updateContract] Mapped endDate:', contractData.endDate, '->', dbPayload.end_date)
+      }
+      
+      // Map other valid fields (excluding startDate/endDate to avoid duplicates)
+      if (contractData.customerName !== undefined) dbPayload.customer_name = contractData.customerName
+      if (contractData.customerPhone !== undefined) dbPayload.customer_phone = contractData.customerPhone
       // Only update customer_email if it's provided and not empty
       if (contractData.customerEmail !== undefined) {
         if (contractData.customerEmail && contractData.customerEmail.trim() !== '') {
-          updateData.customer_email = contractData.customerEmail
+          dbPayload.customer_email = contractData.customerEmail
         } else {
-          updateData.customer_email = null
+          dbPayload.customer_email = null
         }
       }
-      if (contractData.contractType !== undefined) updateData.contract_type = contractData.contractType
-      if (contractData.workType !== undefined) updateData.work_type = contractData.workType
-      if (contractData.totalAmount !== undefined) updateData.total_amount = contractData.totalAmount
-      if (contractData.status !== undefined) updateData.status = contractData.status
-      if (contractData.startDate !== undefined) updateData.start_date = contractData.startDate
-      if (contractData.endDate !== undefined) updateData.end_date = contractData.endDate
-      if (contractData.projectId !== undefined) updateData.project_id = contractData.projectId
-      if (contractData.projectName !== undefined) updateData.project_name = contractData.projectName || null
-      if (contractData.notes !== undefined) updateData.notes = contractData.notes
+      if (contractData.contractType !== undefined) dbPayload.contract_type = contractData.contractType
+      if (contractData.workType !== undefined) dbPayload.work_type = contractData.workType
+      if (contractData.totalAmount !== undefined) dbPayload.total_amount = contractData.totalAmount
+      if (contractData.status !== undefined) dbPayload.status = contractData.status
+      if (contractData.projectId !== undefined) dbPayload.project_id = contractData.projectId
+      if (contractData.projectName !== undefined) dbPayload.project_name = contractData.projectName || null
+      if (contractData.notes !== undefined) dbPayload.notes = contractData.notes
+
+      // DEBUG: Log final payload before sending to Supabase
+      console.log('🟢 [updateContract] Sending to Supabase:', JSON.stringify(dbPayload, null, 2))
+      console.log('🟢 [updateContract] Payload keys:', Object.keys(dbPayload))
 
       const { data, error } = await supabase
         .from('contracts')
-        .update(updateData)
+        .update(dbPayload)
         .eq('id', id)
         .eq('tenant_id', tenantId)
         .select()
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('🔴 [updateContract] Supabase error:', error)
+        throw error
+      }
+
+      console.log('✅ [updateContract] Update successful. Response:', data)
 
       return {
         success: true,
         contract: await this.getContract(id)
       }
     } catch (error) {
-      console.error('Error updating contract:', error.message)
+      console.error('🔴 [updateContract] Error updating contract:', error.message)
+      console.error('🔴 [updateContract] Full error:', error)
       return {
         success: false,
         error: error.message || 'فشل في تحديث العقد',

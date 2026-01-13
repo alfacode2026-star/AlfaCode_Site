@@ -1082,7 +1082,7 @@ const QuotationsPage = () => {
                 {selectedQuotation.quoteNumber}
               </Descriptions.Item>
               <Descriptions.Item label="التاريخ">
-                {new Date(selectedQuotation.createdAt).toLocaleDateString('ar-SA')}
+                {selectedQuotation.createdAt ? moment(selectedQuotation.createdAt).format('DD-MMM-YYYY') : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="نوع المستند">
                 <Tag color={selectedQuotation.documentType === 'original' ? 'blue' : 'orange'}>
@@ -1115,7 +1115,9 @@ const QuotationsPage = () => {
               </Descriptions.Item>
               {selectedQuotation.validUntil && (
                 <Descriptions.Item label="صالح حتى">
-                  {new Date(selectedQuotation.validUntil).toLocaleDateString('ar-SA')}
+                  {moment(selectedQuotation.validUntil, 'YYYY-MM-DD', true).isValid()
+                    ? moment(selectedQuotation.validUntil, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
+                    : '-'}
                 </Descriptions.Item>
               )}
             </Descriptions>
