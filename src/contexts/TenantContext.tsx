@@ -76,7 +76,6 @@ export const TenantProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       } else {
         // الشركة المخزنة غير صالحة (أو قديمة)، نختار أول شركة متاحة تلقائياً
         const defaultTenant = realTenants[0]
-        console.log("Auto-selecting tenant:", defaultTenant.name)
         setCurrentTenantIdState(defaultTenant.id)
         tenantStore.setTenantId(defaultTenant.id)
         fetchIndustryType(defaultTenant.id)

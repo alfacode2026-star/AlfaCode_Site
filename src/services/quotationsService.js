@@ -217,8 +217,6 @@ class QuotationsService {
       }
       // If createdBy is null or 'user', omit the field - database should handle this gracefully
 
-      // Log the data being sent (as requested)
-      console.log('📋 Quotation data being inserted:', JSON.stringify(newQuotation, null, 2))
 
       // Try/catch around insert to catch and alert exact Supabase error
       try {
@@ -360,8 +358,6 @@ class QuotationsService {
                 status: 'active'
               }
               
-              console.log('STRICT CUSTOMER CREATION: Creating customer record for approved quotation:', newCustomerData)
-              
               const createResult = await customersService.addCustomer(newCustomerData)
               if (createResult.success && createResult.customer) {
                 // Update quotation with new customer_id
@@ -376,7 +372,6 @@ class QuotationsService {
                 } else {
                   // Update the mapped quotation data to include customer_id
                   mappedQuotation.customerId = createResult.customer.id
-                  console.log('✅ STRICT CUSTOMER CREATION: Created customer record:', createResult.customer.id, 'for quotation:', id)
                 }
               } else {
                 console.error('❌ STRICT CUSTOMER CREATION: Failed to create customer:', createResult.error)
@@ -393,7 +388,6 @@ class QuotationsService {
                 
                 if (!updateError) {
                   mappedQuotation.customerId = existingCustomerWithType.id
-                  console.log('✅ Linked existing customer (type=customer) to quotation:', existingCustomerWithType.id)
                 }
               }
             }

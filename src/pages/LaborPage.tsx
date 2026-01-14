@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 import employeesService from '../services/employeesService'
 import laborGroupsService from '../services/laborGroupsService'
 import projectsService from '../services/projectsService'
@@ -56,6 +58,9 @@ const { Title, Text } = Typography
 const { TextArea } = Input
 
 const LaborPage = () => {
+  const { language } = useLanguage()
+  const t = getTranslations(language)
+  
   // Tab state
   const [activeTab, setActiveTab] = useState('internal-staff')
 
@@ -126,7 +131,7 @@ const LaborPage = () => {
       setEmployees(data || [])
     } catch (error) {
       console.error('Error loading employees:', error)
-      message.error('فشل في تحميل بيانات الموظفين')
+      message.error(t.labor.failedToLoadEmployees)
     } finally {
       setEmployeesLoading(false)
     }
@@ -166,17 +171,17 @@ const LaborPage = () => {
       }
 
       if (result.success) {
-        message.success(selectedEmployee ? 'تم تحديث الموظف بنجاح' : 'تم إضافة الموظف بنجاح')
+        message.success(selectedEmployee ? t.labor.employeeUpdated : t.labor.employeeAdded)
         setIsEmployeeModalVisible(false)
         employeeForm.resetFields()
         setSelectedEmployee(null)
         await loadEmployees()
       } else {
-        message.error(result.error || 'فشل في حفظ الموظف')
+        message.error(result.error || t.labor.failedToSaveEmployee)
       }
     } catch (error) {
       console.error('Error saving employee:', error)
-      message.error('حدث خطأ أثناء حفظ الموظف')
+      message.error(t.labor.errorSavingEmployee || 'Error occurred while saving employee')
     }
   }
 
@@ -184,14 +189,14 @@ const LaborPage = () => {
     try {
       const result = await employeesService.deleteEmployee(id)
       if (result.success) {
-        message.success('تم حذف الموظف بنجاح')
+        message.success(t.labor.employeeDeleted)
         await loadEmployees()
       } else {
-        message.error(result.error || 'فشل في حذف الموظف')
+        message.error(result.error || t.labor.failedToDeleteEmployee)
       }
     } catch (error) {
       console.error('Error deleting employee:', error)
-      message.error('حدث خطأ أثناء حذف الموظف')
+      message.error(t.labor.errorDeletingEmployee || 'Error occurred while deleting employee')
     }
   }
 
@@ -203,7 +208,7 @@ const LaborPage = () => {
       setLaborGroups(data || [])
     } catch (error) {
       console.error('Error loading labor groups:', error)
-      message.error('فشل في تحميل مجموعات العمالة')
+      message.error(t.labor.failedToLoadGroups)
     } finally {
       setLaborGroupsLoading(false)
     }
@@ -215,7 +220,7 @@ const LaborPage = () => {
       setProjects(data || [])
     } catch (error) {
       console.error('Error loading projects:', error)
-      message.error('فشل في تحميل المشاريع')
+      message.error(t.labor.failedToLoadProjects || 'Failed to load projects')
     }
   }
 
@@ -249,7 +254,7 @@ const LaborPage = () => {
 
   const handleEditGroup = async (group) => {
     if (group.status !== 'active') {
-      message.warning('لا يمكن تعديل مجموعة غير نشطة')
+      message.warning(t.labor.cannotEditInactiveGroup || 'Cannot edit inactive group')
       return
     }
     setSelectedGroup(group)
@@ -276,7 +281,7 @@ const LaborPage = () => {
       // Validate project start dates
       const selectedProjectIds = values.projectIds || []
       if (selectedProjectIds.length === 0) {
-        message.error('يرجى اختيار مشروع واحد على الأقل')
+        message.error(t.labor.selectAtLeastOneProject)
         return
       }
 
@@ -284,7 +289,7 @@ const LaborPage = () => {
       // Start date cannot be earlier than the earliest project start date
       const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
       if (selectedProjects.length === 0) {
-        message.error('المشاريع المحددة غير موجودة')
+        message.error(t.labor.selectedProjectsNotFound || 'Selected projects not found')
         return
       }
 
@@ -302,7 +307,7 @@ const LaborPage = () => {
         const selectedStartDate = dayjs(values.startDate).startOf('day')
         const projectStartDate = earliestProjectStartDate.startOf('day')
         if (selectedStartDate.isBefore(projectStartDate, 'day')) {
-          message.error(`لا يمكن بدء مجموعة العمل قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`)
+          message.error(`${t.labor.cannotStartBeforeProjectDate || 'Cannot start labor group before project contract date'} (${projectStartDate.format('YYYY-MM-DD')})`)
           return
         }
       }
@@ -315,7 +320,7 @@ const LaborPage = () => {
 
       const groupData = {
         projectIds: selectedProjectIds,
-        engineerName: values.engineerName || 'مهندس',
+        engineerName: values.engineerName || (t.labor.defaultEngineer || 'Engineer'),
         startDate: formattedStartDate, // Already formatted as YYYY-MM-DD string
         normalCount: values.normalCount || 0,
         // Skilled labor is optional - only include if provided
@@ -334,23 +339,23 @@ const LaborPage = () => {
       }
 
       if (result.success) {
-        message.success(selectedGroup ? 'تم تحديث المجموعة بنجاح' : 'تم إنشاء المجموعة بنجاح')
+        message.success(selectedGroup ? t.labor.groupUpdated : t.labor.groupCreated)
         setIsGroupModalVisible(false)
         groupForm.resetFields()
         setSelectedGroup(null)
         await loadLaborGroups()
       } else {
-        message.error(result.error || 'فشل في حفظ المجموعة')
+        message.error(result.error || t.labor.failedToSaveGroup)
       }
     } catch (error) {
       console.error('Error saving group:', error)
-      message.error('حدث خطأ أثناء حفظ المجموعة')
+      message.error(t.labor.errorSavingGroup || 'Error occurred while saving group')
     }
   }
 
   const handleCloseGroup = (group) => {
     if (group.status !== 'active') {
-      message.warning('المجموعة غير نشطة')
+      message.warning(t.labor.groupNotActive || 'Group is not active')
       return
     }
     setSelectedGroup(group)
@@ -386,7 +391,7 @@ const LaborPage = () => {
         : null
 
       if (!manualEndDate) {
-        message.error('تاريخ النهاية مطلوب')
+        message.error(t.labor.endDateRequired || 'End date is required')
         return
       }
 
@@ -406,7 +411,7 @@ const LaborPage = () => {
             const projectStartDate = earliestProjectStartDate.startOf('day')
             
             if (groupStartDate.isBefore(projectStartDate, 'day')) {
-              message.error(`تاريخ بداية المجموعة (${manualStartDate}) لا يمكن أن يكون قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`)
+              message.error(`${t.labor.cannotStartBeforeProjectDate || 'Cannot start labor group before project contract date'} (${manualStartDate}) - (${projectStartDate.format('YYYY-MM-DD')})`)
               return
             }
           }
@@ -419,7 +424,7 @@ const LaborPage = () => {
       const selectedEndDate = dayjs(manualEndDate).startOf('day')
       
       if (selectedEndDate.isAfter(maxAllowedDate, 'day')) {
-        message.error('تاريخ الإغلاق لا يمكن أن يتجاوز 7 أيام من التاريخ الحالي')
+        message.error(t.labor.closeDateCannotExceed7Days || 'Close date cannot exceed 7 days from current date')
         return
       }
 
@@ -447,18 +452,29 @@ const LaborPage = () => {
       const finalTotal = baseTotal + overtime - deductions
 
       // Show summary alert before closing
-      const summaryMessage = `الفترة: ${startDate.format('YYYY-MM-DD')} إلى ${endDate.format('YYYY-MM-DD')} (${duration} يوم)`
+      const summaryMessage = `${t.labor.period || 'Period'}: ${startDate.format('YYYY-MM-DD')} ${t.common.to || 'to'} ${endDate.format('YYYY-MM-DD')} (${duration} ${t.common.days || 'days'})`
       
-      const calculationPreview = `تفاصيل الحساب:
-• العمالة العادية: ${selectedGroup.normalCount} × ${selectedGroup.normalRate.toFixed(2)} × ${netDays} = ${normalTotal.toFixed(2)} ريال
-${skilledCount > 0 && skilledRate > 0 ? `• العمالة المهنية/الخلفة: ${skilledCount} × ${skilledRate.toFixed(2)} × ${netDays} = ${skilledTotal.toFixed(2)} ريال\n` : ''}• المجموع الأساسي: ${baseTotal.toFixed(2)} ريال
-${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\n` : ''}${deductions > 0 ? `• خصومات: -${deductions.toFixed(2)} ريال\n` : ''}• المبلغ الإجمالي النهائي: ${finalTotal.toFixed(2)} ريال`
+      // Build calculation preview without nested template literals
+      const skilledLine = skilledCount > 0 && skilledRate > 0 
+        ? `• ${t.labor.skilledLabor}: ${skilledCount} × ${skilledRate.toFixed(2)} × ${netDays} = ${skilledTotal.toFixed(2)} ${t.common.sar}\n`
+        : ''
+      const overtimeLine = overtime > 0 
+        ? `• ${t.labor.overtime || 'Overtime/Bonus'}: +${overtime.toFixed(2)} ${t.common.sar}\n`
+        : ''
+      const deductionsLine = deductions > 0 
+        ? `• ${t.labor.deductions || 'Deductions'}: -${deductions.toFixed(2)} ${t.common.sar}\n`
+        : ''
+      
+      const calculationPreview = `${t.labor.calculationDetails || 'Calculation Details'}:
+• ${t.labor.normalLabor}: ${selectedGroup.normalCount} × ${selectedGroup.normalRate.toFixed(2)} × ${netDays} = ${normalTotal.toFixed(2)} ${t.common.sar}
+${skilledLine}• ${t.labor.baseTotal || 'Base Total'}: ${baseTotal.toFixed(2)} ${t.common.sar}
+${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total Amount'}: ${finalTotal.toFixed(2)} ${t.common.sar}`
 
       Modal.confirm({
-        title: 'تأكيد إغلاق المجموعة',
+        title: t.labor.confirmCloseGroup || 'Confirm Close Group',
         content: `${summaryMessage}\n\n${calculationPreview}`,
-        okText: 'تأكيد وإغلاق',
-        cancelText: 'إلغاء',
+        okText: t.labor.confirmAndClose || 'Confirm and Close',
+        cancelText: t.common.cancel,
         width: 600,
         onOk: async () => {
           // CRITICAL: Ensure endDate is saved in YYYY-MM-DD format (manual date from UI)
@@ -484,20 +500,20 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             setIsSummaryModalVisible(true)
             await loadLaborGroups()
           } else {
-            message.error(result.error || 'فشل في إغلاق المجموعة')
+            message.error(result.error || (t.labor.failedToCloseGroup || 'Failed to close group'))
           }
         }
       })
     } catch (error) {
       console.error('Error closing group:', error)
-      message.error('حدث خطأ أثناء إغلاق المجموعة')
+      message.error(t.labor.errorClosingGroup || 'Error occurred while closing group')
     }
   }
 
   // Phase 1: Admin approves the group
   const handleApproveGroup = (group) => {
     if (group.status !== 'pending_approval') {
-      message.warning('المجموعة ليست في حالة انتظار الموافقة')
+      message.warning(t.labor.groupNotPendingApproval || 'Group is not pending approval')
       return
     }
     setSelectedGroupForApproval(group)
@@ -507,7 +523,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
   // Phase 2: Accountant processes payment
   const handlePayGroup = (group) => {
     if (group.status !== 'approved_for_payment') {
-      message.warning('المجموعة ليست في حالة موافقة للدفع')
+      message.warning(t.labor.groupNotApprovedForPayment || 'Group is not approved for payment')
       return
     }
     setSelectedGroupForPayment(group)
@@ -534,16 +550,16 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
       const result = await laborGroupsService.approveLaborGroup(selectedGroupForApproval.id, {})
 
       if (result.success) {
-        message.success('تمت الموافقة على المجموعة بنجاح')
+        message.success(t.labor.groupApproved)
         setIsApprovalModalVisible(false)
         setSelectedGroupForApproval(null)
         await loadLaborGroups()
       } else {
-        message.error(result.error || 'فشل في الموافقة على المجموعة')
+        message.error(result.error || (t.labor.failedToApproveGroup || 'Failed to approve group'))
       }
     } catch (error) {
       console.error('Error approving group:', error)
-      message.error('حدث خطأ أثناء الموافقة على المجموعة')
+      message.error(t.labor.errorApprovingGroup || 'Error occurred while approving group')
     }
   }
 
@@ -552,7 +568,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
     try {
       if (!selectedGroupForPayment) return
       if (!paymentMethod) {
-        message.error('يرجى اختيار طريقة الدفع')
+        message.error(t.labor.selectPaymentMethod)
         return
       }
 
@@ -562,13 +578,13 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
       if (paymentMethod === 'treasury') {
         if (!values.treasuryAccountId) {
-          message.error('يرجى اختيار حساب الخزينة')
+          message.error(t.labor.selectTreasuryAccount)
           return
         }
         paymentData.treasuryAccountId = values.treasuryAccountId
       } else if (paymentMethod === 'advance') {
         if (!values.linkedAdvanceId) {
-          message.error('يرجى اختيار العهدة')
+          message.error(t.labor.selectAdvance)
           return
         }
         paymentData.linkedAdvanceId = values.linkedAdvanceId
@@ -577,7 +593,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
       const result = await laborGroupsService.payLaborGroup(selectedGroupForPayment.id, paymentData)
 
       if (result.success) {
-        message.success('تم الدفع بنجاح')
+        message.success(t.labor.groupPaid)
         setIsPaymentModalVisible(false)
         paymentForm.resetFields()
         setSelectedGroupForPayment(null)
@@ -585,11 +601,11 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
         setSelectedAdvance(null)
         await loadLaborGroups()
       } else {
-        message.error(result.error || 'فشل في دفع المجموعة')
+        message.error(result.error || (t.labor.failedToPayGroup || 'Failed to pay group'))
       }
     } catch (error) {
       console.error('Error paying group:', error)
-      message.error('حدث خطأ أثناء دفع المجموعة')
+      message.error(t.labor.errorPayingGroup || 'Error occurred while paying group')
     }
   }
 
@@ -597,20 +613,20 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
     try {
       const result = await laborGroupsService.deleteLaborGroup(id)
       if (result.success) {
-        message.success('تم حذف المجموعة بنجاح')
+        message.success(t.labor.groupDeleted)
         await loadLaborGroups()
       } else {
-        message.error(result.error || 'فشل في حذف المجموعة')
+        message.error(result.error || t.labor.failedToDeleteGroup)
       }
     } catch (error) {
       console.error('Error deleting group:', error)
-      message.error('حدث خطأ أثناء حذف المجموعة')
+      message.error(t.labor.errorDeletingGroup || 'Error occurred while deleting group')
     }
   }
 
   const handleViewReceipt = async (group: any) => {
     if (group.status !== 'paid') {
-      message.warning('المجموعة غير مدفوعة')
+      message.warning(t.labor.groupNotPaid || 'Group is not paid')
       return
     }
     
@@ -650,10 +666,10 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
     const printContent = `
       <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
+      <html dir="${language === 'ar' ? 'rtl' : 'ltr'}" lang="${language}">
       <head>
         <meta charset="UTF-8">
-        <title>تقرير مجموعة العمالة - ${group.id}</title>
+        <title>${language === 'ar' ? 'تقرير مجموعة العمالة' : 'Labor Group Report'} - ${group.id}</title>
         <style>
           @media print {
             body { margin: 0; }
@@ -661,7 +677,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
           }
           body {
             font-family: 'Arial', 'Tahoma', sans-serif;
-            direction: rtl;
+            direction: ${language === 'ar' ? 'rtl' : 'ltr'};
             padding: 20px;
             color: #333;
           }
@@ -692,7 +708,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
           }
           .info-value {
             flex: 1;
-            text-align: right;
+            text-align: ${language === 'ar' ? 'right' : 'left'};
           }
           .calculation-section {
             background: #f5f5f5;
@@ -758,105 +774,105 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
       </head>
       <body>
         <div class="header">
-          <h1>تقرير مجموعة العمالة الخارجية</h1>
+          <h1>${language === 'ar' ? 'تقرير مجموعة العمالة الخارجية' : 'External Labor Group Report'}</h1>
         </div>
 
         <div class="info-section">
           <div class="info-row">
-            <span class="info-label">${projectIds.length > 1 ? 'المشاريع:' : 'المشروع:'}</span>
+            <span class="info-label">${projectIds.length > 1 ? (language === 'ar' ? 'المشاريع:' : 'Projects:') : (language === 'ar' ? 'المشروع:' : 'Project:')}</span>
             <span class="info-value">${projectNames || '-'}</span>
           </div>
           <div class="info-row">
-            <span class="info-label">المهندس:</span>
+            <span class="info-label">${language === 'ar' ? 'المهندس:' : 'Engineer:'}</span>
             <span class="info-value">${group.engineerName || '-'}</span>
           </div>
           <div class="info-row">
-            <span class="info-label">تاريخ البداية:</span>
+            <span class="info-label">${language === 'ar' ? 'تاريخ البداية:' : 'Start Date:'}</span>
             <span class="info-value">${group.startDate ? moment(group.startDate).format('YYYY-MM-DD') : '-'}</span>
           </div>
           <div class="info-row">
-            <span class="info-label">تاريخ النهاية:</span>
+            <span class="info-label">${language === 'ar' ? 'تاريخ النهاية:' : 'End Date:'}</span>
             <span class="info-value">${group.endDate ? moment(group.endDate).format('YYYY-MM-DD') : '-'}</span>
           </div>
           <div class="info-row">
-            <span class="info-label">الأيام الصافية:</span>
-            <span class="info-value">${group.netDays !== null && group.netDays !== undefined ? group.netDays : '-'} يوم</span>
+            <span class="info-label">${language === 'ar' ? 'الأيام الصافية:' : 'Net Days:'}</span>
+            <span class="info-value">${group.netDays !== null && group.netDays !== undefined ? group.netDays : '-'} ${language === 'ar' ? 'يوم' : 'days'}</span>
           </div>
           <div class="info-row">
-            <span class="info-label">الحالة:</span>
+            <span class="info-label">${language === 'ar' ? 'الحالة:' : 'Status:'}</span>
             <span class="info-value">${
-              group.status === 'active' ? 'نشط' :
-              group.status === 'pending_approval' ? 'بانتظار الموافقة' :
-              group.status === 'approved_for_payment' ? 'موافق عليه - جاهز للدفع' :
-              group.status === 'paid' ? 'مدفوع' :
+              group.status === 'active' ? (language === 'ar' ? 'نشط' : t.labor.active) :
+              group.status === 'pending_approval' ? (language === 'ar' ? 'بانتظار الموافقة' : t.labor.pendingApproval) :
+              group.status === 'approved_for_payment' ? (language === 'ar' ? 'موافق عليه - جاهز للدفع' : t.labor.approvedForPayment) :
+              group.status === 'paid' ? (language === 'ar' ? 'مدفوع' : t.labor.paid) :
               group.status || '-'
             }</span>
           </div>
           ${group.notes ? `
           <div class="info-row">
-            <span class="info-label">ملاحظات:</span>
+            <span class="info-label">${language === 'ar' ? 'ملاحظات:' : 'Notes:'}</span>
             <span class="info-value">${group.notes}</span>
           </div>
           ` : ''}
         </div>
 
         <div class="calculation-section">
-          <div class="calculation-title">تفاصيل الحساب</div>
+          <div class="calculation-title">${language === 'ar' ? 'تفاصيل الحساب' : (t.labor.calculationDetails || 'Calculation Details')}</div>
           
           <div class="calculation-row">
-            <span class="calculation-formula">العمالة العادية:</span>
-            <span class="calculation-result">${group.normalCount} × ${group.normalRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(normalTotal)}</span>
+            <span class="calculation-formula">${language === 'ar' ? 'العمالة العادية:' : (t.labor.normalLabor + ':')}</span>
+            <span class="calculation-result">${group.normalCount} × ${group.normalRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(normalTotal)}</span>
           </div>
 
           ${skilledCount > 0 && skilledRate > 0 ? `
           <div class="calculation-row">
-            <span class="calculation-formula">العمالة المهنية/الخلفة:</span>
-            <span class="calculation-result">${skilledCount} × ${skilledRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(skilledTotal)}</span>
+            <span class="calculation-formula">${language === 'ar' ? 'العمالة المهنية/الخلفة:' : (t.labor.skilledLabor + ':')}</span>
+            <span class="calculation-result">${skilledCount} × ${skilledRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(skilledTotal)}</span>
           </div>
           ` : ''}
 
           <div class="calculation-row total-row">
-            <span>المجموع الأساسي:</span>
-            <span>${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(baseTotal)}</span>
+            <span>${language === 'ar' ? 'المجموع الأساسي:' : (t.labor.baseTotal || 'Base Total') + ':'}</span>
+            <span>${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(baseTotal)}</span>
           </div>
 
           ${group.overtime > 0 ? `
           <div class="calculation-row">
-            <span class="calculation-formula">إضافي/مكافأة:</span>
-            <span class="calculation-result">+ ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.overtime)}</span>
+            <span class="calculation-formula">${language === 'ar' ? 'إضافي/مكافأة:' : (t.labor.overtime || 'Overtime/Bonus') + ':'}</span>
+            <span class="calculation-result">+ ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.overtime)}</span>
           </div>
           ` : ''}
 
           ${group.deductions > 0 ? `
           <div class="calculation-row">
-            <span class="calculation-formula">خصومات:</span>
-            <span class="calculation-result">- ${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.deductions)}</span>
+            <span class="calculation-formula">${language === 'ar' ? 'خصومات:' : (t.labor.deductions || 'Deductions') + ':'}</span>
+            <span class="calculation-result">- ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.deductions)}</span>
           </div>
           ${group.deductionReason ? `
           <div class="calculation-row">
-            <span class="calculation-formula">سبب الخصومات:</span>
+            <span class="calculation-formula">${language === 'ar' ? 'سبب الخصومات:' : 'Deduction Reason:'}</span>
             <span class="calculation-result">${group.deductionReason}</span>
           </div>
           ` : ''}
           ` : ''}
 
           <div class="calculation-row total-row" style="margin-top: 20px;">
-            <span>المبلغ الإجمالي النهائي:</span>
-            <span>${new Intl.NumberFormat('ar-SA', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.totalAmount || 0)}</span>
+            <span>${language === 'ar' ? 'المبلغ الإجمالي النهائي:' : (t.labor.finalTotalAmount || 'Final Total Amount') + ':'}</span>
+            <span>${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.totalAmount || 0)}</span>
           </div>
           <div class="calculation-row" style="margin-top: 8px; font-size: 12px; color: #999;">
-            <span>(المجموع الأساسي + الإضافي - الخصومات)</span>
+            <span>${language === 'ar' ? '(المجموع الأساسي + الإضافي - الخصومات)' : '(Base Total + Overtime - Deductions)'}</span>
           </div>
         </div>
 
         <div class="footer">
-          <p>تم إنشاء التقرير في: ${moment().format('YYYY-MM-DD HH:mm')}</p>
-          <p>معرف المجموعة: ${group.id}</p>
+          <p>${language === 'ar' ? 'تم إنشاء التقرير في:' : 'Report generated on:'} ${moment().format('YYYY-MM-DD HH:mm')}</p>
+          <p>${language === 'ar' ? 'معرف المجموعة:' : 'Group ID:'} ${group.id}</p>
         </div>
 
         <div class="button-container no-print">
-          <button onclick="window.print()">طباعة</button>
-          <button onclick="window.close()" style="background: #999; margin-right: 10px;">إغلاق</button>
+          <button onclick="window.print()">${language === 'ar' ? 'طباعة' : t.labor.print}</button>
+          <button onclick="window.close()" style="background: #999; margin-right: 10px;">${language === 'ar' ? 'إغلاق' : t.common.close}</button>
         </div>
       </body>
       </html>
@@ -872,9 +888,9 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
   }
 
   // Employees table columns
-  const employeeColumns = [
+  const employeeColumns = useMemo(() => [
     {
-      title: 'الاسم',
+      title: t.labor.name,
       dataIndex: 'name',
       key: 'name',
       render: (name: string) => (
@@ -885,23 +901,23 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
       )
     },
     {
-      title: 'الرقم الوظيفي',
+      title: t.labor.employeeId,
       dataIndex: 'employeeId',
       key: 'employeeId'
     },
     {
-      title: 'المسمى الوظيفي',
+      title: t.labor.jobTitle,
       dataIndex: 'jobTitle',
       key: 'jobTitle',
       render: (title: string) => <Tag color="blue">{title}</Tag>
     },
     {
-      title: 'الراتب الأساسي',
+      title: t.labor.monthlySalary,
       dataIndex: 'monthlySalary',
       key: 'monthlySalary',
       render: (salary: number) => (
         <span style={{ fontWeight: 'bold', color: '#52c41a' }}>
-          {new Intl.NumberFormat('ar-SA', {
+          {new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', {
             style: 'currency',
             currency: 'SAR',
             minimumFractionDigits: 0
@@ -911,7 +927,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
       align: 'right' as const
     },
     {
-      title: 'الإجراءات',
+      title: t.common.actions,
       key: 'actions',
       render: (_: any, record: any) => (
         <Space>
@@ -921,13 +937,13 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             onClick={() => handleEditEmployee(record)}
             size="small"
           >
-            تعديل
+            {t.common.edit}
           </Button>
           <Popconfirm
-            title="هل أنت متأكد من حذف هذا الموظف؟"
+            title={t.labor.deleteEmployeeConfirm || 'Are you sure you want to delete this employee?'}
             onConfirm={() => handleDeleteEmployee(record.id)}
-            okText="نعم"
-            cancelText="لا"
+            okText={t.common.yes}
+            cancelText={t.common.no}
           >
             <Button
               type="link"
@@ -935,18 +951,18 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               icon={<DeleteOutlined />}
               size="small"
             >
-              حذف
+              {t.common.delete}
             </Button>
           </Popconfirm>
         </Space>
       )
     }
-  ]
+  ], [t, language])
 
   // Labor groups table columns
-  const laborGroupColumns = [
+  const laborGroupColumns = useMemo(() => [
     {
-      title: 'المشاريع',
+      title: t.labor.projects,
       dataIndex: 'projectIds',
       key: 'projectIds',
       render: (projectIds: string[] | string, record: any) => {
@@ -961,48 +977,48 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
       }
     },
     {
-      title: 'المهندس',
+      title: t.labor.engineer,
       dataIndex: 'engineerName',
       key: 'engineerName',
       render: (name: string) => name || '-'
     },
     {
-      title: 'تاريخ البداية',
+      title: t.labor.startDate,
       dataIndex: 'startDate',
       key: 'startDate',
       render: (date: string) => date ? moment(date).format('YYYY-MM-DD') : '-'
     },
     {
-      title: 'تاريخ النهاية',
+      title: t.labor.endDate,
       dataIndex: 'endDate',
       key: 'endDate',
       render: (date: string) => date ? moment(date).format('YYYY-MM-DD') : '-'
     },
     {
-      title: 'العمالة',
+      title: t.labor.normalLabor,
       key: 'labor',
       render: (_: any, record: any) => (
         <div>
-          <div>عادية: {record.normalCount} × {record.normalRate.toFixed(0)}</div>
+          <div>{t.labor.normalLabor}: {record.normalCount} × {record.normalRate.toFixed(0)}</div>
           {(record.skilledCount && record.skilledCount > 0) && (
-            <div>مهني/خلفة: {record.skilledCount} × {record.skilledRate.toFixed(0)}</div>
+            <div>{t.labor.skilledLabor}: {record.skilledCount} × {record.skilledRate.toFixed(0)}</div>
           )}
         </div>
       )
     },
     {
-      title: 'الأيام الصافية',
+      title: t.labor.netDays,
       dataIndex: 'netDays',
       key: 'netDays',
       render: (days: number) => days !== null && days !== undefined ? days : '-'
     },
     {
-      title: 'المبلغ الإجمالي',
+      title: t.labor.totalAmount,
       dataIndex: 'totalAmount',
       key: 'totalAmount',
       render: (amount: number) => (
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-          {new Intl.NumberFormat('ar-SA', {
+          {new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', {
             style: 'currency',
             currency: 'SAR',
             minimumFractionDigits: 0
@@ -1012,23 +1028,23 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
       align: 'right' as const
     },
     {
-      title: 'الحالة',
+      title: t.common.status,
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
         const config = {
-          active: { color: 'green', text: 'نشط' },
-          pending_approval: { color: 'orange', text: 'بانتظار الموافقة' },
-          approved_for_payment: { color: 'blue', text: 'موافق عليه - جاهز للدفع' },
-          paid: { color: 'success', text: 'مدفوع' },
-          cancelled: { color: 'default', text: 'ملغي' }
+          active: { color: 'green', text: t.labor.active },
+          pending_approval: { color: 'orange', text: t.labor.pendingApproval },
+          approved_for_payment: { color: 'blue', text: t.labor.approvedForPayment },
+          paid: { color: 'success', text: t.labor.paid },
+          cancelled: { color: 'default', text: t.labor.cancelled }
         }
         const statusConfig = config[status] || { color: 'default', text: status }
         return <Tag color={statusConfig.color}>{statusConfig.text}</Tag>
       }
     },
     {
-      title: 'الإجراءات',
+      title: t.common.actions,
       key: 'actions',
       render: (_: any, record: any) => (
         <Space>
@@ -1039,7 +1055,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               onClick={() => handleCloseGroup(record)}
               size="small"
             >
-              إغلاق
+              {t.labor.closeGroup}
             </Button>
           )}
           {record.status === 'pending_approval' && (
@@ -1050,7 +1066,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               size="small"
               style={{ color: '#52c41a' }}
             >
-              موافقة
+              {t.labor.approveGroup}
             </Button>
           )}
           {record.status === 'approved_for_payment' && (
@@ -1061,7 +1077,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               size="small"
               style={{ color: '#1890ff' }}
             >
-              دفع
+              {t.labor.payGroup}
             </Button>
           )}
           {record.status === 'active' && (
@@ -1071,15 +1087,15 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               onClick={() => handleEditGroup(record)}
               size="small"
             >
-              تعديل
+              {t.common.edit}
             </Button>
           )}
           {record.status !== 'paid' && (
             <Popconfirm
-              title="هل أنت متأكد من حذف هذه المجموعة؟"
+              title={t.labor.deleteGroupConfirm || 'Are you sure you want to delete this group?'}
               onConfirm={() => handleDeleteGroup(record.id)}
-              okText="نعم"
-              cancelText="لا"
+              okText={t.common.yes}
+              cancelText={t.common.no}
             >
               <Button
                 type="link"
@@ -1087,7 +1103,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                 icon={<DeleteOutlined />}
                 size="small"
               >
-                حذف
+                {t.common.delete}
               </Button>
             </Popconfirm>
           )}
@@ -1099,7 +1115,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               size="small"
               style={{ color: '#1890ff' }}
             >
-              عرض الإيصال
+              {t.labor.viewReceipt}
             </Button>
           )}
           <Button
@@ -1108,29 +1124,29 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             onClick={() => handlePrintGroup(record)}
             size="small"
           >
-            طباعة
+            {t.labor.print}
           </Button>
         </Space>
       )
     }
-  ]
+  ], [t, language, projects])
 
   // Holiday options
-  const holidayOptions = [
-    { label: 'الأحد', value: 'Sunday' },
-    { label: 'الإثنين', value: 'Monday' },
-    { label: 'الثلاثاء', value: 'Tuesday' },
-    { label: 'الأربعاء', value: 'Wednesday' },
-    { label: 'الخميس', value: 'Thursday' },
-    { label: 'الجمعة', value: 'Friday' },
-    { label: 'السبت', value: 'Saturday' }
-  ]
+  const holidayOptions = useMemo(() => [
+    { label: language === 'ar' ? 'الأحد' : 'Sunday', value: 'Sunday' },
+    { label: language === 'ar' ? 'الإثنين' : 'Monday', value: 'Monday' },
+    { label: language === 'ar' ? 'الثلاثاء' : 'Tuesday', value: 'Tuesday' },
+    { label: language === 'ar' ? 'الأربعاء' : 'Wednesday', value: 'Wednesday' },
+    { label: language === 'ar' ? 'الخميس' : 'Thursday', value: 'Thursday' },
+    { label: language === 'ar' ? 'الجمعة' : 'Friday', value: 'Friday' },
+    { label: language === 'ar' ? 'السبت' : 'Saturday', value: 'Saturday' }
+  ], [language])
 
   return (
     <div style={{ padding: 24 }}>
       <Title level={2} style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
         <TeamOutlined />
-        إدارة الموظفين والعمالة اليومية
+        {t.labor.title}
       </Title>
 
       <Tabs
@@ -1142,7 +1158,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             label: (
               <span>
                 <UserOutlined />
-                الموظفون (Internal Staff)
+                {t.labor.internalStaff}
               </span>
             ),
             children: (
@@ -1151,7 +1167,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
                     <span>
                       <UserOutlined style={{ marginLeft: 8 }} />
-                      إدارة الموظفين الداخليين
+                      {t.labor.employees}
                     </span>
                     <Button
                       type="primary"
@@ -1159,32 +1175,33 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                       onClick={handleAddEmployee}
                       size="large"
                     >
-                      إضافة موظف
+                      {t.labor.addEmployee}
                     </Button>
                   </div>
                 }
               >
                 {employeesLoading ? (
                   <div style={{ textAlign: 'center', padding: 40 }}>
-                    <Spin size="large" tip="جاري تحميل الموظفين..." />
+                    <Spin size="large" tip={t.common.loading} />
                   </div>
                 ) : employees.length === 0 ? (
                   <Empty
-                    description="لا توجد موظفين مسجلين"
+                    description={t.labor.noEmployees || 'No employees registered'}
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                   >
                     <Button type="primary" icon={<PlusOutlined />} onClick={handleAddEmployee}>
-                      إضافة موظف جديد
+                      {t.labor.addEmployee}
                     </Button>
                   </Empty>
                 ) : (
                   <Table
                     columns={employeeColumns}
-                    dataSource={employees.map(e => ({ ...e, key: e.id }))}
+                    dataSource={employees.map(e => ({ ...e, key: e.id || e.updatedAt || `emp-${Date.now()}` }))}
+                    rowKey={(record) => record.id || record.updatedAt || `emp-${Date.now()}`}
                     pagination={{
                       pageSize: 10,
                       showSizeChanger: true,
-                      showTotal: (total) => `إجمالي ${total} موظف`
+                      showTotal: (total) => `${t.labor.totalEmployees || 'Total'}: ${total}`
                     }}
                     scroll={{ x: 'max-content' }}
                     responsive
@@ -1198,7 +1215,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             label: (
               <span>
                 <TeamOutlined />
-                العمالة الخارجية (External Labor Groups)
+                {t.labor.externalLabor}
               </span>
             ),
             children: (
@@ -1207,7 +1224,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
                     <span>
                       <TeamOutlined style={{ marginLeft: 8 }} />
-                      إدارة مجموعات العمالة الخارجية
+                      {t.labor.laborGroups}
                     </span>
                     <Button
                       type="primary"
@@ -1215,32 +1232,33 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                       onClick={handleAddGroup}
                       size="large"
                     >
-                      إنشاء مجموعة جديدة
+                      {t.labor.addGroup || 'Create New Group'}
                     </Button>
                   </div>
                 }
               >
                 {laborGroupsLoading ? (
                   <div style={{ textAlign: 'center', padding: 40 }}>
-                    <Spin size="large" tip="جاري تحميل المجموعات..." />
+                    <Spin size="large" tip={t.common.loading} />
                   </div>
                 ) : laborGroups.length === 0 ? (
                   <Empty
-                    description="لا توجد مجموعات عمالة مسجلة"
+                    description={t.labor.noLaborGroups || 'No labor groups registered'}
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                   >
                     <Button type="primary" icon={<PlusOutlined />} onClick={handleAddGroup}>
-                      إنشاء مجموعة جديدة
+                      {t.labor.addGroup || 'Create New Group'}
                     </Button>
                   </Empty>
                 ) : (
                   <Table
                     columns={laborGroupColumns}
-                    dataSource={laborGroups.map(g => ({ ...g, key: g.id }))}
+                    dataSource={useMemo(() => laborGroups.map(g => ({ ...g, key: g.id || g.updatedAt || `group-${Date.now()}` })), [laborGroups])}
+                    rowKey={(record) => record.id || record.updatedAt || `group-${Date.now()}`}
                     pagination={{
                       pageSize: 10,
                       showSizeChanger: true,
-                      showTotal: (total) => `إجمالي ${total} مجموعة`
+                      showTotal: (total) => `${t.labor.totalGroups || 'Total'}: ${total}`
                     }}
                     scroll={{ x: 'max-content' }}
                     responsive
@@ -1254,7 +1272,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
       {/* Employee Modal */}
       <Modal
-        title={selectedEmployee ? 'تعديل موظف' : 'إضافة موظف جديد'}
+        title={selectedEmployee ? t.labor.editEmployee : t.labor.addEmployee}
         open={isEmployeeModalVisible}
         onOk={() => employeeForm.submit()}
         onCancel={() => {
@@ -1262,8 +1280,8 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
           employeeForm.resetFields()
           setSelectedEmployee(null)
         }}
-        okText="حفظ"
-        cancelText="إلغاء"
+        okText={t.common.save}
+        cancelText={t.common.cancel}
         width={600}
       >
         <Form
@@ -1274,32 +1292,32 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
         >
           <Form.Item
             name="name"
-            label="الاسم"
-            rules={[{ required: true, message: 'يرجى إدخال الاسم' }]}
+            label={t.labor.name}
+            rules={[{ required: true, message: t.labor.name + ' ' + t.common.required }]}
           >
-            <Input placeholder="اسم الموظف" />
+            <Input placeholder={t.labor.name} />
           </Form.Item>
 
           <Form.Item
             name="employeeId"
-            label="الرقم الوظيفي"
-            rules={[{ required: true, message: 'يرجى إدخال الرقم الوظيفي' }]}
+            label={t.labor.employeeId}
+            rules={[{ required: true, message: t.labor.employeeId + ' ' + t.common.required }]}
           >
-            <Input placeholder="الرقم الوظيفي" />
+            <Input placeholder={t.labor.employeeId} />
           </Form.Item>
 
           <Form.Item
             name="jobTitle"
-            label="المسمى الوظيفي"
-            rules={[{ required: true, message: 'يرجى إدخال المسمى الوظيفي' }]}
+            label={t.labor.jobTitle}
+            rules={[{ required: true, message: t.labor.jobTitle + ' ' + t.common.required }]}
           >
-            <Input placeholder="المسمى الوظيفي" />
+            <Input placeholder={t.labor.jobTitle} />
           </Form.Item>
 
           <Form.Item
             name="monthlySalary"
-            label="الراتب الأساسي (ريال)"
-            rules={[{ required: true, message: 'يرجى إدخال الراتب الأساسي' }]}
+            label={t.labor.monthlySalary}
+            rules={[{ required: true, message: t.labor.monthlySalary + ' ' + t.common.required }]}
           >
             <InputNumber
               min={0}
@@ -1313,7 +1331,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
       {/* Group Modal */}
       <Modal
-        title={selectedGroup ? 'تعديل مجموعة عمالة' : 'إنشاء مجموعة عمالة جديدة'}
+        title={selectedGroup ? t.labor.groupUpdated : t.labor.addGroup}
         open={isGroupModalVisible}
         onOk={() => groupForm.submit()}
         onCancel={() => {
@@ -1321,8 +1339,8 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
           groupForm.resetFields()
           setSelectedGroup(null)
         }}
-        okText="حفظ"
-        cancelText="إلغاء"
+        okText={t.common.save}
+        cancelText={t.common.cancel}
         width={700}
       >
         <Form
@@ -1333,15 +1351,15 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
         >
           <Form.Item
             name="projectIds"
-            label="المشاريع"
+            label={t.labor.projects}
             rules={[
-              { required: true, message: 'يرجى اختيار مشروع واحد على الأقل' },
-              { type: 'array', min: 1, message: 'يرجى اختيار مشروع واحد على الأقل' }
+              { required: true, message: t.labor.selectAtLeastOneProject },
+              { type: 'array', min: 1, message: t.labor.selectAtLeastOneProject }
             ]}
           >
             <Select
               mode="multiple"
-              placeholder="اختر المشاريع (يمكن اختيار أكثر من مشروع)"
+              placeholder={t.labor.projects + ' (' + t.common.optional + ')'}
               showSearch
               filterOption={(input, option) =>
                 (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
@@ -1400,7 +1418,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             >
               {projects.map(project => (
                 <Option key={project.id} value={project.id}>
-                  {project.name} {project.startDate ? `(بداية: ${moment(project.startDate).format('YYYY-MM-DD')})` : ''}
+                  {project.name} {project.startDate ? `(${t.projects.startDate}: ${moment(project.startDate).format('YYYY-MM-DD')})` : ''}
                 </Option>
               ))}
             </Select>
@@ -1408,9 +1426,9 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
           <Form.Item
             name="engineerName"
-            label="اسم المهندس"
+            label={t.labor.engineer}
           >
-            <Input placeholder="اسم المهندس المسؤول" />
+            <Input placeholder={t.labor.engineer} />
           </Form.Item>
 
           <Form.Item noStyle shouldUpdate={(prev, curr) => prev.projectIds !== curr.projectIds}>
@@ -1441,9 +1459,9 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
               return (
                 <Form.Item
                   name="startDate"
-                  label="تاريخ البداية"
+                  label={t.labor.startDate}
                   rules={[
-                    { required: true, message: 'يرجى اختيار تاريخ البداية' },
+                    { required: true, message: t.labor.startDate + ' ' + t.common.required },
                     ({ getFieldValue }) => ({
                       validator(_, value) {
                         if (!value) {
@@ -1473,7 +1491,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                           const projectStartDate = earliestProjectStartDate.startOf('day')
                           // CRITICAL: startDate must be >= earliest project start date
                           if (selectedStartDate.isBefore(projectStartDate, 'day')) {
-                            return Promise.reject(new Error(`لا يمكن بدء مجموعة العمل قبل تاريخ عقد المشروع (${projectStartDate.format('YYYY-MM-DD')})`))
+                            return Promise.reject(new Error(`${t.labor.cannotStartBeforeProjectDate || 'Cannot start labor group before project contract date'} (${projectStartDate.format('YYYY-MM-DD')})`))
                           }
                         }
                         return Promise.resolve()
@@ -1510,8 +1528,6 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                             return null
                           }
                           const projectDate = dayjs(project.startDate)
-                          // DEBUG: Log project start dates to diagnose stale data issues
-                          console.log('[disabledDate] Project:', project.name, 'Start Date:', project.startDate, 'Parsed:', projectDate.format('YYYY-MM-DD'))
                           return projectDate
                         })
                         .filter(d => d !== null && d.isValid()) // Filter out nulls and invalid dates
@@ -1520,18 +1536,10 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                       // Get the earliest (oldest) project start date (recalculated dynamically)
                       const dynamicMinDate = projectStartDates.length > 0 ? projectStartDates[0] : null
                       
-                      // DEBUG: Log the calculated minDate
-                      if (dynamicMinDate) {
-                        console.log('[disabledDate] Calculated minDate:', dynamicMinDate.format('YYYY-MM-DD'), 'Current date:', dayjs(current).format('YYYY-MM-DD'))
-                      } else {
-                        console.log('[disabledDate] WARNING: No valid minDate found - allowing all dates')
-                      }
-                      
                       // FIX: If no valid minDate found, allow ALL dates (don't block)
                       // Previously this was blocking all dates, which was too restrictive
                       // If project has no startDate, we shouldn't block date selection
                       if (!dynamicMinDate || !dynamicMinDate.isValid()) {
-                        console.log('[disabledDate] No valid project start date - allowing all dates')
                         return false // Allow all dates if no valid project start date
                       }
                       
@@ -1541,12 +1549,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                       
                       // THE SHIELD: Disable dates before the earliest project start date
                       // startDate must be >= earliest project start date (strict chronological validation)
-                      const shouldDisable = currentDate.isBefore(minAllowedDate, 'day')
-                      if (shouldDisable) {
-                        console.log('[disabledDate] Disabling date:', currentDate.format('YYYY-MM-DD'), 'because it is before minDate:', minAllowedDate.format('YYYY-MM-DD'))
-                      }
-                      
-                      return shouldDisable // Disable dates before project start date
+                      return currentDate.isBefore(minAllowedDate, 'day') // Disable dates before project start date
                     }}
                   />
                 </Form.Item>
@@ -1558,8 +1561,8 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             <Col span={12}>
               <Form.Item
                 name="normalCount"
-                label="عدد العمالة العادية"
-                rules={[{ required: true, message: 'يرجى إدخال العدد' }]}
+                label={t.labor.normalCount}
+                rules={[{ required: true, message: t.labor.normalCount + ' ' + t.common.required }]}
               >
                 <InputNumber
                   min={0}
@@ -1571,8 +1574,8 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             <Col span={12}>
               <Form.Item
                 name="normalRate"
-                label="السعر اليومي للعمالة العادية (ريال)"
-                rules={[{ required: true, message: 'يرجى إدخال السعر' }]}
+                label={t.labor.normalRate}
+                rules={[{ required: true, message: t.labor.normalRate + ' ' + t.common.required }]}
               >
                 <InputNumber
                   min={0}
@@ -1588,7 +1591,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             <Col span={12}>
               <Form.Item
                 name="skilledCount"
-                label="عامل مهني/خلفة/اسطة (اختياري)"
+                label={t.labor.skilledCount}
               >
                 <InputNumber
                   min={0}
@@ -1600,7 +1603,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             <Col span={12}>
               <Form.Item
                 name="skilledRate"
-                label="السعر اليومي (ريال) (اختياري)"
+                label={t.labor.skilledRate}
               >
                 <InputNumber
                   min={0}
@@ -1614,23 +1617,23 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
           <Form.Item
             name="holidays"
-            label="الأيام المستثناة (العطل)"
+            label={t.labor.holidays}
           >
             <Checkbox.Group options={holidayOptions} />
           </Form.Item>
 
           <Form.Item
             name="notes"
-            label="ملاحظات"
+            label={t.common.notes}
           >
-            <TextArea rows={3} placeholder="ملاحظات إضافية..." />
+            <TextArea rows={3} placeholder={t.common.notes + '...'} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* Close Group Modal */}
       <Modal
-        title="إغلاق مجموعة العمالة"
+        title={t.labor.closeGroup}
         open={isCloseGroupModalVisible}
         onOk={() => closeGroupForm.submit()}
         onCancel={() => {
@@ -1638,13 +1641,13 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
           closeGroupForm.resetFields()
           setSelectedGroup(null)
         }}
-        okText="إغلاق وحساب"
-        cancelText="إلغاء"
+        okText={t.labor.closeGroup}
+        cancelText={t.common.cancel}
         width={700}
       >
         {selectedGroup && (
           <Alert
-            message="سيتم حساب الأيام الصافية (باستثناء العطل المحددة) والمبلغ الإجمالي"
+            message={t.labor.calculationDetails || 'Calculation Details'}
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -1769,9 +1772,9 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
           )}
           <Form.Item
             name="endDate"
-            label="تاريخ النهاية"
+            label={t.labor.endDate}
             rules={[
-              { required: true, message: 'يرجى اختيار تاريخ النهاية' },
+              { required: true, message: t.labor.endDate + ' ' + t.common.required },
               ({ getFieldValue }) => ({
                 validator(_, value) {
                   if (!value) {
@@ -1785,14 +1788,14 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
                   
                   // Validate: endDate must not be more than 7 days from today
                   if (selectedDate.isAfter(maxAllowedDate, 'day')) {
-                    return Promise.reject(new Error('تاريخ الإغلاق لا يمكن أن يتجاوز 7 أيام من التاريخ الحالي'))
+                    return Promise.reject(new Error(t.labor.closeDateCannotExceed7Days || 'Close date cannot exceed 7 days from current date'))
                   }
                   
                   // Validate: endDate must not be before startDate (if startDate exists)
                   if (selectedGroup?.startDate) {
                     const manualStartDate = dayjs(selectedGroup.startDate).startOf('day')
                     if (selectedDate.isBefore(manualStartDate, 'day')) {
-                      return Promise.reject(new Error(`تاريخ النهاية لا يمكن أن يكون قبل تاريخ البداية (${manualStartDate.format('YYYY-MM-DD')})`))
+                      return Promise.reject(new Error(`${t.labor.endDateBeforeStartDate || 'End date cannot be before start date'} (${manualStartDate.format('YYYY-MM-DD')})`))
                     }
                   }
                   
@@ -1832,7 +1835,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
           <Form.Item
             name="holidays"
-            label="الأيام المستثناة (العطل)"
+            label={t.labor.holidays}
           >
             <Checkbox.Group options={holidayOptions} />
           </Form.Item>
@@ -1841,7 +1844,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             <Col span={12}>
               <Form.Item
                 name="overtime"
-                label="إضافي/مكافأة (ريال)"
+                label={`${t.labor.overtime || 'Overtime/Bonus'} (${t.common.sar})`}
               >
                 <InputNumber
                   min={0}
@@ -1854,7 +1857,7 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
             <Col span={12}>
               <Form.Item
                 name="deductions"
-                label="خصومات (ريال)"
+                label={`${t.labor.deductions || 'Deductions'} (${t.common.sar})`}
               >
                 <InputNumber
                   min={0}
@@ -1868,27 +1871,27 @@ ${overtime > 0 ? `• إضافي/مكافأة: +${overtime.toFixed(2)} ريال\
 
           <Form.Item
             name="deductionReason"
-            label="سبب الخصومات"
+            label={t.labor.deductionReason || 'Deduction Reason'}
             rules={[
               ({ getFieldValue }) => ({
                 validator(_, value) {
                   const deductions = getFieldValue('deductions')
                   if (deductions && parseFloat(deductions) > 0 && !value) {
-                    return Promise.reject(new Error('سبب الخصومات مطلوب عند وجود خصومات'))
+                    return Promise.reject(new Error(t.labor.deductionReasonRequired || 'Deduction reason is required when deductions exist'))
                   }
                   return Promise.resolve()
                 }
               })
             ]}
           >
-            <TextArea rows={2} placeholder="سبب الخصومات (إجباري إذا كانت هناك خصومات)" />
+            <TextArea rows={2} placeholder={t.labor.deductionReason || 'Deduction Reason'} />
           </Form.Item>
 
           <Form.Item
             name="notes"
-            label="ملاحظات"
+            label={t.common.notes}
           >
-            <TextArea rows={3} placeholder="ملاحظات إضافية..." />
+            <TextArea rows={3} placeholder={t.common.notes + '...'} />
           </Form.Item>
         </Form>
       </Modal>

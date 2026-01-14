@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Card,
   Table,
@@ -47,7 +47,10 @@ import ordersService from '../services/ordersService'
 import treasuryService from '../services/treasuryService'
 import workersService from '../services/workersService'
 import employeesService from '../services/employeesService'
+import tenantStore from '../services/tenantStore'
 import { useTenant } from '../contexts/TenantContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 import dayjs from 'dayjs'
 
 const { Option } = Select
@@ -58,6 +61,8 @@ type TransactionType = 'regular' | 'advance' | 'settlement'
 
 const GeneralExpenses = () => {
   const { industryType } = useTenant()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const [expenses, setExpenses] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isModalVisible, setIsModalVisible] = useState(false)
@@ -131,7 +136,7 @@ const GeneralExpenses = () => {
       
       if (total > remainingAmount && total > 0) {
         setSettlementAmountExceedsLimit(true)
-        setSettlementAmountError('المبلغ المدخل أكبر من الرصيد المتاح في العهدة')
+        setSettlementAmountError(t.generalExpenses.amountExceedsAdvance || 'Amount exceeds available advance balance')
       } else {
         setSettlementAmountExceedsLimit(false)
         setSettlementAmountError(null)
@@ -173,8 +178,11 @@ const GeneralExpenses = () => {
     try {
       const data = await employeesService.getEmployees()
       setEmployees(data || [])
+      
+      if (!data || data.length === 0) {
+      }
     } catch (error) {
-      console.error('Error loading employees:', error)
+      console.error('[GeneralExpenses] Error loading employees:', error)
       setEmployees([])
     }
   }
@@ -269,7 +277,7 @@ const GeneralExpenses = () => {
           return {
             ...expense,
             projectName,
-            sourceTarget: expense.isGeneralExpense ? 'Admin/Office' : projectName || 'مشروع غير محدد'
+            sourceTarget: expense.isGeneralExpense ? 'Admin/Office' : projectName || t.common.notSpecified
           }
         })
       )
@@ -283,7 +291,7 @@ const GeneralExpenses = () => {
       setExpenses(expensesWithProjects)
     } catch (error) {
       console.error('Error loading expenses:', error)
-      message.error('فشل في تحميل المصاريف')
+      message.error(t.generalExpenses.failedToLoad)
       setExpenses([])
     } finally {
       setLoading(false)
@@ -422,15 +430,40 @@ const GeneralExpenses = () => {
       })
     }
     
-    // Determine recipient type
-    const recipientWorker = expense.recipientName ? workers.find(w => w.name === expense.recipientName) : null
-    const recipientTypeValue = recipientWorker ? 'internal' : 'external'
-    if (recipientWorker) {
-      setRecipientType('internal')
-      setSelectedWorkerId(recipientWorker.id)
+    // CRITICAL: Determine recipient type using employee_id (relational) first, then fallback to name matching
+    // Priority: 1) employee_id (relational), 2) name matching (backward compatibility)
+    let recipientEmployee = null
+    let recipientWorker = null
+    let recipientTypeValue = 'external'
+    
+    // First, check if expense has employee_id (relational link)
+    if (expense.employeeId) {
+      recipientEmployee = employees.find(emp => emp.id === expense.employeeId)
+      if (recipientEmployee) {
+        recipientTypeValue = 'internal'
+        setRecipientType('internal')
+        setSelectedEmployeeId(recipientEmployee.id)
+        setSelectedWorkerId(null)
+      }
     } else {
-      setRecipientType('external')
-      setSelectedWorkerId(null)
+      // Fallback: name matching for backward compatibility with legacy data
+      recipientEmployee = expense.recipientName ? employees.find(emp => emp.name === expense.recipientName) : null
+      recipientWorker = expense.recipientName ? workers.find(w => w.name === expense.recipientName) : null
+      recipientTypeValue = (recipientEmployee || recipientWorker) ? 'internal' : 'external'
+      
+      if (recipientEmployee) {
+        setRecipientType('internal')
+        setSelectedEmployeeId(recipientEmployee.id)
+        setSelectedWorkerId(null)
+      } else if (recipientWorker) {
+        setRecipientType('internal')
+        setSelectedEmployeeId(null)
+        setSelectedWorkerId(recipientWorker.id)
+      } else {
+        setRecipientType('external')
+        setSelectedEmployeeId(null)
+        setSelectedWorkerId(null)
+      }
     }
 
     form.setFieldsValue({
@@ -441,12 +474,13 @@ const GeneralExpenses = () => {
       date: expenseTypeValue === 'administrative' || expenseTypeValue === 'manager_advance' ? expenseDate : undefined,
       dueDate: expenseTypeValue !== 'administrative' && expenseTypeValue !== 'manager_advance' ? (expense.dueDate ? dayjs(expense.dueDate) : undefined) : undefined,
       paidDate: expenseTypeValue !== 'administrative' && expenseTypeValue !== 'manager_advance' ? (expense.paidDate ? dayjs(expense.paidDate) : undefined) : undefined,
-      status: expenseTypeValue === 'administrative' ? 'paid' : (expenseTypeValue === 'manager_advance' && expense.transactionType !== 'settlement' ? (expense.status || 'pending') : undefined),
+      status: expenseTypeValue === 'administrative' ? (expense.status || 'pending') : (expenseTypeValue === 'manager_advance' && expense.transactionType !== 'settlement' ? (expense.status || 'pending') : undefined),
       paymentMethod: expense.paymentMethod || undefined,
       referenceNumber: expense.referenceNumber || undefined,
       notes: expense.notes || undefined,
       recipientName: expense.recipientName || undefined,
       recipientType: recipientTypeValue,
+      employeeId: expense.employeeId || recipientEmployee?.id || undefined, // CRITICAL: Use employee_id from expense first
       recipientWorkerId: recipientWorker?.id || undefined,
       paymentFrequency: expense.paymentFrequency || 'one-time',
       transactionType: expense.transactionType || 'regular',
@@ -459,26 +493,39 @@ const GeneralExpenses = () => {
 
   const handleDeleteExpense = async (id: string) => {
     try {
+      // First, find and reverse any associated treasury transactions
+      try {
+        const reverseResult = await treasuryService.deleteTransactionByReference('expense', id)
+        if (!reverseResult.success && reverseResult.errorCode !== 'FIND_TRANSACTION_FAILED') {
+          // Continue with deletion even if reversal fails
+        }
+      } catch (reverseError) {
+        console.error('Error reversing treasury transaction:', reverseError)
+        // Continue with deletion even if reversal fails
+      }
+
+      // Delete the expense payment
       const result = await paymentsService.deletePayment(id)
       if (result.success) {
-        message.success('تم حذف المصروف بنجاح')
+        message.success(t.generalExpenses.expenseDeleted)
         loadExpenses()
+        loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
         if (activeTab === 'petty-cash') {
           loadPettyCashAdvances()
           loadOutstandingAdvances()
         }
       } else {
-        message.error(result.error || 'فشل في حذف المصروف')
+        message.error(result.error || t.generalExpenses.failedToDelete)
       }
     } catch (error) {
       console.error('Error deleting expense:', error)
-      message.error('فشل في حذف المصروف')
+      message.error(t.generalExpenses.failedToDelete)
     }
   }
 
   const handleAddCategory = async () => {
     if (!newCategoryName.trim()) {
-      message.error('يرجى إدخال اسم الفئة')
+      message.error(t.generalExpenses.categoryNameRequired)
       return
     }
 
@@ -490,17 +537,17 @@ const GeneralExpenses = () => {
       })
 
       if (result.success) {
-        message.success('تم إضافة الفئة بنجاح')
+        message.success(t.generalExpenses.categoryAdded)
         setNewCategoryName('')
         setShowNewCategoryInput(false)
         await loadCategories()
         form.setFieldsValue({ category: result.category.name })
       } else {
-        message.error(result.error || 'فشل في إضافة الفئة')
+        message.error(result.error || t.generalExpenses.failedToAddCategory)
       }
     } catch (error) {
       console.error('Error adding category:', error)
-      message.error('فشل في إضافة الفئة')
+      message.error(t.generalExpenses.failedToAddCategory)
     }
   }
 
@@ -531,7 +578,7 @@ const GeneralExpenses = () => {
       if (!exactMatch && searchText.trim().length > 0) {
         options.push({
           value: '__NEW__',
-          label: `إضافة مورد جديد: "${searchText.trim()}"`,
+          label: `${t.generalExpenses.addNewSupplier}: "${searchText.trim()}"`,
           isNew: true
         })
       }
@@ -610,17 +657,17 @@ const GeneralExpenses = () => {
     const unitPrice = unitPriceValue !== null && unitPriceValue !== undefined ? unitPriceValue : 0
 
     if (!itemDescription || itemDescription.trim() === '') {
-      message.error('يرجى إدخال وصف البند')
+      message.error(t.generalExpenses.itemDescriptionRequired)
       return
     }
 
     if (quantity <= 0) {
-      message.error('الكمية يجب أن تكون أكبر من صفر')
+      message.error(t.generalExpenses.quantityMustBeGreaterThanZero)
       return
     }
 
     if (unitPrice < 0) {
-      message.error('سعر الوحدة يجب أن يكون أكبر من أو يساوي صفر')
+      message.error(t.generalExpenses.unitPriceMustBeGreaterThanOrEqualToZero)
       return
     }
     
@@ -636,7 +683,7 @@ const GeneralExpenses = () => {
     
     setSelectedProducts([...selectedProducts, newItem])
     form.setFieldsValue({ itemDescription: '', quantity: undefined, unitPrice: undefined })
-    message.success('تم إضافة البند')
+    message.success(t.generalExpenses.itemAdded)
   }
 
   const handleRemoveItem = (index: number) => {
@@ -674,7 +721,7 @@ const GeneralExpenses = () => {
       if (!exactMatch && searchText.trim().length > 0) {
         options.push({
           value: '__NEW__',
-          label: `إضافة مورد جديد: "${searchText.trim()}"`,
+          label: `${t.generalExpenses.addNewSupplier}: "${searchText.trim()}"`,
           isNew: true
         })
       }
@@ -715,17 +762,17 @@ const GeneralExpenses = () => {
     const unitPrice = form.getFieldValue('settlementPoUnitPrice') || 0
 
     if (!itemDescription || itemDescription.trim() === '') {
-      message.error('يرجى إدخال وصف البند')
+      message.error(t.generalExpenses.itemDescriptionRequired)
       return
     }
 
     if (quantity <= 0) {
-      message.error('الكمية يجب أن تكون أكبر من صفر')
+      message.error(t.generalExpenses.quantityMustBeGreaterThanZero)
       return
     }
 
     if (unitPrice < 0) {
-      message.error('سعر الوحدة يجب أن يكون أكبر من أو يساوي صفر')
+      message.error(t.generalExpenses.unitPriceMustBeGreaterThanOrEqualToZero)
       return
     }
     
@@ -746,7 +793,7 @@ const GeneralExpenses = () => {
     // Calculate and update amount field
     let total = updatedItems.reduce((sum, item) => sum + (item.total || 0), 0)
     form.setFieldsValue({ amount: total })
-    message.success('تم إضافة البند')
+    message.success(t.generalExpenses.itemAdded)
   }
 
   const handleRemoveSettlementPoItem = (index: number) => {
@@ -760,10 +807,6 @@ const GeneralExpenses = () => {
   }
 
   const handleSubmit = async (values: any) => {
-    console.log('Submitting data:', values)
-    console.log('Expense Type:', expenseType)
-    console.log('Editing Expense:', editingExpense)
-    
     try {
       const isAdmin = expenseType === 'administrative'
       const isProjectExpense = expenseType === 'project'
@@ -772,7 +815,7 @@ const GeneralExpenses = () => {
       // For project expenses, use ONLY ordersService (same as OrdersPage) - NO paymentsService
       if (isProjectExpense) {
         if (selectedProducts.length === 0) {
-          message.error('يرجى إضافة بند واحد على الأقل')
+          message.error(t.generalExpenses.addAtLeastOneItem)
           return
         }
 
@@ -785,7 +828,7 @@ const GeneralExpenses = () => {
         if (isNewSupplier) {
           const supplierName = newSupplierName.trim() || customerSearchValue.trim()
           if (!supplierName) {
-            message.error('يرجى إدخال اسم المورد')
+            message.error(t.generalExpenses.supplierNameRequired)
             return
           }
 
@@ -803,9 +846,9 @@ const GeneralExpenses = () => {
             finalCustomerName = createResult.customer.name
             finalCustomerPhone = createResult.customer.phone || ''
             finalCustomerEmail = createResult.customer.email || ''
-            message.success('تم إضافة المورد الجديد بنجاح')
+            message.success(t.generalExpenses.supplierAddedSuccessfully)
           } else {
-            message.error(createResult.error || 'فشل في إضافة المورد الجديد')
+            message.error(createResult.error || t.generalExpenses.failedToAddSupplier)
             return
           }
         } else if (selectedCustomer) {
@@ -814,26 +857,26 @@ const GeneralExpenses = () => {
           finalCustomerPhone = selectedCustomer.phone || ''
           finalCustomerEmail = selectedCustomer.email || ''
         } else {
-          message.error('يرجى اختيار أو إضافة مورد')
+          message.error(t.generalExpenses.selectOrAddSupplier)
           return
         }
 
         // Validate project selection for engineering mode
         if (isEngineering && !values.projectId) {
-          message.error('يرجى اختيار المشروع')
+          message.error(t.generalExpenses.selectProjectRequired)
           return
         }
 
         // Validate treasury account selection
         if (!values.treasuryAccountId) {
-          message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
+          message.error(t.generalExpenses.selectTreasuryAccountRequired)
           return
         }
 
         // Derive payment method from treasury account type
         const selectedAccount = treasuryAccounts.find(acc => acc.id === values.treasuryAccountId)
         if (!selectedAccount) {
-          message.error('حساب الخزينة المحدد غير موجود')
+          message.error(t.generalExpenses.treasuryAccountNotFound)
           return
         }
         // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
@@ -868,7 +911,7 @@ const GeneralExpenses = () => {
         const orderResult = await ordersService.createOrder(orderData)
         
         if (orderResult.success) {
-          message.success('تم إضافة أمر الشراء بنجاح')
+          message.success(t.generalExpenses.orderAddedSuccessfully)
           
           // Update treasury if account selected - must succeed
           if (values.treasuryAccountId && orderResult.order?.id) {
@@ -877,7 +920,7 @@ const GeneralExpenses = () => {
               const totalAmount = parseFloat(orderResult.order.total) || 0
               
               if (totalAmount <= 0) {
-                message.warning('⚠️ تحذير: المبلغ الإجمالي صفر أو سالب، لن يتم خصم من الخزينة')
+                message.warning(t.generalExpenses.zeroOrNegativeAmountWarning)
               } else {
                 const treasuryResult = await treasuryService.createTransaction({
                   accountId: values.treasuryAccountId,
@@ -885,22 +928,16 @@ const GeneralExpenses = () => {
                   amount: totalAmount,
                   referenceType: 'order',
                   referenceId: orderResult.order.id,
-                  description: `أمر شراء: ${finalCustomerName} - ${values.notes || ''}`
+                  description: `${t.generalExpenses.purchaseOrderDescription}: ${finalCustomerName} - ${values.notes || ''}`
                 })
                 
                 if (treasuryResult.success) {
-                  console.log('✅ GeneralExpenses: Treasury transaction created successfully for project expense', {
-                    transactionId: treasuryResult.transaction?.id,
-                    accountId: values.treasuryAccountId,
-                    accountName: treasuryResult.accountName,
-                    newBalance: treasuryResult.newBalance
-                  })
-                  message.success(`✅ تم خصم ${totalAmount.toLocaleString()} ريال من حساب الخزينة (${treasuryResult.accountName || 'غير محدد'})`)
+                  message.success(`${t.generalExpenses.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${t.common.sar} (${treasuryResult.accountName || t.common.notSpecified})`)
                   loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
                 } else {
                   console.error('❌ GeneralExpenses: Failed to update treasury for project expense:', treasuryResult.error)
                   message.error({
-                    content: `❌ فشل خصم المبلغ من الخزينة: ${treasuryResult.error || 'خطأ غير معروف'}`,
+                    content: `${t.generalExpenses.failedToDeductFromTreasury}: ${treasuryResult.error || t.generalExpenses.unknownError}`,
                     duration: 10,
                     style: { marginTop: '10vh' }
                   })
@@ -909,7 +946,7 @@ const GeneralExpenses = () => {
             } catch (error) {
               console.error('❌ GeneralExpenses: Exception during treasury update for project expense:', error)
               message.error({
-                content: `❌ خطأ أثناء خصم المبلغ من الخزينة: ${error.message || 'خطأ غير معروف'}`,
+                content: `${t.generalExpenses.errorDeductingFromTreasury}: ${error.message || t.generalExpenses.unknownError}`,
                 duration: 10,
                 style: { marginTop: '10vh' }
               })
@@ -929,7 +966,7 @@ const GeneralExpenses = () => {
           setAvailableWorkScopes([])
           loadExpenses()
         } else {
-          message.error(orderResult.error || 'فشل في إنشاء أمر الشراء')
+          message.error(orderResult.error || t.generalExpenses.failedToCreateOrder)
         }
 
         return
@@ -945,7 +982,7 @@ const GeneralExpenses = () => {
           
           // If project is selected, managerName becomes required
           if (values.projectId && !managerName) {
-            message.error('يرجى اختيار الموظف (مدير المشروع مطلوب عند ربط المشروع)')
+            message.error(t.generalExpenses.selectEmployeeRequired)
             return
           }
           
@@ -956,14 +993,14 @@ const GeneralExpenses = () => {
               // Auto-recover managerName from employee
               values.managerName = employee.name.trim()
             } else {
-              message.error('يرجى التأكد من اختيار الموظف بشكل صحيح')
+              message.error(t.generalExpenses.verifyEmployeeSelection)
               return
             }
           }
           
           // Final check: if no managerName and no employeeId, show error
           if (!managerName && !employeeId) {
-            message.error('يرجى إدخال اسم مدير المشروع أو اختيار الموظف')
+            message.error(t.generalExpenses.enterManagerNameOrSelectEmployee)
             return
           }
         }
@@ -976,14 +1013,14 @@ const GeneralExpenses = () => {
         // For settlements, validation happens later (expense-type: from PO items, return-type: after checking remaining amount)
         if (transactionType !== 'settlement') {
           if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
-            message.error('يرجى إدخال مبلغ صحيح')
+            message.error(t.generalExpenses.enterValidAmount)
             return
           }
           
           // Validate treasury account for advances - ensure it's not empty string or null
           const treasuryAccountId = values.treasuryAccountId?.trim() || null
           if (!treasuryAccountId || treasuryAccountId === '') {
-            message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
+            message.error(t.generalExpenses.selectTreasuryAccountRequired)
             return
           }
         }
@@ -991,38 +1028,38 @@ const GeneralExpenses = () => {
         // For settlement, validate linked advance and prepare PO data
         if (transactionType === 'settlement') {
           if (!values.linkedAdvanceId) {
-            message.error('يرجى اختيار العهدة المفتوحة')
+            message.error(t.generalExpenses.selectOpenAdvance)
             return
           }
 
           if (!selectedLinkedAdvance) {
-            message.error('لم يتم العثور على تفاصيل العهدة المرتبطة')
+            message.error(t.generalExpenses.linkedAdvanceDetailsNotFound)
             return
           }
 
           // For expense-type settlements, calculate amount from PO items and validate
           if (settlementType === 'expense') {
             if (!selectedLinkedAdvance.projectId) {
-              message.error('العهدة المرتبطة لا تحتوي على مشروع. يرجى اختيار مشروع للتسوية')
+              message.error(t.generalExpenses.linkedAdvanceNoProject)
               return
             }
 
             // Validate vendor/recipient
             if (!settlementPoVendor && !isSettlementPoNewVendor) {
-              message.error('يرجى اختيار أو إضافة مورد/مستلم لأمر الشراء')
+              message.error(t.generalExpenses.selectOrAddVendorForPO)
               return
             }
 
             // Validate PO items
             if (settlementPoItems.length === 0) {
-              message.error('يرجى إضافة بند واحد على الأقل لأمر الشراء')
+              message.error(t.generalExpenses.addAtLeastOneItemForPO)
               return
             }
 
             // Calculate amount from PO items for expense-type settlements
             let calculatedAmount = calculateSettlementTotal()
             if (calculatedAmount <= 0) {
-              message.error('يجب أن يكون مجموع البنود أكبر من صفر')
+              message.error(t.generalExpenses.itemTotalMustBeGreaterThanZero)
               return
             }
 
@@ -1034,12 +1071,12 @@ const GeneralExpenses = () => {
               : parseFloat(selectedLinkedAdvance.amount || 0)
 
             if (remainingAmount <= 0) {
-              message.error('العهدة تم تسويتها بالكامل - لا يمكن إنشاء تسوية جديدة')
+              message.error(t.generalExpenses.advanceFullySettled)
               return
             }
 
             if (calculatedAmount > remainingAmount) {
-              message.error('المبلغ المدخل أكبر من الرصيد المتاح في العهدة')
+              message.error(t.generalExpenses.amountExceedsAvailableBalance)
               return
             }
 
@@ -1055,7 +1092,7 @@ const GeneralExpenses = () => {
             if (isSettlementPoNewVendor) {
               const vendorName = settlementPoNewVendorName.trim() || settlementPoVendorSearch.trim()
               if (!vendorName) {
-                message.error('يرجى إدخال اسم المورد/المستلم')
+                message.error(t.generalExpenses.enterVendorRecipientName)
                 return
               }
 
@@ -1073,9 +1110,9 @@ const GeneralExpenses = () => {
                 finalVendorName = createResult.customer.name
                 finalVendorPhone = createResult.customer.phone || ''
                 finalVendorEmail = createResult.customer.email || ''
-                message.success('تم إضافة المورد الجديد بنجاح')
+                message.success(t.generalExpenses.supplierAddedSuccessfully)
               } else {
-                message.error(createResult.error || 'فشل في إضافة المورد الجديد')
+                message.error(createResult.error || t.generalExpenses.failedToAddSupplier)
                 return
               }
             } else if (settlementPoVendor) {
@@ -1128,7 +1165,7 @@ const GeneralExpenses = () => {
             })
 
             if (result.success) {
-              message.success('تم حفظ التسوية وأمر الشراء بنجاح')
+              message.success(t.generalExpenses.settlementAndPOSaved)
               
               // DO NOT create treasury transaction for expense-type settlements
               // The money already left the bank when the advance was first issued
@@ -1159,7 +1196,7 @@ const GeneralExpenses = () => {
                 errorCode: result.errorCode,
                 fullResult: result
               })
-              message.error(result.error || 'فشل في حفظ التسوية وأمر الشراء')
+              message.error(result.error || t.generalExpenses.failedToSaveSettlementAndPO)
             }
             return
           } else {
@@ -1169,14 +1206,14 @@ const GeneralExpenses = () => {
             // Re-parse amountValue from form for return-type settlements
             amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
             if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
-              message.error('يرجى إدخال مبلغ صحيح')
+              message.error(t.generalExpenses.enterValidAmount)
               return
             }
             
             // Validate treasury account for return-type settlements - ensure it's not empty string or null
             const treasuryAccountId = values.treasuryAccountId?.trim() || null
             if (!treasuryAccountId || treasuryAccountId === '') {
-              message.error('يرجى اختيار حساب الخزينة للإرجاع')
+              message.error(t.generalExpenses.selectTreasuryAccountForReturn)
               return
             }
             
@@ -1185,12 +1222,12 @@ const GeneralExpenses = () => {
               : parseFloat(selectedLinkedAdvance.amount || 0)
 
             if (remainingAmount <= 0) {
-              message.error('العهدة تم تسويتها بالكامل - لا يمكن إنشاء تسوية جديدة')
+              message.error(t.generalExpenses.advanceFullySettled)
               return
             }
 
             if (amountValue > remainingAmount) {
-              message.error('المبلغ المدخل أكبر من الرصيد المتاح في العهدة')
+              message.error(t.generalExpenses.amountExceedsAvailableBalance)
               return
             }
           }
@@ -1202,7 +1239,7 @@ const GeneralExpenses = () => {
         if (transactionType !== 'settlement') {
           const amountValueCheck = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
           if (!values.amount || isNaN(amountValueCheck) || amountValueCheck <= 0) {
-            message.error('يرجى إدخال مبلغ صحيح')
+            message.error(t.generalExpenses.enterValidAmount)
             return
           }
           // Note: For new advances, remaining_amount validation is skipped.
@@ -1281,41 +1318,27 @@ const GeneralExpenses = () => {
           // CRITICAL: Treasury transactions are now created ONLY when status changes to 'approved' via updatePaymentStatus
           // Do NOT create treasury transaction here for pending advances - it will be created when admin approves (status -> 'approved')
           if (transactionType === 'settlement') {
-            message.success('تم حفظ التسوية بنجاح')
+            message.success(t.generalExpenses.settlementSaved)
           } else if (result.payment?.status === 'pending') {
-            message.success('تم حفظ طلب العهدة بنجاح - في انتظار الموافقة')
+            message.success(t.generalExpenses.advanceRequestSaved)
           } else {
-            message.success('تم حفظ العهدة بنجاح')
+            message.success(t.generalExpenses.advanceSaved)
           }
           
           // Create treasury transaction for return-type settlements - ensure it's not empty string or null
           const treasuryAccountIdForReturn = values.treasuryAccountId?.trim() || null
           if (transactionType === 'settlement' && settlementType === 'return' && treasuryAccountIdForReturn && treasuryAccountIdForReturn !== '' && result.payment?.id) {
             try {
-              // Console log to trace account_id value
-              console.log('GeneralExpenses: Creating treasury transaction for return settlement', {
-                paymentId: result.payment.id,
-                accountId: treasuryAccountIdForReturn,
-                accountIdType: typeof treasuryAccountIdForReturn,
-                accountIdLength: treasuryAccountIdForReturn?.length
-              })
-              
               const treasuryResult = await treasuryService.createTransaction({
                 accountId: treasuryAccountIdForReturn,
                 transactionType: 'inflow', // Return/deposit back to treasury
                 amount: amountValue,
                 referenceType: 'expense',
                 referenceId: result.payment.id,
-                description: `تسوية عهدة (مرتجع): ${selectedLinkedAdvance?.referenceNumber || selectedLinkedAdvance?.paymentNumber || ''} - ${values.notes || ''}`
+                description: `${t.generalExpenses.settlementReturnDescription}: ${selectedLinkedAdvance?.referenceNumber || selectedLinkedAdvance?.paymentNumber || ''} - ${values.notes || ''}`
               })
               
-              if (treasuryResult.success) {
-                console.log('GeneralExpenses: Treasury transaction created successfully for return settlement', {
-                  transactionId: treasuryResult.transaction?.id,
-                  accountId: treasuryAccountIdForReturn,
-                  newBalance: treasuryResult.newBalance
-                })
-              } else {
+              if (!treasuryResult.success) {
                 console.error('GeneralExpenses: Failed to update treasury for return settlement:', treasuryResult.error)
                 // Don't show error to user - settlement is already saved
               }
@@ -1350,7 +1373,7 @@ const GeneralExpenses = () => {
             errorCode: result.errorCode,
             fullResult: result
           })
-          message.error(result.error || 'فشل في حفظ العهدة')
+          message.error(result.error || t.generalExpenses.failedToSaveExpense)
         }
         return
       }
@@ -1358,29 +1381,29 @@ const GeneralExpenses = () => {
       // For Administrative expenses
       if (isAdmin) {
         if (!values.category) {
-          message.error('يرجى اختيار الفئة')
+          message.error(t.generalExpenses.selectCategory)
           return
         }
         let amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
         if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
-          message.error('يرجى إدخال مبلغ صحيح')
+          message.error(t.generalExpenses.enterValidAmount)
           return
         }
         if (!values.paymentFrequency) {
-          message.error('يرجى اختيار دورية الصرف')
+          message.error(t.generalExpenses.selectPaymentFrequency)
           return
         }
         // Validate treasury account for administrative expenses - ensure it's not empty string or null
         const treasuryAccountId = values.treasuryAccountId?.trim() || null
         if (!treasuryAccountId || treasuryAccountId === '') {
-          message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
+          message.error(t.generalExpenses.selectTreasuryAccountRequired)
           return
         }
 
         // Derive payment method from treasury account type
         const selectedAccount = treasuryAccounts.find(acc => acc.id === treasuryAccountId)
         if (!selectedAccount) {
-          message.error('حساب الخزينة المحدد غير موجود')
+          message.error(t.generalExpenses.treasuryAccountNotFound)
           return
         }
         // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
@@ -1394,19 +1417,34 @@ const GeneralExpenses = () => {
 
         const expenseDate = values.date ? values.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
 
+        // CRITICAL: Validate employee_id is required for internal recipients
+        if (values.recipientType === 'internal' && !values.employeeId) {
+          message.error(t.generalExpenses.selectEmployeeRequired || 'Please select an employee for internal recipient')
+          return
+        }
+
         // Get recipient name based on type
         let recipientName = null
-        if (values.recipientType === 'internal' && values.recipientWorkerId) {
-          const selectedWorker = workers.find(w => w.id === values.recipientWorkerId)
-          recipientName = selectedWorker?.name || null
+        let employeeId = null
+        if (values.recipientType === 'internal' && values.employeeId) {
+          const selectedEmployee = employees.find(emp => emp.id === values.employeeId)
+          if (!selectedEmployee) {
+            message.error(t.generalExpenses.employeeNotFound || 'Selected employee not found')
+            return
+          }
+          recipientName = selectedEmployee.name
+          employeeId = values.employeeId // CRITICAL: Save employee_id for relational linking
         } else if (values.recipientType === 'external' && values.recipientName) {
           recipientName = values.recipientName
+          employeeId = null // External recipients have no employee_id
         }
 
         // Prepare payment data for administrative expense
         // Note: The 'category' field here maps to 'expense_category' in the database via paymentsService
-        // The 'recipientName' field maps to 'recipient_name' in the database
-        // CRITICAL: Status is set to 'pending' to require admin approval before treasury deduction
+        // The 'recipientName' field maps to 'recipient_name' in the database (for display/backward compatibility)
+        // The 'employeeId' field maps to 'employee_id' in the database (for relational linking)
+        // CRITICAL: Use values.status if provided, otherwise default to 'pending'
+        const expenseStatus = values.status || (editingExpense ? editingExpense.status : 'pending')
         const paymentData = {
           isGeneralExpense: true,
           projectId: null,
@@ -1414,38 +1452,77 @@ const GeneralExpenses = () => {
           category: values.category, // Maps to expense_category in DB via paymentsService
           amount: amountValue,
           dueDate: expenseDate,
-          paidDate: null, // Will be set when approved/paid
-          status: editingExpense ? values.status : 'pending', // Default to 'pending' for new entries, use existing for edits
+          paidDate: expenseStatus === 'paid' ? expenseDate : null, // Set paidDate if status is paid
+          status: expenseStatus, // Use form value or default to 'pending'
           paymentMethod: derivedPaymentMethod === 'cash' ? 'Cash' : derivedPaymentMethod,
           referenceNumber: referenceNumber,
           notes: values.notes || null,
-          recipientName: recipientName, // Maps to recipient_name in DB via paymentsService
+          recipientName: recipientName, // Maps to recipient_name in DB (for display/backward compatibility)
+          employeeId: employeeId, // CRITICAL: Relational link to employees table
           paymentFrequency: values.paymentFrequency || 'one-time',
           transactionType: 'regular',
           managerName: null,
           linkedAdvanceId: null
         }
 
-        console.log('Payment Data for Administrative Expense:', paymentData)
-
         let result
         if (editingExpense) {
-          console.log('Updating payment with ID:', editingExpense.id)
           result = await paymentsService.updatePayment(editingExpense.id, paymentData)
         } else {
-          console.log('Creating new payment')
           result = await paymentsService.createPayment(paymentData)
         }
 
-        console.log('Service result:', result)
-
         if (result.success) {
-          // CRITICAL: Treasury transactions are now created ONLY when status changes to 'paid' via updatePaymentStatus
-          // Do NOT create treasury transaction here - it will be created when admin approves (status -> 'paid')
-          if (result.payment?.status === 'pending') {
-            message.success('تم حفظ طلب المصروف بنجاح - في انتظار الموافقة')
+          // CRITICAL: Create treasury transaction immediately if expense is created with status 'paid'
+          // If status is 'pending', treasury transaction will be created when admin approves via updatePaymentStatus
+          const finalStatus = result.payment?.status || expenseStatus
+          
+          if (finalStatus === 'paid' && treasuryAccountId && result.payment?.id) {
+            try {
+              const treasuryResult = await treasuryService.createTransaction({
+                accountId: treasuryAccountId,
+                transactionType: 'outflow',
+                amount: amountValue,
+                referenceType: 'expense',
+                referenceId: result.payment.id,
+                description: `General Expense: ${values.category || ''} - ${values.notes || ''}`
+              })
+              
+              if (treasuryResult.success) {
+                message.success(`${t.generalExpenses.expenseSaved || 'Expense saved'}. ${t.generalExpenses.amountDeductedFromTreasury || 'Amount deducted from treasury'}`)
+                loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
+              } else {
+                // CRITICAL: Treasury transaction failed - notify user and suggest manual review
+                console.error('❌ GeneralExpenses: Failed to create treasury transaction for paid expense:', {
+                  error: treasuryResult.error,
+                  errorCode: treasuryResult.errorCode,
+                  expenseId: result.payment.id,
+                  accountId: treasuryAccountId,
+                  amount: amountValue
+                })
+                message.error(
+                  `${t.generalExpenses.expenseSaved || 'Expense saved'} but ${t.generalExpenses.failedToDeductFromTreasury || 'failed to deduct from treasury'}. ` +
+                  `Please review expense ID: ${result.payment.id.substring(0, 8)}... and manually process the treasury transaction if needed.`
+                )
+                // Keep the expense but user is aware it needs manual treasury processing
+              }
+            } catch (error) {
+              // CRITICAL: Exception during treasury transaction - expense is saved but treasury not updated
+              console.error('❌ GeneralExpenses: Exception during treasury transaction creation for paid expense:', {
+                error,
+                expenseId: result.payment.id,
+                accountId: treasuryAccountId,
+                amount: amountValue
+              })
+              message.error(
+                `${t.generalExpenses.expenseSaved || 'Expense saved'} but ${t.generalExpenses.errorDeductingFromTreasury || 'error updating treasury'}. ` +
+                `Please review expense ID: ${result.payment.id.substring(0, 8)}... and manually process the treasury transaction if needed.`
+              )
+            }
+          } else if (finalStatus === 'pending') {
+            message.success(t.generalExpenses.expenseRequestSaved || 'Expense request saved')
           } else {
-            message.success('تم حفظ المصروف بنجاح')
+            message.success(t.generalExpenses.expenseSaved || 'Expense saved')
           }
           
           setIsModalVisible(false)
@@ -1455,7 +1532,7 @@ const GeneralExpenses = () => {
           loadExpenses()
           loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
         } else {
-          const errorMsg = result.error || result.errorCode || 'فشل في حفظ المصروف'
+          const errorMsg = result.error || result.errorCode || t.generalExpenses.failedToSaveExpense
           console.error('Payment save failed:', {
             success: result.success,
             error: result.error,
@@ -1474,8 +1551,8 @@ const GeneralExpenses = () => {
         hint: error?.hint,
         stack: error?.stack
       })
-      const errorMessage = error?.message || error?.details || 'فشل في حفظ المصروف'
-      message.error(`خطأ في الحفظ: ${errorMessage}`)
+      const errorMessage = error?.message || error?.details || t.generalExpenses.failedToSaveExpense
+      message.error(`${t.generalExpenses.saveError}: ${errorMessage}`)
     }
   }
 
@@ -1517,16 +1594,16 @@ const GeneralExpenses = () => {
     // Create a new window for printing
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
-      message.error('يرجى السماح بالنوافذ المنبثقة للطباعة')
+      message.error(t.generalExpenses.allowPopupsForPrinting)
       return
     }
 
     const printContent = `
       <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
+      <html dir="${language === 'ar' ? 'rtl' : 'ltr'}" lang="${language}">
       <head>
         <meta charset="UTF-8">
-        <title>سند صرف - ${expense.paymentNumber || expense.id}</title>
+        <title>${language === 'ar' ? 'سند صرف' : 'Payment Voucher'} - ${expense.paymentNumber || expense.id}</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -1561,41 +1638,40 @@ const GeneralExpenses = () => {
       </head>
       <body>
         <div class="header">
-          <h1>سند صرف</h1>
-          <p>Payment Voucher</p>
+          <h1>${language === 'ar' ? 'سند صرف' : 'Payment Voucher'}</h1>
         </div>
         <div class="details">
           <div class="detail-row">
-            <span class="label">رقم السند:</span>
+            <span class="label">${language === 'ar' ? 'رقم السند:' : 'Voucher Number:'}</span>
             <span>${expense.paymentNumber || expense.id}</span>
           </div>
           <div class="detail-row">
-            <span class="label">التاريخ:</span>
+            <span class="label">${language === 'ar' ? 'التاريخ:' : 'Date:'}</span>
             <span>${expense.dueDate ? dayjs(expense.dueDate).format('YYYY-MM-DD') : '-'}</span>
           </div>
           <div class="detail-row">
-            <span class="label">المبلغ:</span>
-            <span>${parseFloat(expense.amount || 0).toLocaleString()} ريال</span>
+            <span class="label">${language === 'ar' ? 'المبلغ:' : 'Amount:'}</span>
+            <span>${parseFloat(expense.amount || 0).toLocaleString()} ${language === 'ar' ? 'ريال' : 'SAR'}</span>
           </div>
           <div class="detail-row">
-            <span class="label">المستلم:</span>
+            <span class="label">${language === 'ar' ? 'المستلم:' : 'Recipient:'}</span>
             <span>${expense.recipientName || '-'}</span>
           </div>
           <div class="detail-row">
-            <span class="label">الفئة:</span>
+            <span class="label">${language === 'ar' ? 'الفئة:' : 'Category:'}</span>
             <span>${expense.expenseCategory || '-'}</span>
           </div>
           <div class="detail-row">
-            <span class="label">الوصف:</span>
+            <span class="label">${language === 'ar' ? 'الوصف:' : 'Description:'}</span>
             <span>${expense.notes || '-'}</span>
           </div>
           <div class="detail-row">
-            <span class="label">طريقة الدفع:</span>
+            <span class="label">${language === 'ar' ? 'طريقة الدفع:' : 'Payment Method:'}</span>
             <span>${expense.paymentMethod || '-'}</span>
           </div>
         </div>
         <div class="footer">
-          <p>تم الطباعة في: ${dayjs().format('YYYY-MM-DD HH:mm')}</p>
+          <p>${language === 'ar' ? 'تم الطباعة في:' : 'Printed on:'} ${dayjs().format('YYYY-MM-DD HH:mm')}</p>
         </div>
       </body>
       </html>
@@ -1611,7 +1687,7 @@ const GeneralExpenses = () => {
   const handlePrintAll = () => {
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
-      message.error('يرجى السماح بالنوافذ المنبثقة للطباعة')
+      message.error(t.generalExpenses.allowPopupsForPrinting)
       return
     }
 
@@ -1621,17 +1697,17 @@ const GeneralExpenses = () => {
         <td>${expense.dueDate ? dayjs(expense.dueDate).format('YYYY-MM-DD') : '-'}</td>
         <td>${expense.recipientName || '-'}</td>
         <td>${expense.expenseCategory || '-'}</td>
-        <td>${parseFloat(expense.amount || 0).toLocaleString()} ريال</td>
+        <td>${parseFloat(expense.amount || 0).toLocaleString()} ${language === 'ar' ? 'ريال' : 'SAR'}</td>
         <td>${expense.notes || '-'}</td>
       </tr>
     `).join('')
 
     const printContent = `
       <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
+      <html dir="${language === 'ar' ? 'rtl' : 'ltr'}" lang="${language}">
       <head>
         <meta charset="UTF-8">
-        <title>تقرير المصاريف العامة</title>
+        <title>${language === 'ar' ? 'تقرير المصاريف العامة' : 'General Expenses Report'}</title>
         <style>
           body {
             font-family: Arial, sans-serif;
@@ -1668,18 +1744,17 @@ const GeneralExpenses = () => {
       </head>
       <body>
         <div class="header">
-          <h1>تقرير المصاريف العامة</h1>
-          <p>General Expenses Report</p>
+          <h1>${language === 'ar' ? 'تقرير المصاريف العامة' : 'General Expenses Report'}</h1>
         </div>
         <table>
           <thead>
             <tr>
-              <th>رقم المصروف</th>
-              <th>التاريخ</th>
-              <th>المستلم</th>
-              <th>الفئة</th>
-              <th>المبلغ</th>
-              <th>الوصف</th>
+              <th>${language === 'ar' ? 'رقم المصروف' : 'Expense Number'}</th>
+              <th>${language === 'ar' ? 'التاريخ' : 'Date'}</th>
+              <th>${language === 'ar' ? 'المستلم' : 'Recipient'}</th>
+              <th>${language === 'ar' ? 'الفئة' : 'Category'}</th>
+              <th>${language === 'ar' ? 'المبلغ' : 'Amount'}</th>
+              <th>${language === 'ar' ? 'الوصف' : 'Description'}</th>
             </tr>
           </thead>
           <tbody>
@@ -1687,8 +1762,8 @@ const GeneralExpenses = () => {
           </tbody>
         </table>
         <div class="footer">
-          <p>إجمالي المصاريف: ${totalExpenses.toLocaleString()} ريال</p>
-          <p>تم الطباعة في: ${dayjs().format('YYYY-MM-DD HH:mm')}</p>
+          <p>${language === 'ar' ? 'إجمالي المصاريف:' : 'Total Expenses:'} ${totalExpenses.toLocaleString()} ${language === 'ar' ? 'ريال' : 'SAR'}</p>
+          <p>${language === 'ar' ? 'تم الطباعة في:' : 'Printed on:'} ${dayjs().format('YYYY-MM-DD HH:mm')}</p>
         </div>
       </body>
       </html>
@@ -1703,7 +1778,9 @@ const GeneralExpenses = () => {
 
   const handleExportExcel = () => {
     // Create CSV content
-    const headers = ['رقم المصروف', 'التاريخ', 'المستلم', 'الفئة', 'المبلغ', 'الوصف', 'الحالة']
+    const headers = language === 'ar' 
+      ? ['رقم المصروف', 'التاريخ', 'المستلم', 'الفئة', 'المبلغ', 'الوصف', 'الحالة']
+      : ['Expense Number', 'Date', 'Recipient', 'Category', 'Amount', 'Description', 'Status']
     const rows = filteredExpenses.map(expense => [
       expense.paymentNumber || expense.id,
       expense.dueDate ? dayjs(expense.dueDate).format('YYYY-MM-DD') : '',
@@ -1725,12 +1802,12 @@ const GeneralExpenses = () => {
     const link = document.createElement('a')
     const url = URL.createObjectURL(blob)
     link.setAttribute('href', url)
-    link.setAttribute('download', `المصاريف_العامة_${dayjs().format('YYYY-MM-DD')}.csv`)
+    link.setAttribute('download', `${language === 'ar' ? 'المصاريف_العامة' : 'General_Expenses'}_${dayjs().format('YYYY-MM-DD')}.csv`)
     link.style.visibility = 'hidden'
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    message.success('تم تصدير البيانات بنجاح')
+    message.success(language === 'ar' ? 'تم تصدير البيانات بنجاح' : 'Data exported successfully')
   }
 
   // Calculate statistics
@@ -1756,15 +1833,15 @@ const GeneralExpenses = () => {
     )
   })
 
-  const columns = [
+  const columns = useMemo(() => [
     {
-      title: 'رقم المصروف',
+      title: t.generalExpenses.expenseNumber || 'Expense Number',
       dataIndex: 'paymentNumber',
       key: 'paymentNumber',
       width: 150
     },
     {
-      title: 'المصدر/الهدف',
+      title: t.generalExpenses.sourceTarget || 'Source/Target',
       dataIndex: 'sourceTarget',
       key: 'sourceTarget',
       width: 200,
@@ -1775,7 +1852,7 @@ const GeneralExpenses = () => {
       )
     },
     ...(activeTab === 'petty-cash' ? [{
-      title: 'المدير/المهندس',
+      title: t.generalExpenses.managerEngineer || 'Manager/Engineer',
       dataIndex: 'managerName',
       key: 'managerName',
       width: 150,
@@ -1799,48 +1876,59 @@ const GeneralExpenses = () => {
       }
     }] : []),
     {
-      title: 'نوع المصروف',
+      title: t.generalExpenses.expenseType || 'Expense Type',
       dataIndex: 'isGeneralExpense',
       key: 'isGeneralExpense',
       width: 120,
       render: (isGeneral: boolean, record: any) => {
         if (record.transactionType === 'advance') {
-          return <Tag color="orange">عهدة</Tag>
+          return <Tag color="orange">{t.generalExpenses.advance || 'Advance'}</Tag>
         }
         if (record.transactionType === 'settlement') {
-          return <Tag color="cyan">تسوية</Tag>
+          return <Tag color="cyan">{t.generalExpenses.settlement || 'Settlement'}</Tag>
         }
         return (
           <Tag color={isGeneral ? 'orange' : 'cyan'}>
-            {isGeneral ? 'مصروف إداري' : 'مصروف مشروع'}
+            {isGeneral ? (t.generalExpenses.administrativeExpense || 'Administrative Expense') : (t.generalExpenses.projectExpense || 'Project Expense')}
           </Tag>
         )
       }
     },
     {
-      title: 'الفئة',
+      title: t.generalExpenses.expenseCategory,
       dataIndex: 'expenseCategory',
       key: 'expenseCategory',
       width: 150,
       render: (category: string) => category ? <Tag>{category}</Tag> : '-'
     },
     {
-      title: 'المستلم',
+      title: t.generalExpenses.recipient || 'Recipient',
       dataIndex: 'recipientName',
       key: 'recipientName',
       width: 150,
-      render: (name: string) => name ? <Tag color="blue">{name}</Tag> : '-'
+      render: (name: string, record: any) => {
+        // CRITICAL: Relational display - lookup employee name from employees list using employee_id
+        // If employee_id exists, use the current name from employees list (allows name updates)
+        if (record.employeeId) {
+          const employee = employees.find(emp => emp.id === record.employeeId)
+          if (employee) {
+            return <Tag color="blue">{employee.name}</Tag>
+          }
+        }
+        // Fallback to saved recipientName for external recipients or legacy data
+        return name ? <Tag color="blue">{name}</Tag> : '-'
+      }
     },
     {
-      title: 'المبلغ',
+      title: t.generalExpenses.amount,
       dataIndex: 'amount',
       key: 'amount',
       width: 120,
-      render: (amount: number) => `${parseFloat(amount || 0).toLocaleString()} ريال`,
+      render: (amount: number) => `${parseFloat(amount || 0).toLocaleString()} ${t.common.sar}`,
       sorter: (a: any, b: any) => parseFloat(a.amount || 0) - parseFloat(b.amount || 0)
     },
     {
-      title: 'التاريخ',
+      title: t.common.date,
       dataIndex: 'dueDate',
       key: 'dueDate',
       width: 120,
@@ -1854,7 +1942,7 @@ const GeneralExpenses = () => {
       }
     },
     {
-      title: 'الحالة',
+      title: t.common.status,
       dataIndex: 'status',
       key: 'status',
       width: 120,
@@ -1862,49 +1950,49 @@ const GeneralExpenses = () => {
         // Manager advances use: pending, approved, rejected, settled, partially_settled
         if (record.transactionType === 'advance' || record.transactionType === 'settlement') {
           const statusConfig: Record<string, { color: string; label: string }> = {
-            pending: { color: 'warning', label: 'قيد المراجعة' },
-            approved: { color: 'success', label: 'تمت الموافقة' },
-            rejected: { color: 'error', label: 'مرفوض' },
-            settled: { color: 'success', label: 'تم التسوية' },
-            partially_settled: { color: 'processing', label: 'تم التسوية جزئياً' }
+            pending: { color: 'warning', label: t.generalExpenses.pendingReview || 'Pending Review' },
+            approved: { color: 'success', label: t.generalExpenses.approved || 'Approved' },
+            rejected: { color: 'error', label: t.generalExpenses.rejected || 'Rejected' },
+            settled: { color: 'success', label: t.generalExpenses.settled || 'Settled' },
+            partially_settled: { color: 'processing', label: t.generalExpenses.partiallySettled || 'Partially Settled' }
           }
           const config = statusConfig[status] || { color: 'default', label: status }
           return <Tag color={config.color}>{config.label}</Tag>
         }
         // Other expenses use: paid, pending, overdue, cancelled
         const statusConfig: Record<string, { color: string; label: string }> = {
-          paid: { color: 'success', label: 'مدفوع' },
-          pending: { color: 'warning', label: 'معلق' },
-          overdue: { color: 'error', label: 'متأخر' },
-          cancelled: { color: 'default', label: 'ملغي' }
+          paid: { color: 'success', label: t.generalExpenses.paid || 'Paid' },
+          pending: { color: 'warning', label: t.generalExpenses.pending || 'Pending' },
+          overdue: { color: 'error', label: t.generalExpenses.overdue || 'Overdue' },
+          cancelled: { color: 'default', label: t.generalExpenses.cancelled || 'Cancelled' }
         }
         const config = statusConfig[status] || { color: 'default', label: status }
         return <Tag color={config.color}>{config.label}</Tag>
       }
     },
     {
-      title: 'طريقة الدفع',
+      title: t.generalExpenses.paymentMethod || 'Payment Method',
       dataIndex: 'paymentMethod',
       key: 'paymentMethod',
       width: 120,
       render: (method: string) => {
         const methods: Record<string, string> = {
-          cash: 'نقدي',
-          bank_transfer: 'تحويل بنكي',
-          check: 'شيك',
-          other: 'أخرى'
+          cash: t.generalExpenses.cash || 'Cash',
+          bank_transfer: t.generalExpenses.bankTransfer || 'Bank Transfer',
+          check: t.generalExpenses.check || 'Check',
+          other: t.generalExpenses.other || 'Other'
         }
         return method ? methods[method] || method : '-'
       }
     },
     {
-      title: 'ملاحظات',
+      title: t.common.notes,
       dataIndex: 'notes',
       key: 'notes',
       ellipsis: true
     },
     {
-      title: 'الإجراءات',
+      title: t.common.actions,
       key: 'actions',
       width: 180,
       fixed: 'right' as const,
@@ -1919,9 +2007,9 @@ const GeneralExpenses = () => {
               icon={<PrinterOutlined />}
               onClick={() => handlePrintVoucher(record)}
               size="small"
-              title="طباعة سند الصرف"
+              title={t.generalExpenses.printVoucher || 'Print Voucher'}
             >
-              طباعة
+              {t.common.print || 'Print'}
             </Button>
             <Button
               type="link"
@@ -1929,15 +2017,15 @@ const GeneralExpenses = () => {
               onClick={() => handleEditExpense(record)}
               size="small"
               disabled={isApproved}
-              title={isApproved ? 'لا يمكن تعديل العهدة المعتمدة' : undefined}
+              title={isApproved ? (t.generalExpenses.cannotEditApprovedAdvance || 'Cannot edit approved advance') : undefined}
             >
-              تعديل
+              {t.common.edit}
             </Button>
             <Popconfirm
-              title="هل أنت متأكد من حذف هذا المصروف؟"
+              title={t.generalExpenses.deleteExpenseConfirm || 'Are you sure you want to delete this expense?'}
               onConfirm={() => handleDeleteExpense(record.id)}
-              okText="نعم"
-              cancelText="لا"
+              okText={t.common.yes}
+              cancelText={t.common.no}
             >
               <Button
                 type="link"
@@ -1945,45 +2033,45 @@ const GeneralExpenses = () => {
                 icon={<DeleteOutlined />}
                 size="small"
                 disabled={isApproved}
-                title={isApproved ? 'لا يمكن حذف العهدة المعتمدة' : undefined}
+                title={isApproved ? (t.generalExpenses.cannotDeleteApprovedAdvance || 'Cannot delete approved advance') : undefined}
               >
-                حذف
+                {t.common.delete}
               </Button>
             </Popconfirm>
           </Space>
         )
       }
     }
-  ]
+  ], [t, language, activeTab, pettyCashAdvances])
 
   // Petty Cash Columns
-  const pettyCashColumns = [
+  const pettyCashColumns = useMemo(() => [
     ...columns.slice(0, 3), // Payment number, source, manager
     {
-      title: 'نوع العملية',
+      title: t.generalExpenses.transactionType || 'Transaction Type',
       dataIndex: 'transactionType',
       key: 'transactionType',
       width: 120,
       render: (type: string, record: any) => {
         if (type === 'advance') {
-          return <Tag color="orange">إصدار عهدة</Tag>
+          return <Tag color="orange">{t.generalExpenses.issueAdvance || 'Issue Advance'}</Tag>
         }
         if (type === 'settlement') {
-          return <Tag color="cyan">تسوية</Tag>
+          return <Tag color="cyan">{t.generalExpenses.settlement || 'Settlement'}</Tag>
         }
-        return <Tag>عادي</Tag>
+        return <Tag>{t.generalExpenses.normal || 'Normal'}</Tag>
       }
     },
     {
-      title: 'المبلغ',
+      title: t.generalExpenses.amount,
       dataIndex: 'amount',
       key: 'amount',
       width: 120,
-      render: (amount: number) => `${parseFloat(amount || 0).toLocaleString()} ريال`,
+      render: (amount: number) => `${parseFloat(amount || 0).toLocaleString()} ${t.common.sar}`,
       sorter: (a: any, b: any) => parseFloat(a.amount || 0) - parseFloat(b.amount || 0)
     },
     {
-      title: 'المبلغ المتبقي',
+      title: t.generalExpenses.remainingAmountColumn || 'Remaining Amount',
       dataIndex: 'remainingAmount',
       key: 'remainingAmount',
       width: 150,
@@ -1995,7 +2083,7 @@ const GeneralExpenses = () => {
           const color = remainingAmount <= 0 ? 'success' : remainingAmount < originalAmount ? 'warning' : 'default'
           return (
             <Tag color={color}>
-              {remainingAmount.toLocaleString()} ريال
+              {remainingAmount.toLocaleString()} {t.common.sar}
             </Tag>
           )
         }
@@ -2008,46 +2096,46 @@ const GeneralExpenses = () => {
       }
     },
     {
-      title: 'التاريخ',
+      title: t.common.date,
       dataIndex: 'dueDate',
       key: 'dueDate',
       width: 120,
       render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-'
     },
     {
-      title: 'الحالة',
+      title: t.common.status,
       dataIndex: 'status',
       key: 'status',
       width: 120,
       render: (status: string, record: any) => {
         const statusConfig: Record<string, { color: string; label: string }> = {
-          pending: { color: 'warning', label: 'قيد المراجعة' },
-          approved: { color: 'success', label: 'تمت الموافقة' },
-          rejected: { color: 'error', label: 'مرفوض' },
-          settled: { color: 'success', label: 'تم التسوية' },
-          partially_settled: { color: 'processing', label: 'تم التسوية جزئياً' }
+          pending: { color: 'warning', label: t.generalExpenses.pendingReview || 'Pending Review' },
+          approved: { color: 'success', label: t.generalExpenses.approved || 'Approved' },
+          rejected: { color: 'error', label: t.generalExpenses.rejected || 'Rejected' },
+          settled: { color: 'success', label: t.generalExpenses.settled || 'Settled' },
+          partially_settled: { color: 'processing', label: t.generalExpenses.partiallySettled || 'Partially Settled' }
         }
         const config = statusConfig[status] || { color: 'default', label: status }
         return <Tag color={config.color}>{config.label}</Tag>
       }
     },
     {
-      title: 'طريقة الدفع',
+      title: t.generalExpenses.paymentMethod || 'Payment Method',
       dataIndex: 'paymentMethod',
       key: 'paymentMethod',
       width: 120,
       render: (method: string) => {
         const methods: Record<string, string> = {
-          cash: 'نقدي',
-          bank_transfer: 'تحويل بنكي',
-          check: 'شيك',
-          other: 'أخرى'
+          cash: t.generalExpenses.cash || 'Cash',
+          bank_transfer: t.generalExpenses.bankTransfer || 'Bank Transfer',
+          check: t.generalExpenses.check || 'Check',
+          other: t.generalExpenses.other || 'Other'
         }
         return method ? methods[method] || method : '-'
       }
     },
     {
-      title: 'اسم المشروع',
+      title: t.generalExpenses.projectName || 'Project Name',
       dataIndex: 'projectName',
       key: 'projectName',
       width: 200,
@@ -2059,7 +2147,7 @@ const GeneralExpenses = () => {
       }
     },
     {
-      title: 'العهدة المرتبطة',
+      title: t.generalExpenses.linkedAdvanceColumn || 'Linked Advance',
       dataIndex: 'linkedAdvanceId',
       key: 'linkedAdvanceId',
       width: 150,
@@ -2068,7 +2156,7 @@ const GeneralExpenses = () => {
           const advance = pettyCashAdvances.find(a => a.id === linkedId)
           return advance ? (
             <Tag color="blue">
-              {advance.referenceNumber || advance.paymentNumber} - {advance.amount} ريال
+              {advance.referenceNumber || advance.paymentNumber} - {advance.amount} {t.common.sar}
             </Tag>
           ) : (
             <Tag>{linkedId.substring(0, 8)}...</Tag>
@@ -2078,7 +2166,7 @@ const GeneralExpenses = () => {
       }
     },
     {
-      title: 'منقول من',
+      title: t.generalExpenses.transferredFromColumn || 'Transferred From',
       dataIndex: 'sourceAdvanceId',
       key: 'sourceAdvanceId',
       width: 150,
@@ -2089,14 +2177,14 @@ const GeneralExpenses = () => {
           if (sourceAdvance) {
             return (
               <Tag color="orange">
-                منقول من: {sourceAdvance.referenceNumber || sourceAdvance.paymentNumber}
+                ${t.generalExpenses.transferredFrom || 'Transferred From'}: {sourceAdvance.referenceNumber || sourceAdvance.paymentNumber}
               </Tag>
             )
           }
           // If source advance not found in current list, show truncated ID
           return (
             <Tag color="orange">
-              منقول من: {sourceId.substring(0, 8)}...
+              ${t.generalExpenses.transferredFrom || 'Transferred From'}: {sourceId.substring(0, 8)}...
             </Tag>
           )
         }
@@ -2104,13 +2192,13 @@ const GeneralExpenses = () => {
       }
     },
     {
-      title: 'ملاحظات',
+      title: t.common.notes,
       dataIndex: 'notes',
       key: 'notes',
       ellipsis: true
     },
     columns[columns.length - 1] // Actions column
-  ]
+  ], [t, language, columns, pettyCashAdvances, employees]) // CRITICAL: Include employees for relational display
 
   return (
     <div style={{ padding: 24 }}>
@@ -2118,7 +2206,7 @@ const GeneralExpenses = () => {
         <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Title level={2} style={{ margin: 0 }}>
             <BankOutlined style={{ marginLeft: 8 }} />
-            المصاريف العامة والإدارية
+            {t.generalExpenses.title}
           </Title>
           <Space>
             <Button
@@ -2126,14 +2214,14 @@ const GeneralExpenses = () => {
               onClick={handlePrintAll}
               size="large"
             >
-              طباعة الكل PDF
+              {t.generalExpenses.printAllPDF || 'Print All PDF'}
             </Button>
             <Button
               icon={<FileExcelOutlined />}
               onClick={handleExportExcel}
               size="large"
             >
-              تصدير Excel
+              {t.generalExpenses.exportExcel || 'Export Excel'}
             </Button>
             <Button
               type="primary"
@@ -2141,7 +2229,7 @@ const GeneralExpenses = () => {
               onClick={handleAddExpense}
               size="large"
             >
-              إضافة مصروف جديد
+              {t.generalExpenses.addNewExpense || t.generalExpenses.newExpense}
             </Button>
           </Space>
         </div>
@@ -2151,10 +2239,10 @@ const GeneralExpenses = () => {
           <Col xs={24} sm={8}>
             <Card>
               <Statistic
-                title="إجمالي المصاريف"
+                title={t.generalExpenses.totalExpensesLabel || t.generalExpenses.totalExpenses}
                 value={totalExpenses}
                 precision={0}
-                suffix="ريال"
+                suffix={t.common.sar}
                 prefix={<BankOutlined />}
               />
             </Card>
@@ -2162,10 +2250,10 @@ const GeneralExpenses = () => {
           <Col xs={24} sm={8}>
             <Card>
               <Statistic
-                title="المصاريف المدفوعة"
+                title={t.generalExpenses.paidExpenses || 'Paid Expenses'}
                 value={paidExpenses}
                 precision={0}
-                suffix="ريال"
+                suffix={t.common.sar}
                 styles={{ value: { color: '#3f8600' } }}
               />
             </Card>
@@ -2173,10 +2261,10 @@ const GeneralExpenses = () => {
           <Col xs={24} sm={8}>
             <Card>
               <Statistic
-                title="المصاريف المعلقة"
+                title={t.generalExpenses.pendingExpenses || 'Pending Expenses'}
                 value={pendingExpenses}
                 precision={0}
-                suffix="ريال"
+                suffix={t.common.sar}
                 styles={{ value: { color: '#cf1322' } }}
               />
             </Card>
@@ -2188,22 +2276,22 @@ const GeneralExpenses = () => {
           <Card style={{ marginBottom: 24, backgroundColor: '#fff7e6', border: '1px solid #ffd591' }}>
             <Title level={4} style={{ marginBottom: 16 }}>
               <WalletOutlined style={{ marginLeft: 8 }} />
-              إجمالي العُهد المعلقة (Outstanding Advances)
+              {t.generalExpenses.outstandingAdvancesTotal || 'Outstanding Advances Total'}
             </Title>
             <Row gutter={16}>
               {outstandingAdvances.map((balance, index) => (
                 <Col xs={24} sm={12} lg={6} key={index}>
                   <Card size="small">
                     <Statistic
-                      title={`${balance.managerName || 'غير محدد'}`}
+                      title={`${balance.managerName || t.common.notSpecified}`}
                       value={balance.outstandingBalance}
                       precision={0}
-                      suffix="ريال"
+                      suffix={t.common.sar}
                       styles={{ value: { color: balance.outstandingBalance > 0 ? '#cf1322' : '#3f8600' } }}
                       prefix={<UserOutlined />}
                     />
                     <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                      {balance.advanceCount} عهدة | {balance.totalSettled.toLocaleString()} ريال مسدد
+                      {balance.advanceCount} {t.generalExpenses.advances || 'Advances'} | {balance.totalSettled.toLocaleString()} {t.common.sar} {t.generalExpenses.settled || 'Settled'}
                     </div>
                   </Card>
                 </Col>
@@ -2221,14 +2309,14 @@ const GeneralExpenses = () => {
               label: (
                 <span>
                   <BankOutlined />
-                  المصاريف العامة
+                  {t.generalExpenses.generalExpensesTab || t.generalExpenses.title}
                 </span>
               ),
               children: (
                 <>
                   {/* Search */}
                   <Input
-                    placeholder="ابحث عن مصروف (رقم، مصدر، فئة، ملاحظات)..."
+                    placeholder={t.generalExpenses.searchExpensePlaceholder}
                     prefix={<SearchOutlined />}
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
@@ -2245,10 +2333,10 @@ const GeneralExpenses = () => {
                     pagination={{
                       pageSize: 20,
                       showSizeChanger: true,
-                      showTotal: (total) => `إجمالي ${total} مصروف`
+                      showTotal: (total) => `${t.generalExpenses.totalExpensesLabel || 'Total'}: ${total}`
                     }}
                     locale={{
-                      emptyText: loading ? 'جاري التحميل...' : 'لا توجد مصاريف'
+                      emptyText: loading ? t.common.loading : (t.generalExpenses.noExpenses || 'No expenses')
                     }}
                   />
                 </>
@@ -2259,14 +2347,14 @@ const GeneralExpenses = () => {
               label: (
                 <span>
                   <WalletOutlined />
-                  عُهد مديري المشاريع
+                  {t.generalExpenses.pettyCashTab || 'Petty Cash'}
                 </span>
               ),
               children: (
                 <>
                   {/* Search */}
                   <Input
-                    placeholder="ابحث عن عهدة أو تسوية..."
+                    placeholder={t.generalExpenses.searchAdvanceSettlement || 'Search advance or settlement...'}
                     prefix={<SearchOutlined />}
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
@@ -2277,16 +2365,17 @@ const GeneralExpenses = () => {
                   {/* Table */}
                   <Table
                     columns={pettyCashColumns}
-                    dataSource={filteredExpenses.map((e, idx) => ({ ...e, key: e.id || idx }))}
+                    dataSource={filteredExpenses.map((e, idx) => ({ ...e, key: e.id || e.updatedAt || idx }))}
                     loading={loading}
                     scroll={{ x: 1700 }}
+                    rowKey={(record) => record.id || record.updatedAt || `expense-${Date.now()}`}
                     pagination={{
                       pageSize: 20,
                       showSizeChanger: true,
-                      showTotal: (total) => `إجمالي ${total} عملية`
+                      showTotal: (total) => `${t.generalExpenses.total || 'Total'}: ${total} ${t.generalExpenses.transactions || 'transactions'}`
                     }}
                     locale={{
-                      emptyText: loading ? 'جاري التحميل...' : 'لا توجد عُهد أو تسويات'
+                      emptyText: loading ? t.common.loading : (t.generalExpenses.noAdvancesSettlements || 'No advances or settlements')
                     }}
                   />
                 </>
@@ -2298,7 +2387,7 @@ const GeneralExpenses = () => {
 
       {/* Add/Edit Modal */}
       <Modal
-        title={editingExpense ? 'تعديل مصروف' : 'إضافة مصروف جديد'}
+        title={editingExpense ? (t.generalExpenses.editExpense) : (t.generalExpenses.addNewExpense || t.generalExpenses.newExpense)}
         open={isModalVisible}
         onCancel={handleCancel}
         footer={null}
@@ -2312,8 +2401,8 @@ const GeneralExpenses = () => {
         >
           <Form.Item
             name="expenseType"
-            label="نوع المصروف / Type of Expense"
-            rules={[{ required: true, message: 'يرجى اختيار نوع المصروف' }]}
+            label={t.generalExpenses.expenseTypeLabel || 'Type of Expense'}
+            rules={[{ required: true, message: t.generalExpenses.selectExpenseType || 'Please select expense type' }]}
           >
             <Radio.Group
               value={expenseType}
@@ -2351,19 +2440,19 @@ const GeneralExpenses = () => {
               <Radio.Button value="administrative" style={{ flex: 1, textAlign: 'center' }}>
                 <Space>
                   <BankOutlined />
-                  Administrative / إداري
+                  {t.generalExpenses.administrative || 'Administrative'}
                 </Space>
               </Radio.Button>
               <Radio.Button value="project" style={{ flex: 1, textAlign: 'center' }}>
                 <Space>
                   <LinkOutlined />
-                  Project Related / مشروع
+                  {t.generalExpenses.projectRelated || 'Project Related'}
                 </Space>
               </Radio.Button>
               <Radio.Button value="manager_advance" style={{ flex: 1, textAlign: 'center' }}>
                 <Space>
                   <WalletOutlined />
-                  Manager Advance / عهدة مدير
+                  {t.generalExpenses.managerAdvance || 'Manager Advance'}
                 </Space>
               </Radio.Button>
             </Radio.Group>
@@ -2374,8 +2463,8 @@ const GeneralExpenses = () => {
             <>
               <Form.Item
                 name="transactionType"
-                label="نوع العملية"
-                rules={[{ required: true, message: 'يرجى اختيار نوع العملية' }]}
+                label={t.generalExpenses.transactionTypeLabel || 'Transaction Type'}
+                rules={[{ required: true, message: t.generalExpenses.selectTransactionType || 'Please select transaction type' }]}
                 initialValue="advance"
               >
                 <Radio.Group
@@ -2392,8 +2481,8 @@ const GeneralExpenses = () => {
                   buttonStyle="solid"
                   size="large"
                 >
-                  <Radio.Button value="advance">إصدار عهدة</Radio.Button>
-                  <Radio.Button value="settlement">تسوية</Radio.Button>
+                  <Radio.Button value="advance">{t.generalExpenses.issueAdvanceButton || t.generalExpenses.issueAdvance || 'Issue Advance'}</Radio.Button>
+                  <Radio.Button value="settlement">{t.generalExpenses.settlementButton || t.generalExpenses.settlement || 'Settlement'}</Radio.Button>
                 </Radio.Group>
               </Form.Item>
 
@@ -2402,8 +2491,8 @@ const GeneralExpenses = () => {
                 <>
                   <Form.Item
                     name="custodyType"
-                    label="نوع العهدة"
-                    rules={[{ required: true, message: 'يرجى اختيار نوع العهدة' }]}
+                    label={t.generalExpenses.custodyTypeLabel || 'Custody Type'}
+                    rules={[{ required: true, message: t.generalExpenses.selectCustodyType || 'Please select custody type' }]}
                     initialValue="external"
                   >
                     <Radio.Group
@@ -2423,8 +2512,8 @@ const GeneralExpenses = () => {
                       buttonStyle="solid"
                       size="large"
                     >
-                      <Radio.Button value="internal">داخلي (موظف)</Radio.Button>
-                      <Radio.Button value="external">خارجي (مورد/مندوب)</Radio.Button>
+                      <Radio.Button value="internal">{t.generalExpenses.internalEmployee || 'Internal (Employee)'}</Radio.Button>
+                      <Radio.Button value="external">{t.generalExpenses.externalVendor || 'External (Vendor/Representative)'}</Radio.Button>
                     </Radio.Group>
                   </Form.Item>
 
@@ -2440,12 +2529,12 @@ const GeneralExpenses = () => {
                               // If project is selected, managerName becomes required
                               const projectId = form.getFieldValue('projectId')
                               if (projectId && !value) {
-                                return Promise.reject(new Error('يرجى اختيار الموظف (مدير المشروع مطلوب عند ربط المشروع)'))
+                                return Promise.reject(new Error(t.generalExpenses.selectEmployeeRequired))
                               }
                               // If employee is selected, managerName should be set
                               const employeeId = form.getFieldValue('employeeId')
                               if (employeeId && !value) {
-                                return Promise.reject(new Error('يرجى التأكد من اختيار الموظف بشكل صحيح'))
+                                return Promise.reject(new Error(t.generalExpenses.verifyEmployeeSelection))
                               }
                               return Promise.resolve()
                             }
@@ -2457,11 +2546,11 @@ const GeneralExpenses = () => {
                       
                       <Form.Item
                         name="employeeId"
-                        label="الموظف"
-                        rules={[{ required: true, message: 'يرجى اختيار الموظف' }]}
+                        label={t.generalExpenses.employeeLabel || 'Employee'}
+                        rules={[{ required: true, message: t.generalExpenses.selectEmployeeRequired || 'Please select employee' }]}
                       >
                         <Select
-                          placeholder="اختر الموظف"
+                          placeholder={t.generalExpenses.selectEmployee || 'Select Employee'}
                           showSearch
                           value={selectedEmployeeId}
                           onChange={(value) => {
@@ -2484,7 +2573,6 @@ const GeneralExpenses = () => {
                             // Step 2: Find the corresponding employee object in the data source
                             // Fail-safe: Verify employees array is populated
                             if (!employees || employees.length === 0) {
-                              console.warn('Employees array is empty or not loaded. Cannot populate managerName/recipientName.')
                               return
                             }
                             
@@ -2495,7 +2583,6 @@ const GeneralExpenses = () => {
                               const employeeName = employee.name.trim()
                               
                               if (!employeeName) {
-                                console.warn(`Employee with ID ${value} has empty name field`)
                                 return
                               }
                               
@@ -2521,9 +2608,6 @@ const GeneralExpenses = () => {
                               if (employeeName && !managers.includes(employeeName)) {
                                 setManagers([...new Set([...managers, employeeName])])
                               }
-                            } else {
-                              // Fail-safe: If employee not found, log warning but don't break
-                              console.warn(`Employee with ID ${value} not found in employees array. Available employees:`, employees.map(e => ({ id: e?.id, name: e?.name })))
                             }
                           }}
                           filterOption={(input, option) =>
@@ -2533,7 +2617,7 @@ const GeneralExpenses = () => {
                         >
                           {employees.map(emp => (
                             <Option key={emp.id} value={emp.id} label={emp.name}>
-                              {emp.name} - {emp.jobTitle || 'موظف'}
+                              {emp.name} - {emp.jobTitle || t.common.employee || 'Employee'}
                             </Option>
                           ))}
                         </Select>
@@ -2543,11 +2627,11 @@ const GeneralExpenses = () => {
                     <>
                       <Form.Item
                         name="managerName"
-                        label="اسم المورد/المندوب"
-                        rules={[{ required: true, message: 'يرجى إدخال اسم المورد/المندوب' }]}
+                        label={t.generalExpenses.vendorRepresentativeName || 'Vendor/Representative Name'}
+                        rules={[{ required: true, message: t.generalExpenses.enterVendorRepresentativeName || 'Please enter vendor/representative name' }]}
                       >
                         <Input
-                          placeholder="أدخل اسم المورد/المندوب"
+                          placeholder={t.generalExpenses.enterVendorRepresentativeName || 'Enter vendor/representative name'}
                           value={externalCustodyName}
                           onChange={(e) => {
                             const value = e.target.value
@@ -2562,11 +2646,11 @@ const GeneralExpenses = () => {
                       </Form.Item>
                       <Form.Item
                         name="externalCustodyPhone"
-                        label="رقم الهاتف"
-                        rules={[{ required: true, message: 'يرجى إدخال رقم الهاتف' }]}
+                        label={t.common.phone}
+                        rules={[{ required: true, message: t.common.phoneRequired || 'Please enter phone number' }]}
                       >
                         <Input
-                          placeholder="أدخل رقم الهاتف"
+                          placeholder={t.common.enterPhone || 'Enter phone number'}
                           value={externalCustodyPhone}
                           onChange={(e) => setExternalCustodyPhone(e.target.value)}
                           size="large"
@@ -2574,10 +2658,10 @@ const GeneralExpenses = () => {
                       </Form.Item>
                       <Form.Item
                         name="externalCustodyAddress"
-                        label="العنوان (اختياري)"
+                        label={`${t.common.address} (${t.common.optional})`}
                       >
                         <Input.TextArea
-                          placeholder="أدخل العنوان"
+                          placeholder={t.common.enterAddress || 'Enter address'}
                           value={externalCustodyAddress}
                           onChange={(e) => setExternalCustodyAddress(e.target.value)}
                           rows={2}
@@ -2593,11 +2677,11 @@ const GeneralExpenses = () => {
                 <>
                   <Form.Item
                     name="linkedAdvanceId"
-                    label="العهدة المفتوحة"
-                    rules={[{ required: true, message: 'يرجى اختيار العهدة المفتوحة' }]}
+                    label={t.generalExpenses.openAdvance || 'Open Advance'}
+                    rules={[{ required: true, message: t.generalExpenses.selectOpenAdvance }]}
                   >
                     <Select
-                      placeholder="اختر العهدة المفتوحة (معتمدة فقط)"
+                      placeholder={t.generalExpenses.selectOpenAdvanceApproved || 'Select open advance (approved only)'}
                       showSearch
                       filterOption={(input, option) =>
                         (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
@@ -2633,7 +2717,7 @@ const GeneralExpenses = () => {
                         const originalAmount = parseFloat(advance.amount || 0)
                         return (
                           <Option key={advance.id} value={advance.id}>
-                            {advance.referenceNumber || advance.paymentNumber} - {advance.managerName} - المبلغ الأصلي: {originalAmount.toLocaleString()} ريال - المتبقي: {remainingAmount.toLocaleString()} ريال ({dayjs(advance.dueDate || advance.createdAt).format('YYYY-MM-DD')})
+                            {advance.referenceNumber || advance.paymentNumber} - {advance.managerName} - ${t.generalExpenses.originalAmount || 'Original Amount'}: {originalAmount.toLocaleString()} {t.common.sar} - ${t.generalExpenses.remaining || 'Remaining'}: {remainingAmount.toLocaleString()} {t.common.sar} ({dayjs(advance.dueDate || advance.createdAt).format('YYYY-MM-DD')})
                           </Option>
                         )
                       })}
@@ -2644,15 +2728,15 @@ const GeneralExpenses = () => {
                   {selectedLinkedAdvance && (
                     <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f0f9ff', border: '1px solid #91d5ff' }}>
                       <div style={{ marginBottom: 8, fontWeight: 'bold', color: '#1890ff' }}>
-                        تفاصيل العهدة المرتبطة:
+                        {t.generalExpenses.linkedAdvanceDetails || 'Linked Advance Details'}:
                       </div>
-                      <div>المبلغ الأصلي: <strong>{parseFloat(selectedLinkedAdvance.amount || 0).toLocaleString()} ريال</strong></div>
-                      <div>المبلغ المتبقي: <strong style={{ color: selectedLinkedAdvance.remainingAmount > 0 ? '#cf1322' : '#3f8600' }}>
-                        {parseFloat(selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined ? selectedLinkedAdvance.remainingAmount : selectedLinkedAdvance.amount || 0).toLocaleString()} ريال
+                      <div>{t.generalExpenses.originalAmount || 'Original Amount'}: <strong>{parseFloat(selectedLinkedAdvance.amount || 0).toLocaleString()} {t.common.sar}</strong></div>
+                      <div>{t.generalExpenses.remainingAmountColumn || 'Remaining Amount'}: <strong style={{ color: selectedLinkedAdvance.remainingAmount > 0 ? '#cf1322' : '#3f8600' }}>
+                        {parseFloat(selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined ? selectedLinkedAdvance.remainingAmount : selectedLinkedAdvance.amount || 0).toLocaleString()} {t.common.sar}
                       </strong></div>
-                      <div>المدير: <strong>{selectedLinkedAdvance.managerName}</strong></div>
+                      <div>{t.generalExpenses.manager || 'Manager'}: <strong>{selectedLinkedAdvance.managerName}</strong></div>
                       {selectedLinkedAdvance.projectId && (
-                        <div>المشروع: <strong>{projects.find(p => p.id === selectedLinkedAdvance.projectId)?.name || 'جاري التحميل...'}</strong></div>
+                        <div>{t.common.project || 'Project'}: <strong>{projects.find(p => p.id === selectedLinkedAdvance.projectId)?.name || t.common.loading}</strong></div>
                       )}
                     </Card>
                   )}
@@ -2660,8 +2744,8 @@ const GeneralExpenses = () => {
                   {/* Settlement Type: Expense or Return */}
                   <Form.Item
                     name="settlementType"
-                    label="نوع التسوية"
-                    rules={[{ required: true, message: 'يرجى اختيار نوع التسوية' }]}
+                    label={t.generalExpenses.settlementType || 'Settlement Type'}
+                    rules={[{ required: true, message: t.generalExpenses.selectSettlementType || 'Please select settlement type' }]}
                     initialValue="expense"
                   >
                     <Radio.Group
@@ -2670,8 +2754,8 @@ const GeneralExpenses = () => {
                       buttonStyle="solid"
                       size="large"
                     >
-                      <Radio.Button value="expense">مصروف</Radio.Button>
-                      <Radio.Button value="return">مرتجع نقدي</Radio.Button>
+                      <Radio.Button value="expense">{t.generalExpenses.expense || 'Expense'}</Radio.Button>
+                      <Radio.Button value="return">{t.generalExpenses.cashReturn || 'Cash Return'}</Radio.Button>
                     </Radio.Group>
                   </Form.Item>
 
@@ -2679,11 +2763,11 @@ const GeneralExpenses = () => {
                   {isEngineering && selectedLinkedAdvance?.projectId && (
                     <Form.Item
                       name="projectId"
-                      label="المشروع"
+                      label={t.common.project || 'Project'}
                     >
                       <Input.Group compact>
                         <Input
-                          value={projects.find(p => p.id === selectedLinkedAdvance.projectId)?.name || 'جاري التحميل...'}
+                          value={projects.find(p => p.id === selectedLinkedAdvance.projectId)?.name || t.common.loading}
                           readOnly
                           disabled
                           style={{ width: 'calc(100% - 140px)' }}
@@ -2699,7 +2783,7 @@ const GeneralExpenses = () => {
                           style={{ width: 140 }}
                           size="large"
                         >
-                          ترحيل العهدة
+                          {t.generalExpenses.transferAdvance || 'Transfer Advance'}
                         </Button>
                       </Input.Group>
                     </Form.Item>
@@ -3281,8 +3365,13 @@ const GeneralExpenses = () => {
                   value={recipientType}
                   onChange={(e) => {
                     setRecipientType(e.target.value)
+                    setSelectedEmployeeId(null)
                     setSelectedWorkerId(null)
-                    form.setFieldsValue({ recipientName: undefined, recipientWorkerId: undefined })
+                    form.setFieldsValue({ 
+                      recipientName: undefined, 
+                      recipientWorkerId: undefined,
+                      employeeId: undefined
+                    })
                   }}
                   buttonStyle="solid"
                   size="large"
@@ -3294,29 +3383,53 @@ const GeneralExpenses = () => {
 
               {/* Recipient Name - Conditional based on type */}
               <Form.Item
-                name={recipientType === 'internal' ? 'recipientWorkerId' : 'recipientName'}
+                name={recipientType === 'internal' ? 'employeeId' : 'recipientName'}
                 label="اسم المستلم / Recipient Name"
-                rules={[{ required: true, message: 'يرجى اختيار/إدخال اسم المستلم' }]}
-                tooltip="اسم المستلم مهم لطباعة سند الصرف (Payment Voucher) لاحقاً"
+                rules={[
+                  { 
+                    required: true, 
+                    message: recipientType === 'internal' 
+                      ? (t.generalExpenses.selectEmployeeRequired || 'Please select an employee')
+                      : 'يرجى اختيار/إدخال اسم المستلم'
+                  },
+                  // CRITICAL: Additional validation for internal recipients - ensure employee_id is selected
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (recipientType === 'internal' && !value) {
+                        return Promise.reject(new Error(t.generalExpenses.selectEmployeeRequired || 'Please select an employee'))
+                      }
+                      return Promise.resolve()
+                    }
+                  })
+                ]}
+                tooltip={recipientType === 'internal' 
+                  ? "اختر الموظف من القائمة - سيتم حفظ معرف الموظف لربط المصروف بالموظف"
+                  : "اسم المستلم مهم لطباعة سند الصرف (Payment Voucher) لاحقاً"}
               >
                 {recipientType === 'internal' ? (
                   <Select
                     placeholder="اختر الموظف"
                     showSearch
                     size="large"
-                    value={selectedWorkerId}
+                    value={selectedEmployeeId}
                     onChange={(value) => {
-                      setSelectedWorkerId(value)
-                      const worker = workers.find(w => w.id === value)
-                      form.setFieldsValue({ recipientName: worker?.name || '' })
+                      setSelectedEmployeeId(value)
+                      const employee = employees.find(emp => emp.id === value)
+                      if (employee) {
+                        form.setFieldsValue({ 
+                          recipientName: employee.name,
+                          employeeId: value
+                        })
+                      }
                     }}
                     filterOption={(input, option) =>
-                      (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                      String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                     }
+                    notFoundContent={employees.length === 0 ? 'No employees found. Please add employees in Labor & Staff Management.' : null}
                   >
-                    {workers.map((worker) => (
-                      <Option key={worker.id} value={worker.id}>
-                        {worker.name} - {worker.trade}
+                    {employees.map((employee) => (
+                      <Option key={employee.id} value={employee.id} label={employee.name}>
+                        {employee.name} - {employee.jobTitle || 'Employee'}
                       </Option>
                     ))}
                   </Select>
@@ -3340,6 +3453,19 @@ const GeneralExpenses = () => {
                   size="large"
                   placeholder="اختر التاريخ (افتراضي: اليوم)"
                 />
+              </Form.Item>
+
+              {/* Status - Allow users to set paid status for immediate treasury deduction */}
+              <Form.Item
+                name="status"
+                label="الحالة / Status"
+                initialValue="pending"
+                tooltip="اختر 'مدفوع' لخصم المبلغ من الخزينة فوراً، أو 'قيد الانتظار' للموافقة لاحقاً"
+              >
+                <Select size="large">
+                  <Option value="pending">قيد الانتظار / Pending</Option>
+                  <Option value="paid">مدفوع / Paid</Option>
+                </Select>
               </Form.Item>
 
               {/* Reference Number - Auto-generated if empty (optional field) */}

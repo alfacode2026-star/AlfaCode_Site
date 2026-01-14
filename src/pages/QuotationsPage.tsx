@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import moment from 'moment'
 import quotationsService from '../services/quotationsService'
 import customersService from '../services/customersService'
 import contractsService from '../services/contractsService'
 import { useTenant } from '../contexts/TenantContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
+import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
 import {
   Card,
   Table,
@@ -48,6 +51,8 @@ const { Option } = Select
 
 const QuotationsPage = () => {
   const { currentTenantId } = useTenant()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const [quotations, setQuotations] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchText, setSearchText] = useState('')
@@ -84,10 +89,10 @@ const QuotationsPage = () => {
     setLoading(true)
     try {
       const data = await quotationsService.getQuotations()
-      setQuotations(data.map(q => ({ ...q, key: q.id })))
+      setQuotations(data.map(q => ({ ...q, key: q.id || q.updatedAt || `quote-${Date.now()}` })))
     } catch (error) {
       console.error('Error loading quotations:', error)
-      message.error('فشل في تحميل بيانات العروض')
+      message.error(t.quotations.failedToLoad)
       setQuotations([])
     } finally {
       setLoading(false)
@@ -188,35 +193,35 @@ const QuotationsPage = () => {
   }))
 
   const statusLabels = {
-    draft: { text: 'مسودة', color: 'default' },
-    sent: { text: 'تم الإرسال', color: 'blue' },
-    approved: { text: 'معتمد', color: 'green' },
-    accepted: { text: 'مقبول', color: 'green' }, // Legacy support
-    rejected: { text: 'مرفوض', color: 'red' },
-    converted: { text: 'تم التحويل', color: 'purple' }
+    draft: { text: t.quotations.draft, color: 'default' },
+    sent: { text: t.quotations.sent, color: 'blue' },
+    approved: { text: t.quotations.accepted, color: 'green' },
+    accepted: { text: t.quotations.accepted, color: 'green' }, // Legacy support
+    rejected: { text: t.quotations.rejected, color: 'red' },
+    converted: { text: t.quotations.converted, color: 'purple' }
   }
 
-  const columns = [
+  const columns = useMemo(() => [
     {
-      title: 'رقم العرض',
+      title: t.quotations.quoteNumber,
       dataIndex: 'quoteNumber',
       key: 'quoteNumber',
       render: (quoteNumber) => <span style={{ fontWeight: 500 }}>{quoteNumber}</span>
     },
     {
-      title: 'نوع المستند',
+      title: t.quotations.documentType || 'Document Type',
       dataIndex: 'documentType',
       key: 'documentType',
       render: (type) => {
         const labels = {
-          original: 'عقد جديد',
-          addendum: 'ملحق'
+          original: t.contracts.originalContract,
+          addendum: t.contracts.amendment
         }
         return <Tag color={type === 'original' ? 'blue' : 'orange'}>{labels[type] || type}</Tag>
       }
     },
     {
-      title: 'العميل/المستثمر',
+      title: t.quotations.customerName,
       dataIndex: 'customerName',
       key: 'customerName',
       render: (name, record) => (
@@ -227,44 +232,45 @@ const QuotationsPage = () => {
       )
     },
     {
-      title: 'اسم المشروع',
+      title: t.quotations.projectName,
       dataIndex: 'projectName',
       key: 'projectName',
       render: (projectName) => (
-        <span>{projectName || <span style={{ color: '#999' }}>غير محدد</span>}</span>
+        <span>{projectName || <span style={{ color: '#999' }}>{t.common.notSpecified}</span>}</span>
       )
     },
     {
-      title: 'نطاق العمل',
+      title: t.quotations.workScope || 'Work Scope',
       dataIndex: 'workScopes',
       key: 'workScopes',
       render: (workScopes) => {
         if (!workScopes || !Array.isArray(workScopes) || workScopes.length === 0) {
-          return <span style={{ color: '#999' }}>غير محدد</span>
+          return <span style={{ color: '#999' }}>{t.common.notSpecified}</span>
         }
-        // Display first 3 items, then "والمزيد..." if there are more
-        const displayScopes = workScopes.slice(0, 3).join('، ')
+        // Display first 3 items, then "and more..." if there are more
+        const translatedScopes = translateWorkScopes(workScopes.slice(0, 3), language)
+        const displayScopes = translatedScopes.join(', ')
         const moreCount = workScopes.length - 3
         return (
           <span>
             {displayScopes}
-            {moreCount > 0 && <span style={{ color: '#1890ff' }}> و{moreCount} أكثر...</span>}
+            {moreCount > 0 && <span style={{ color: '#1890ff' }}> {t.common.and || 'and'} {moreCount} {t.common.more || 'more'}...</span>}
           </span>
         )
       }
     },
     {
-      title: 'المبلغ الإجمالي',
+      title: t.quotations.totalAmount,
       dataIndex: 'totalAmount',
       key: 'totalAmount',
       render: (amount) => (
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-          {amount?.toLocaleString() || 0} ريال
+          {amount?.toLocaleString() || 0} {t.common.sar}
         </span>
       )
     },
     {
-      title: 'الحالة',
+      title: t.quotations.status,
       dataIndex: 'status',
       key: 'status',
       render: (status) => {
@@ -273,7 +279,7 @@ const QuotationsPage = () => {
       }
     },
     {
-      title: 'الإجراءات',
+      title: t.common.actions,
       key: 'actions',
       render: (_, record) => (
         <Space>
@@ -285,13 +291,13 @@ const QuotationsPage = () => {
               setViewModalVisible(true)
             }}
           >
-            عرض
+            {t.common.view}
           </Button>
           {record.status !== 'accepted' && record.status !== 'converted' && (
             <>
               <Popconfirm
-                title="اعتماد العرض"
-                description="هل تريد اعتماد هذا العرض وتحويله إلى مشروع وعقد تلقائياً؟"
+                title={t.quotations.approveQuotation}
+                description={t.quotations.approveQuotationDescription}
                 onConfirm={async () => {
                   try {
                     // Use 'converted' status - this will trigger Project and Contract creation in one transaction
@@ -300,33 +306,33 @@ const QuotationsPage = () => {
                     })
                     if (result.success) {
                       if (result.projectCreated && result.contractCreated) {
-                        message.success('تم اعتماد العرض وتحويله إلى مشروع وعقد تلقائياً بنجاح!')
+                        message.success(t.quotations.quotationApprovedAndConverted)
                       } else if (result.projectCreated) {
-                        message.success('تم اعتماد العرض وتحويله إلى مشروع بنجاح!')
+                        message.success(t.quotations.quotationApprovedAndProjectCreated)
                         if (result.contractError) {
-                          message.warning(`تم إنشاء المشروع لكن فشل إنشاء العقد: ${result.contractError}`)
+                          message.warning(`${t.quotations.projectCreatedButContractFailed}: ${result.contractError}`)
                         }
                       } else {
-                        message.success('تم اعتماد العرض بنجاح!')
+                        message.success(t.quotations.quotationApproved)
                       }
                       loadQuotations()
                     } else {
-                      message.error(result.error || 'فشل في اعتماد العرض')
+                      message.error(result.error || t.quotations.failedToApprove)
                     }
                   } catch (error) {
                     console.error('Error approving quotation:', error)
-                    message.error('حدث خطأ أثناء اعتماد العرض')
+                    message.error(t.quotations.errorApprovingQuotation)
                   }
                 }}
-                okText="نعم"
-                cancelText="لا"
+                okText={t.quotations.yes}
+                cancelText={t.quotations.no}
               >
                 <Button
                   type="link"
                   icon={<CheckCircleOutlined />}
                   style={{ color: '#52c41a' }}
                 >
-                  اعتماد
+                  {t.quotations.approve}
                 </Button>
               </Popconfirm>
               <Button
@@ -396,38 +402,38 @@ const QuotationsPage = () => {
                 setIsModalVisible(true)
               }}
             >
-              تعديل
+              {t.quotations.editQuotation || t.common.edit}
             </Button>
             </>
           )}
           <Popconfirm
-            title="حذف العرض"
-            description="هل أنت متأكد من حذف هذا العرض؟"
+            title={t.quotations.deleteQuotationConfirm}
+            description={t.quotations.deleteQuotationDescription}
             onConfirm={async () => {
               try {
                 const result = await quotationsService.deleteQuotation(record.id)
                 if (result.success) {
-                  message.success('تم حذف العرض بنجاح')
+                  message.success(t.quotations.quotationDeleted)
                   loadQuotations()
                 } else {
-                  message.error(result.error || 'فشل في حذف العرض')
+                  message.error(result.error || t.quotations.failedToDelete)
                 }
               } catch (error) {
                 console.error('Error deleting quotation:', error)
-                message.error('حدث خطأ أثناء حذف العرض')
+                message.error(t.quotations.failedToDelete)
               }
             }}
-            okText="نعم"
-            cancelText="لا"
+            okText={t.quotations.yes}
+            cancelText={t.quotations.no}
           >
             <Button type="link" danger icon={<DeleteOutlined />}>
-              حذف
+              {t.quotations.delete}
             </Button>
           </Popconfirm>
         </Space>
       )
     }
-  ]
+  ], [t, language, statusLabels])
 
   const filteredQuotations = quotations.filter(quotation => {
     const matchesSearch =
@@ -611,9 +617,9 @@ const QuotationsPage = () => {
 
       if (result.success) {
         if (result.projectCreated) {
-          message.success('تم اعتماد العرض وتحويله إلى مشروع بنجاح!')
+          message.success(t.quotations.quotationApprovedAndProjectCreated)
         } else {
-          message.success(selectedQuotation ? 'تم تحديث العرض بنجاح!' : 'تم إنشاء العرض بنجاح!')
+          message.success(selectedQuotation ? t.quotations.quotationUpdated : t.quotations.quotationCreated)
         }
         setIsModalVisible(false)
         setSelectedQuotation(null)
@@ -624,14 +630,14 @@ const QuotationsPage = () => {
         form.resetFields()
         loadQuotations()
       } else {
-        message.error(result.error || 'فشل في حفظ العرض')
+        message.error(result.error || t.quotations.failedToSave)
       }
     } catch (error) {
       console.error('Validation failed:', error)
       if (error.errorFields) {
-        message.error('يرجى ملء جميع الحقول المطلوبة بشكل صحيح')
+        message.error(t.quotations.fillRequiredFields)
       } else {
-        message.error('حدث خطأ أثناء حفظ العرض')
+        message.error(t.quotations.failedToSave)
       }
     }
   }
@@ -655,7 +661,7 @@ const QuotationsPage = () => {
     const remainingKeys = availableCatKeys.filter(key => !alreadyAddedKeys.includes(key))
     
     if (remainingKeys.length === 0) {
-      message.info('تمت إضافة جميع الفئات المتاحة')
+      message.info(t.quotations.allCategoriesAdded || 'All available categories have been added')
       return
     }
     
@@ -720,12 +726,12 @@ const QuotationsPage = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>
-            عروض الأسعار (Quotations)
+            {t.quotations.title}
           </h1>
-          <p style={{ color: '#666', margin: '4px 0 0 0' }}>إدارة عروض الأسعار والمشاريع</p>
+          <p style={{ color: '#666', margin: '4px 0 0 0' }}>{t.quotations.subtitle}</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={createQuotation}>
-          عرض جديد
+          {t.quotations.newQuotation}
         </Button>
       </div>
 
@@ -733,7 +739,7 @@ const QuotationsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي العروض"
+              title={t.quotations.totalQuotations}
               value={stats.totalQuotations}
               prefix={<FileTextOutlined />}
             />
@@ -742,7 +748,7 @@ const QuotationsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="العروض المقبولة"
+              title={t.quotations.acceptedQuotations}
               value={stats.acceptedQuotations}
               prefix={<CheckCircleOutlined />}
             />
@@ -751,18 +757,18 @@ const QuotationsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي القيمة"
+              title={t.quotations.totalAmountLabel}
               value={stats.totalAmount}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix="ريال"
+              suffix={t.common.sar}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="مسودة"
+              title={t.quotations.draftQuotations}
               value={stats.draftQuotations}
               prefix={<FileTextOutlined />}
             />
@@ -773,7 +779,7 @@ const QuotationsPage = () => {
       <Card>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <Input
-            placeholder="ابحث برقم العرض أو اسم العميل..."
+            placeholder={t.quotations.searchPlaceholder}
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -783,14 +789,14 @@ const QuotationsPage = () => {
             value={statusFilter}
             onChange={setStatusFilter}
             style={{ width: 150 }}
-            placeholder="حالة العرض"
+            placeholder={t.quotations.filterByStatus}
           >
-            <Option value="all">الكل</Option>
-            <Option value="draft">مسودة</Option>
-            <Option value="sent">تم الإرسال</Option>
-            <Option value="approved">معتمد</Option>
-            <Option value="rejected">مرفوض</Option>
-            <Option value="converted">تم التحويل</Option>
+            <Option value="all">{t.quotations.all}</Option>
+            <Option value="draft">{t.quotations.draft}</Option>
+            <Option value="sent">{t.quotations.sent}</Option>
+            <Option value="approved">{t.quotations.accepted}</Option>
+            <Option value="rejected">{t.quotations.rejected}</Option>
+            <Option value="converted">{t.quotations.converted}</Option>
           </Select>
         </div>
       </Card>
@@ -801,12 +807,12 @@ const QuotationsPage = () => {
           dataSource={filteredQuotations}
           loading={loading}
           pagination={{ pageSize: 10 }}
-          rowKey="key"
+          rowKey={(record) => record.id || record.updatedAt || `quote-${Date.now()}`}
         />
       </Card>
 
       <Modal
-        title={selectedQuotation ? 'تعديل عرض السعر' : 'إنشاء عرض سعر جديد'}
+        title={selectedQuotation ? t.quotations.editQuotationTitle : t.quotations.createQuotationTitle}
         open={isModalVisible}
         onOk={handleSave}
         onCancel={() => {
@@ -819,22 +825,22 @@ const QuotationsPage = () => {
           setCategorySelectValue(null)
           form.resetFields()
         }}
-        okText="حفظ"
-        cancelText="إلغاء"
+        okText={t.quotations.save}
+        cancelText={t.quotations.cancel}
         width={900}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 24 }}>
           <Form.Item
             name="customerSearch"
-            label="اسم العميل/المستثمر"
-            rules={[{ required: true, message: 'يرجى إدخال اسم العميل' }]}
+            label={t.quotations.customerNameLabel}
+            rules={[{ required: true, message: t.quotations.customerNameRequired }]}
           >
             <AutoComplete
               options={customerSearchOptions}
               onSearch={handleCustomerSearch}
               onSelect={handleCustomerSelect}
               onChange={handleCustomerChange}
-              placeholder="ابحث أو اكتب اسم عميل جديد..."
+              placeholder={t.quotations.customerSearchPlaceholder}
               style={{ width: '100%' }}
               filterOption={false}
               allowClear
@@ -845,54 +851,54 @@ const QuotationsPage = () => {
             <Col span={12}>
               <Form.Item
                 name="customerName"
-                label="اسم العميل (سيتم الإنشاء تلقائياً إن لم يكن موجوداً)"
-                rules={[{ required: true, message: 'يرجى إدخال اسم العميل' }]}
+                label={t.quotations.customerNameAutoCreate}
+                rules={[{ required: true, message: t.quotations.customerNameRequired }]}
               >
-                <Input placeholder="اسم العميل" />
+                <Input placeholder={t.quotations.customerNameLabel} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
                 name="customerPhone"
-                label="رقم الهاتف"
-                rules={[{ required: true, message: 'يرجى إدخال رقم الهاتف' }]}
+                label={t.quotations.customerPhoneLabel}
+                rules={[{ required: true, message: t.quotations.customerPhoneRequired }]}
               >
-                <Input placeholder="رقم الهاتف" />
+                <Input placeholder={t.quotations.customerPhoneLabel} />
               </Form.Item>
             </Col>
           </Row>
 
-          <Form.Item name="customerEmail" label="البريد الإلكتروني (اختياري)">
-            <Input placeholder="البريد الإلكتروني" />
+          <Form.Item name="customerEmail" label={t.quotations.customerEmailLabel + ' ' + t.common.optional}>
+            <Input placeholder={t.quotations.customerEmailLabel} />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="projectName"
-                label="اسم المشروع"
-                rules={[{ required: true, message: 'يرجى إدخال اسم المشروع' }]}
+                label={t.quotations.projectNameLabel}
+                rules={[{ required: true, message: t.quotations.projectNameRequired }]}
               >
-                <Input placeholder="اسم المشروع" />
+                <Input placeholder={t.quotations.projectNameLabel} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
                 name="documentType"
-                label="نوع المستند"
-                rules={[{ required: true, message: 'يرجى اختيار نوع المستند' }]}
+                label={t.quotations.documentType}
+                rules={[{ required: true, message: t.quotations.documentTypeRequired }]}
                 initialValue="original"
               >
-                <Select placeholder="اختر نوع المستند">
-                  <Option value="original">عقد جديد</Option>
-                  <Option value="addendum">ملحق</Option>
+                <Select placeholder={t.quotations.selectDocumentType}>
+                  <Option value="original">{t.contracts.originalContract}</Option>
+                  <Option value="addendum">{t.contracts.amendment}</Option>
                 </Select>
               </Form.Item>
             </Col>
           </Row>
 
           <Divider orientation="left" style={{ marginTop: 24, marginBottom: 16 }}>
-            نطاق العمل (Work Scope)
+            {t.quotations.workScopeDivider}
           </Divider>
 
           {/* Multi-Category Work Scope Selector */}
@@ -907,7 +913,7 @@ const QuotationsPage = () => {
                     style={{ marginBottom: 12 }}
                     title={
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>{catData.label}</span>
+                        <span>{translateWorkType(catData.label, language)}</span>
                         <Space>
                           <Button
                             type="link"
@@ -915,7 +921,7 @@ const QuotationsPage = () => {
                             onClick={() => selectAllInCategory(index)}
                             disabled={catSelection.selectedItems?.length === catData.items.length}
                           >
-                            تحديد الكل
+                            {t.quotations.selectAll}
                           </Button>
                           <Button
                             type="link"
@@ -923,7 +929,7 @@ const QuotationsPage = () => {
                             onClick={() => deselectAllInCategory(index)}
                             disabled={!catSelection.selectedItems || catSelection.selectedItems.length === 0}
                           >
-                            إلغاء الكل
+                            {t.quotations.deselectAll}
                           </Button>
                           <Button
                             type="text"
@@ -937,7 +943,10 @@ const QuotationsPage = () => {
                     }
                   >
                     <Checkbox.Group
-                      options={catData.items}
+                      options={catData.items.map(item => ({
+                        ...item,
+                        label: language === 'en' ? item.label.split('(')[1]?.replace(')', '').trim() || item.label : item.label
+                      }))}
                       value={catSelection.selectedItems || []}
                       onChange={(checkedValues) => updateCategorySelection(index, checkedValues)}
                       style={{ width: '100%' }}
@@ -951,7 +960,7 @@ const QuotationsPage = () => {
           {/* Add Category Button */}
           {workScopeCategories.length < availableCategories.length && (
             <Select
-              placeholder="إضافة فئة عمل جديدة (+) - اختر الفئة"
+              placeholder={t.quotations.addNewWorkCategory}
               style={{ width: '100%', marginBottom: 16 }}
               value={categorySelectValue}
               onChange={(value) => {
@@ -966,7 +975,7 @@ const QuotationsPage = () => {
                   {menu}
                   <Divider style={{ margin: '8px 0' }} />
                   <div style={{ padding: '8px', color: '#666', fontSize: '12px', textAlign: 'center' }}>
-                    {availableCategories.length - workScopeCategories.length} فئة متاحة
+                    {availableCategories.length - workScopeCategories.length} {t.quotations.categoriesAvailable}
                   </div>
                 </div>
               )}
@@ -975,7 +984,7 @@ const QuotationsPage = () => {
                 .filter(cat => !workScopeCategories.some(added => added.category === cat.key))
                 .map(cat => (
                   <Option key={cat.key} value={cat.key}>
-                    {cat.label}
+                    {translateWorkType(cat.label, language)}
                   </Option>
                 ))}
             </Select>
@@ -983,12 +992,12 @@ const QuotationsPage = () => {
 
           {/* Custom Work Scopes */}
           <Divider orientation="left" style={{ marginTop: 24, marginBottom: 16 }}>
-            أعمال مخصصة (Custom Work)
+            {t.quotations.customWorkDivider}
           </Divider>
           {customWorkScopes.map((custom, index) => (
             <div key={index} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <Input
-                placeholder="أدخل نوع عمل مخصص..."
+                placeholder={t.quotations.enterCustomWorkType}
                 value={custom}
                 onChange={(e) => updateCustomWorkScope(index, e.target.value)}
                 style={{ flex: 1 }}
@@ -998,6 +1007,7 @@ const QuotationsPage = () => {
                 danger
                 icon={<MinusCircleOutlined />}
                 onClick={() => removeCustomWorkScope(index)}
+                title={t.quotations.remove}
               />
             </div>
           ))}
@@ -1007,15 +1017,15 @@ const QuotationsPage = () => {
             onClick={addCustomWorkScope}
             style={{ width: '100%', marginBottom: 16 }}
           >
-            إضافة عمل مخصص (+)
+            {t.quotations.addCustomWork}
           </Button>
 
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="totalAmount"
-                label="المبلغ الإجمالي (ريال)"
-                rules={[{ required: true, message: 'يرجى إدخال المبلغ' }]}
+                label={t.quotations.totalAmountLabelForm}
+                rules={[{ required: true, message: t.quotations.totalAmountRequired }]}
               >
                 <InputNumber
                   min={0}
@@ -1026,30 +1036,30 @@ const QuotationsPage = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="status" label="الحالة" initialValue="draft">
+              <Form.Item name="status" label={t.quotations.statusLabel} initialValue="draft">
                 <Select>
-                  <Option value="draft">مسودة</Option>
-                  <Option value="sent">تم الإرسال</Option>
-                  <Option value="approved">معتمد</Option>
-                  <Option value="rejected">مرفوض</Option>
-                  <Option value="converted">تم التحويل</Option>
+                  <Option value="draft">{t.quotations.draft}</Option>
+                  <Option value="sent">{t.quotations.sent}</Option>
+                  <Option value="approved">{t.quotations.accepted}</Option>
+                  <Option value="rejected">{t.quotations.rejected}</Option>
+                  <Option value="converted">{t.quotations.converted}</Option>
                 </Select>
               </Form.Item>
             </Col>
           </Row>
 
-          <Form.Item name="validUntil" label="صالح حتى (اختياري)">
+          <Form.Item name="validUntil" label={t.quotations.validUntilLabel}>
             <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
           </Form.Item>
 
-          <Form.Item name="notes" label="ملاحظات (اختياري)">
-            <Input.TextArea rows={3} placeholder="ملاحظات إضافية..." />
+          <Form.Item name="notes" label={t.quotations.notesLabel}>
+            <Input.TextArea rows={3} placeholder={t.quotations.notesPlaceholder} />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title={`تفاصيل العرض ${selectedQuotation?.quoteNumber}`}
+        title={`${t.quotations.quotationDetails} ${selectedQuotation?.quoteNumber}`}
         open={viewModalVisible}
         onCancel={() => setViewModalVisible(false)}
         footer={[
@@ -1062,15 +1072,15 @@ const QuotationsPage = () => {
                 convertForm.setFieldsValue({ contractType: 'original' })
                 setConvertModalVisible(true)
               } else {
-                message.warning('يمكن تحويل العروض المعتمدة فقط إلى عقود')
+                message.warning(t.quotations.cannotConvertNonApproved)
               }
             }}
             disabled={selectedQuotation?.status !== 'approved' && selectedQuotation?.status !== 'accepted'}
           >
-            تحويل إلى عقد
+            {t.quotations.convertToContract}
           </Button>,
           <Button key="close" onClick={() => setViewModalVisible(false)}>
-            إغلاق
+            {t.quotations.close}
           </Button>
         ]}
         width={700}
@@ -1078,43 +1088,43 @@ const QuotationsPage = () => {
         {selectedQuotation && (
           <div style={{ marginTop: 24 }}>
             <Descriptions column={2} size="small">
-              <Descriptions.Item label="رقم العرض">
+              <Descriptions.Item label={t.quotations.quoteNumber}>
                 {selectedQuotation.quoteNumber}
               </Descriptions.Item>
-              <Descriptions.Item label="التاريخ">
+              <Descriptions.Item label={t.common.date}>
                 {selectedQuotation.createdAt ? moment(selectedQuotation.createdAt).format('DD-MMM-YYYY') : '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="نوع المستند">
+              <Descriptions.Item label={t.quotations.documentType}>
                 <Tag color={selectedQuotation.documentType === 'original' ? 'blue' : 'orange'}>
-                  {selectedQuotation.documentType === 'original' ? 'عقد جديد' : 'ملحق'}
+                  {selectedQuotation.documentType === 'original' ? t.contracts.originalContract : t.contracts.amendment}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="العميل/المستثمر">
+              <Descriptions.Item label={t.quotations.customerName}>
                 {selectedQuotation.customerName}
               </Descriptions.Item>
-              <Descriptions.Item label="الهاتف">
+              <Descriptions.Item label={t.quotations.customerPhoneLabel}>
                 {selectedQuotation.customerPhone}
               </Descriptions.Item>
-              <Descriptions.Item label="اسم المشروع">
-                {selectedQuotation.projectName || 'غير محدد'}
+              <Descriptions.Item label={t.quotations.projectName}>
+                {selectedQuotation.projectName || t.common.notSpecified}
               </Descriptions.Item>
               {selectedQuotation.workScopes && selectedQuotation.workScopes.length > 0 && (
-                <Descriptions.Item label="نطاق العمل" span={2}>
+                <Descriptions.Item label={t.quotations.workScope} span={2}>
                   {selectedQuotation.workScopes.map((scope, idx) => (
-                    <Tag key={idx} style={{ marginBottom: 4 }}>{scope}</Tag>
+                    <Tag key={idx} style={{ marginBottom: 4 }}>{translateWorkType(scope, language)}</Tag>
                   ))}
                 </Descriptions.Item>
               )}
-              <Descriptions.Item label="المبلغ الإجمالي">
-                {selectedQuotation.totalAmount.toLocaleString()} ريال
+              <Descriptions.Item label={t.quotations.totalAmount}>
+                {selectedQuotation.totalAmount.toLocaleString()} {t.common.sar}
               </Descriptions.Item>
-              <Descriptions.Item label="الحالة">
+              <Descriptions.Item label={t.quotations.status}>
                 <Tag color={statusLabels[selectedQuotation.status]?.color}>
                   {statusLabels[selectedQuotation.status]?.text}
                 </Tag>
               </Descriptions.Item>
               {selectedQuotation.validUntil && (
-                <Descriptions.Item label="صالح حتى">
+                <Descriptions.Item label={t.quotations.validUntil}>
                   {moment(selectedQuotation.validUntil, 'YYYY-MM-DD', true).isValid()
                     ? moment(selectedQuotation.validUntil, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
                     : '-'}
@@ -1125,7 +1135,7 @@ const QuotationsPage = () => {
             {selectedQuotation.notes && (
               <>
                 <Divider />
-                <p><strong>ملاحظات:</strong> {selectedQuotation.notes}</p>
+                <p><strong>{t.quotations.notesLabel}:</strong> {selectedQuotation.notes}</p>
               </>
             )}
           </div>
@@ -1134,7 +1144,7 @@ const QuotationsPage = () => {
 
       {/* Convert to Contract Modal */}
       <Modal
-        title={`تحويل العرض ${selectedQuotation?.quoteNumber} إلى عقد`}
+        title={`${t.quotations.convertToContractTitle} ${selectedQuotation?.quoteNumber}`}
         open={convertModalVisible}
         onOk={async () => {
           try {
@@ -1144,21 +1154,21 @@ const QuotationsPage = () => {
               values.contractType
             )
             if (result.success) {
-              message.success('تم تحويل العرض إلى عقد بنجاح')
+              message.success(t.contracts.contractCreated)
               setConvertModalVisible(false)
               setViewModalVisible(false)
               setSelectedQuotation(null)
               convertForm.resetFields()
               loadQuotations()
             } else {
-              message.error(result.error || 'فشل في التحويل')
+              message.error(result.error || t.quotations.failedToSave)
             }
           } catch (error) {
             console.error('Error converting quotation:', error)
             if (error.errorFields) {
-              message.error('يرجى اختيار نوع العقد')
+              message.error(t.quotations.selectContractType)
             } else {
-              message.error('حدث خطأ أثناء التحويل')
+              message.error(t.quotations.failedToSave)
             }
           }
         }}
@@ -1166,29 +1176,29 @@ const QuotationsPage = () => {
           setConvertModalVisible(false)
           convertForm.resetFields()
         }}
-        okText="تحويل"
-        cancelText="إلغاء"
+        okText={t.quotations.convert}
+        cancelText={t.quotations.cancel}
         width={500}
       >
         <Form form={convertForm} layout="vertical" style={{ marginTop: 24 }}>
           <Form.Item
             name="contractType"
-            label="نوع العقد"
-            rules={[{ required: true, message: 'يرجى اختيار نوع العقد' }]}
+            label={t.quotations.contractTypeLabel}
+            rules={[{ required: true, message: t.quotations.selectContractType }]}
             initialValue="original"
           >
             <Select>
-              <Option value="original">عقد أصلي</Option>
-              <Option value="amendment">ملحق/تعديل</Option>
+              <Option value="original">{t.contracts.originalContract}</Option>
+              <Option value="amendment">{t.contracts.amendment}</Option>
             </Select>
           </Form.Item>
           <div style={{ marginTop: 16, padding: 12, backgroundColor: '#f0f0f0', borderRadius: 4 }}>
-            <p style={{ margin: 0, fontWeight: 'bold' }}>تفاصيل العقد:</p>
-            <p style={{ margin: '4px 0 0 0' }}>العميل: {selectedQuotation?.customerName}</p>
+            <p style={{ margin: 0, fontWeight: 'bold' }}>{t.contracts.contractDetails}:</p>
+            <p style={{ margin: '4px 0 0 0' }}>{t.quotations.customerName}: {selectedQuotation?.customerName}</p>
             {selectedQuotation?.workScopes && selectedQuotation.workScopes.length > 0 && (
-              <p style={{ margin: '4px 0 0 0' }}>نطاق العمل: {selectedQuotation.workScopes.slice(0, 3).join('، ')}{selectedQuotation.workScopes.length > 3 ? ` و${selectedQuotation.workScopes.length - 3} أكثر...` : ''}</p>
+              <p style={{ margin: '4px 0 0 0' }}>{t.quotations.workScope}: {translateWorkScopes(selectedQuotation.workScopes.slice(0, 3), language).join(', ')}{selectedQuotation.workScopes.length > 3 ? ` ${t.common.and || 'and'} ${selectedQuotation.workScopes.length - 3} ${t.common.more || 'more'}...` : ''}</p>
             )}
-            <p style={{ margin: '4px 0 0 0' }}>المبلغ: {selectedQuotation?.totalAmount?.toLocaleString()} ريال</p>
+            <p style={{ margin: '4px 0 0 0' }}>{t.quotations.totalAmount}: {selectedQuotation?.totalAmount?.toLocaleString()} {t.common.sar}</p>
           </div>
         </Form>
       </Modal>

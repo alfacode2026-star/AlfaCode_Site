@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import projectsService from '../services/projectsService'
 import customersService from '../services/customersService'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 import {
   Card,
   Table,
@@ -41,6 +43,8 @@ const { Option } = Select
 
 const ProjectsPage = () => {
   const navigate = useNavigate()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const [projects, setProjects] = useState([])
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -65,16 +69,17 @@ const ProjectsPage = () => {
       const data = await projectsService.getProjects()
       
       if (Array.isArray(data) && data.length > 0) {
-        setProjects(data.map(p => ({ ...p, key: p.id || `project-${Date.now()}-${Math.random()}` })))
+        const mappedProjects = data.map(p => ({ ...p, key: p.id || `project-${Date.now()}-${Math.random()}` }))
+        setProjects(mappedProjects)
       } else if (Array.isArray(data)) {
         setProjects([])
       } else {
-        console.warn('getProjects returned non-array data:', data)
+        console.warn('getProjects returned non-array data')
         setProjects([])
       }
     } catch (error) {
-      console.error('Error loading projects:', error)
-      message.error('فشل في تحميل بيانات المشاريع')
+      console.error('[ProjectsPage] Error loading projects:', error)
+      message.error(t.projects.failedToLoad)
       setProjects([])
     } finally {
       setLoading(false)
@@ -104,7 +109,7 @@ const ProjectsPage = () => {
   // أعمدة الجدول
   const columns = [
     {
-      title: 'اسم المشروع',
+      title: t.projects.projectName,
       dataIndex: 'name',
       key: 'name',
       render: (name, record) => (
@@ -118,29 +123,29 @@ const ProjectsPage = () => {
       ),
     },
     {
-      title: 'العميل',
+      title: t.projects.client,
       dataIndex: 'client',
       key: 'client',
       render: (client) => (
         <div>
           <div style={{ fontWeight: 500 }}>
-            {client?.name || 'غير محدد'}
+            {client?.name || t.common.notSpecified}
           </div>
         </div>
       ),
     },
     {
-      title: 'الحالة',
+      title: t.projects.status,
       dataIndex: 'status',
       key: 'status',
       render: (status) => {
         const statusConfig = {
-          active: { color: 'green', text: 'نشط' },
-          on_hold: { color: 'orange', text: 'متوقف' },
-          completed: { color: 'blue', text: 'مكتمل' },
-          cancelled: { color: 'red', text: 'ملغي' },
+          active: { color: 'green', text: t.projects.active },
+          on_hold: { color: 'orange', text: t.projects.onHold },
+          completed: { color: 'blue', text: t.projects.completed },
+          cancelled: { color: 'red', text: t.projects.cancelled },
         }
-        const config = statusConfig[status] || { color: 'default', text: 'غير محدد' }
+        const config = statusConfig[status] || { color: 'default', text: t.common.notSpecified }
         return (
           <Tag color={config.color}>
             {config.text}
@@ -149,7 +154,7 @@ const ProjectsPage = () => {
       },
     },
     {
-      title: 'تاريخ البدء',
+      title: t.projects.startDate,
       dataIndex: 'startDate',
       key: 'startDate',
       render: (startDate) => {
@@ -173,7 +178,7 @@ const ProjectsPage = () => {
       width: 120,
     },
     {
-      title: 'تاريخ الانتهاء',
+      title: t.projects.endDate,
       dataIndex: 'endDate',
       key: 'endDate',
       render: (endDate) => {
@@ -197,18 +202,18 @@ const ProjectsPage = () => {
       width: 120,
     },
     {
-      title: 'الميزانية',
+      title: t.projects.budget,
       dataIndex: 'budget',
       key: 'budget',
       render: (budget) => (
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-          {budget ? budget.toLocaleString() : 0} ريال
+          {budget ? budget.toLocaleString() : 0} {t.common.sar}
         </span>
       ),
       sorter: (a, b) => (a?.budget || 0) - (b?.budget || 0),
     },
     {
-      title: 'نسبة الإنجاز',
+      title: t.projects.completionPercentage,
       dataIndex: 'completionPercentage',
       key: 'completionPercentage',
       render: (percentage) => {
@@ -225,7 +230,7 @@ const ProjectsPage = () => {
       sorter: (a, b) => (a?.completionPercentage || 0) - (b?.completionPercentage || 0),
     },
     {
-      title: 'الإجراءات',
+      title: t.common.actions,
       key: 'actions',
       render: (_, record) => (
         <Space>
@@ -233,9 +238,9 @@ const ProjectsPage = () => {
             type="link" 
             icon={<EyeOutlined />}
             onClick={() => navigate(`/projects/${record.id}`)}
-            title="عرض التفاصيل"
+            title={t.projects.details}
           >
-            التفاصيل
+            {t.projects.details}
           </Button>
           <Button 
             type="link" 
@@ -249,9 +254,9 @@ const ProjectsPage = () => {
               })
               setDatesEditModalVisible(true)
             }}
-            title="تعديل التواريخ"
+            title={t.projects.editDates}
           >
-            تعديل التواريخ
+            {t.projects.editDates}
           </Button>
           <Button 
             type="link" 
@@ -268,33 +273,33 @@ const ProjectsPage = () => {
               })
               setIsModalVisible(true)
             }}
-            title="تعديل"
+            title={t.projects.edit}
           />
           <Popconfirm
-            title="حذف المشروع"
-            description="هل أنت متأكد من حذف هذا المشروع؟"
+            title={t.projects.deleteProjectConfirm}
+            description={t.projects.deleteProjectDescription}
             onConfirm={async () => {
               try {
                 const result = await projectsService.deleteProject(record.id)
                 if (result.success) {
-                  message.success('تم حذف المشروع بنجاح')
+                  message.success(t.projects.projectDeleted)
                   loadProjects()
                 } else {
-                  message.error(result.error || 'فشل في حذف المشروع')
+                  message.error(result.error || t.projects.failedToDelete)
                 }
               } catch (error) {
                 console.error('Error deleting project:', error)
-                message.error('حدث خطأ أثناء حذف المشروع')
+                message.error(t.projects.errorDeletingProject)
               }
             }}
-            okText="نعم"
-            cancelText="لا"
+            okText={t.projects.yes}
+            cancelText={t.projects.no}
           >
             <Button 
               type="link" 
               danger 
               icon={<DeleteOutlined />}
-              title="حذف"
+              title={t.projects.delete}
             />
           </Popconfirm>
         </Space>
@@ -344,19 +349,19 @@ const ProjectsPage = () => {
       }
       
       if (result.success) {
-        message.success(selectedProject ? 'تم تحديث المشروع بنجاح!' : 'تم إضافة المشروع بنجاح!')
+        message.success(selectedProject ? t.projects.projectUpdated : t.projects.projectCreated)
         setIsModalVisible(false)
         form.resetFields()
         loadProjects()
       } else {
-        message.error(result.error || 'فشل في حفظ المشروع')
+        message.error(result.error || t.projects.failedToSave)
       }
     } catch (error) {
       console.error('Validation failed:', error)
       if (error.errorFields) {
-        message.error('يرجى ملء جميع الحقول المطلوبة بشكل صحيح')
+        message.error(t.projects.fillRequiredFields)
       } else {
-        message.error('حدث خطأ أثناء حفظ المشروع')
+        message.error(t.projects.failedToSave)
       }
     }
   }
@@ -372,13 +377,13 @@ const ProjectsPage = () => {
         const endMoment = moment(values.endDate)
         
         if (endMoment.isBefore(startMoment) || endMoment.isSame(startMoment)) {
-          message.error('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء')
+          message.error(t.projects.endDateAfterStartDate)
           return
         }
       }
 
       if (!selectedProject) {
-        message.error('لم يتم اختيار مشروع')
+        message.error(t.projects.noProjectSelected)
         return
       }
 
@@ -393,21 +398,21 @@ const ProjectsPage = () => {
       const result = await projectsService.updateProject(selectedProject.id, updateData)
 
       if (result.success) {
-        message.success('تم تحديث تواريخ المشروع بنجاح!')
+        message.success(t.projects.datesUpdateSuccess)
         setDatesEditModalVisible(false)
         setSelectedProject(null)
         datesEditForm.resetFields()
         // Refresh projects list to reflect changes
         await loadProjects()
       } else {
-        message.error(result.error || 'فشل في تحديث تواريخ المشروع')
+        message.error(result.error || t.projects.datesUpdateError)
       }
     } catch (error) {
       console.error('Error updating project dates:', error)
       if (error.errorFields) {
-        message.error('يرجى التحقق من صحة التواريخ المدخلة')
+        message.error(t.projects.datesValidationError)
       } else {
-        message.error('حدث خطأ أثناء تحديث تواريخ المشروع')
+        message.error(t.projects.errorUpdatingDates)
       }
     }
   }
@@ -416,20 +421,20 @@ const ProjectsPage = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>إدارة المشاريع</h1>
-          <p style={{ color: '#666', margin: '4px 0 0 0' }}>عرض وإدارة جميع المشاريع</p>
+          <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>{t.projects.title}</h1>
+          <p style={{ color: '#666', margin: '4px 0 0 0' }}>{t.projects.subtitle}</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={createProject}>
-          مشروع جديد
+          {t.projects.newProject}
         </Button>
       </div>
 
-      {/* إحصائيات سريعة */}
+      {/* Statistics */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي المشاريع"
+              title={t.projects.totalProjects || 'Total Projects'}
               value={stats.totalProjects}
               prefix={<RocketOutlined />}
             />
@@ -438,7 +443,7 @@ const ProjectsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="المشاريع النشطة"
+              title={t.projects.activeProjects || 'Active Projects'}
               value={stats.activeProjects}
               prefix={<RocketOutlined />}
             />
@@ -447,18 +452,18 @@ const ProjectsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي الميزانية"
+              title={t.projects.totalBudget || 'Total Budget'}
               value={stats.totalBudget}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix="ريال"
+              suffix={t.common.sar}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="متوسط الإنجاز"
+              title={t.projects.averageCompletion || 'Average Completion'}
               value={stats.averageCompletion}
               precision={1}
               suffix="%"
@@ -471,7 +476,7 @@ const ProjectsPage = () => {
       <Card>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <Input
-            placeholder="ابحث باسم المشروع أو العميل..."
+            placeholder={t.projects.searchPlaceholder}
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -481,13 +486,13 @@ const ProjectsPage = () => {
             value={statusFilter}
             onChange={setStatusFilter}
             style={{ width: 150 }}
-            placeholder="حالة المشروع"
+            placeholder={t.projects.statusLabel}
           >
-            <Option value="all">الكل</Option>
-            <Option value="active">نشط</Option>
-            <Option value="on_hold">متوقف</Option>
-            <Option value="completed">مكتمل</Option>
-            <Option value="cancelled">ملغي</Option>
+            <Option value="all">{t.common.all}</Option>
+            <Option value="active">{t.projects.active}</Option>
+            <Option value="on_hold">{t.projects.onHold}</Option>
+            <Option value="completed">{t.projects.completed}</Option>
+            <Option value="cancelled">{t.projects.cancelled}</Option>
           </Select>
         </div>
       </Card>
@@ -626,23 +631,13 @@ const ProjectsPage = () => {
               <Form.Item
                 name="startDate"
                 label="تاريخ البدء"
-                rules={[
-                  {
-                    validator: (_, value) => {
-                      if (!value) return Promise.resolve()
-                      const endDate = datesEditForm.getFieldValue('endDate')
-                      if (endDate && moment(value).isAfter(moment(endDate))) {
-                        return Promise.reject(new Error('تاريخ البدء يجب أن يكون قبل تاريخ الانتهاء'))
-                      }
-                      return Promise.resolve()
-                    }
-                  }
-                ]}
               >
                 <DatePicker 
                   style={{ width: '100%' }} 
                   format="YYYY-MM-DD"
-                  placeholder="اختر تاريخ البدء"
+                  placeholder={t.projects.startDatePlaceholder}
+                  disabled
+                  readOnly
                 />
               </Form.Item>
             </Col>
@@ -650,23 +645,13 @@ const ProjectsPage = () => {
               <Form.Item
                 name="endDate"
                 label="تاريخ الانتهاء"
-                rules={[
-                  {
-                    validator: (_, value) => {
-                      if (!value) return Promise.resolve()
-                      const startDate = datesEditForm.getFieldValue('startDate')
-                      if (startDate && moment(value).isBefore(moment(startDate))) {
-                        return Promise.reject(new Error('تاريخ الانتهاء يجب أن يكون بعد تاريخ البدء'))
-                      }
-                      return Promise.resolve()
-                    }
-                  }
-                ]}
               >
                 <DatePicker 
                   style={{ width: '100%' }} 
                   format="YYYY-MM-DD"
-                  placeholder="اختر تاريخ الانتهاء"
+                  placeholder={t.projects.endDatePlaceholder}
+                  disabled
+                  readOnly
                 />
               </Form.Item>
             </Col>

@@ -34,6 +34,10 @@ export interface Translations {
     view: string
     warning: string
     yes: string
+    and: string
+    more: string
+    to: string
+    days: string
   }
   
   // Contracts
@@ -47,6 +51,8 @@ export interface Translations {
     endDate: string
     contractType: string
     workType: string
+    workScope: string
+    workScopeFromQuotation: string
     totalAmount: string
     status: string
     newContract: string
@@ -190,9 +196,18 @@ export interface Translations {
     noAdvancesAvailable: string
     advanceInsufficient: string
     advanceSufficient: string
+    deductionReason: string
+    deductionReasonRequired: string
     // Payment methods
     paymentFromTreasury: string
     paymentFromAdvance: string
+    addGroup: string
+    noLaborGroups: string
+    totalGroups: string
+    noEmployees: string
+    totalEmployees: string
+    deleteEmployeeConfirm: string
+    deleteGroupConfirm: string
   }
   
   // Language Selection
@@ -309,6 +324,98 @@ export interface Translations {
     settlementAdvance: string
     advanceNumber: string
     engineerName: string
+    // Additional Orders translations
+    unknownCustomer: string
+    noPhone: string
+    unknownOrder: string
+    orderId: string
+    invoiceTitle: string
+    purchaseOrderNumber: string
+    date: string
+    supplierCustomerInfo: string
+    name: string
+    phone: string
+    email: string
+    itemDescription: string
+    totalAmount: string
+    print: string
+    deleteOrderConfirm: string
+    deleteOrderDescription: string
+    yes: string
+    no: string
+    delete: string
+    viewDetails: string
+    printInvoice: string
+    statistics: string
+    totalOrders: string
+    searchPlaceholder: string
+    filterByStatus: string
+    all: string
+    workScope: string
+    itemType: string
+    mixed: string
+    inventory: string
+    manual: string
+    totalQuantity: string
+    orderType: string
+    purchase: string
+    totalAmountLabel: string
+    status: string
+    dateLabel: string
+    actions: string
+    unknown: string
+    notSpecified: string
+    addPurchaseItems: string
+    itemDescriptionPlaceholder: string
+    quantityPlaceholder: string
+    unitPricePlaceholder: string
+    addItem: string
+    addedItems: string
+    materialDescription: string
+    deleteItem: string
+    totalAmountValue: string
+    createNewOrder: string
+    create: string
+    cancel: string
+    project: string
+    projectRequired: string
+    selectProject: string
+    workScopeOptional: string
+    selectWorkScope: string
+    supplierCustomer: string
+    searchSupplierCustomer: string
+    addNewSupplier: string
+    supplierName: string
+    supplierNameRequired: string
+    supplierNamePlaceholder: string
+    phoneOptional: string
+    phonePlaceholder: string
+    emailOptional: string
+    emailPlaceholder: string
+    selectedSupplier: string
+    purchaseItems: string
+    items: string
+    addAtLeastOneItem: string
+    orderStatus: string
+    treasuryAccountWarning: string
+    treasuryAccountRequired: string
+    selectTreasuryAccount: string
+    notesOptional: string
+    notesPlaceholder: string
+    failedToLoadCustomers: string
+    failedToAddSupplier: string
+    supplierAddedSuccessfully: string
+    selectOrAddSupplier: string
+    treasuryAccountNotFound: string
+    orderAddedSuccessfully: string
+    warningZeroAmount: string
+    amountDeductedFromTreasury: string
+    failedToDeductFromTreasury: string
+    treasuryAccountNotSelected: string
+    failedToAddOrder: string
+    fillRequiredFieldsCorrectly: string
+    errorSavingOrder: string
+    noOrdersToPrint: string
   }
   
   // Projects
@@ -344,6 +451,172 @@ export interface Translations {
     updateDatesTitle: string
     datesUpdateNote: string
     validateDates: string
+    totalProjects: string
+    activeProjects: string
+    totalBudget: string
+    averageCompletion: string
+    searchPlaceholder: string
+    details: string
+    editDates: string
+    edit: string
+    deleteProjectConfirm: string
+    deleteProjectDescription: string
+    yes: string
+    no: string
+    delete: string
+    errorDeletingProject: string
+    projectNameLabel: string
+    clientLabel: string
+    statusLabel: string
+    budgetLabel: string
+    completionPercentageLabel: string
+    notesLabel: string
+    notesOptional: string
+    save: string
+    cancel: string
+    create: string
+    update: string
+    startDateLabel: string
+    endDateLabel: string
+    startDatePlaceholder: string
+    endDatePlaceholder: string
+    startDateBeforeEndDate: string
+    endDateAfterStartDate: string
+    noProjectSelected: string
+    datesUpdateSuccess: string
+    datesUpdateError: string
+    datesValidationError: string
+    errorUpdatingDates: string
+    projectNotFound: string
+    failedToLoadProject: string
+  }
+  
+  // Project Details
+  projectDetails: {
+    expenseType: string
+    paymentExpense: string
+    payment: string
+    transactionType: string
+    milestoneNumber: string
+    descriptionMilestone: string
+    milestone: string
+    engineer: string
+    treasuryAccount: string
+    selectTreasuryAccount: string
+    selectTransactionType: string
+    investorInflowCreated: string
+    failedToCreateInvestorInflow: string
+    enterEngineerName: string
+    advanceForEngineer: string
+    advanceCreatedTreasuryError: string
+    employeeAdvanceCreated: string
+    failedToCreateEmployeeAdvance: string
+    errorCreatingTransaction: string
+    projectExpenses: string
+    addNewExpense: string
+    expenseWarning: string
+    itemType: string
+    generalExpense: string
+    custodyDeduction: string
+    expensesProcurementLedger: string
+    generalExpensesExcluded: string
+    noTransactions: string
+    totalTransactions: string
+    totalExpenses: string
+    noExpenses: string
+    projectIdNotFound: string
+    selectCustody: string
+    custodyNotFound: string
+    custodyInsufficient: string
+    expenseDeductedFromCustody: string
+    failedToDeductExpense: string
+    errorCreatingExpense: string
+    expenseCreated: string
+    failedToCreateExpense: string
+    navigateToOrders: string
+    totalMilestones: string
+    noMilestones: string
+    engineerAdvance: string
+    investorInflow: string
+    projectExpense: string
+    totalBudget: string
+    totalCollected: string
+    cashFlow: string
+    totalLaborCost: string
+    budgetUsage: string
+    mainContract: string
+    amendments: string
+    fromProjectBudget: string
+    paidMilestones: string
+    expensePayments: string
+    paidLaborGroups: string
+    margin: string
+    netMargin: string
+    used: string
+    available: string
+    backToProjects: string
+  }
+  
+  // Customers
+  customers: {
+    title: string
+    subtitle: string
+    customer: string
+    contactInfo: string
+    type: string
+    status: string
+    balance: string
+    totalPurchases: string
+    actions: string
+    viewDetails: string
+    edit: string
+    delete: string
+    deleteCustomer: string
+    deleteCustomerConfirm: string
+    addCustomer: string
+    editCustomer: string
+    newCustomer: string
+    customerName: string
+    customerNameRequired: string
+    email: string
+    emailRequired: string
+    emailInvalid: string
+    phone: string
+    phoneRequired: string
+    phoneInvalid: string
+    company: string
+    companyOptional: string
+    address: string
+    notes: string
+    notesOptional: string
+    individual: string
+    corporate: string
+    active: string
+    inactive: string
+    totalCustomers: string
+    activeCustomers: string
+    corporateCustomers: string
+    totalBalance: string
+    searchPlaceholder: string
+    statusFilter: string
+    typeFilter: string
+    all: string
+    export: string
+    registrationDate: string
+    totalOrders: string
+    lastPurchase: string
+    customerAdded: string
+    customerUpdated: string
+    customerDeleted: string
+    failedToAdd: string
+    failedToUpdate: string
+    failedToDelete: string
+    failedToLoad: string
+    fillRequiredFields: string
+    errorSaving: string
+    versionMismatch: string
+    exportSuccess: string
+    noData: string
   }
   
   // Treasury
@@ -468,6 +741,90 @@ export interface Translations {
     totalAmount: string
     validUntil: string
     workType: string
+    documentType: string
+    workScope: string
+    approveQuotation: string
+    approveQuotationDescription: string
+    quotationApprovedAndConverted: string
+    quotationApprovedAndProjectCreated: string
+    quotationApproved: string
+    builder: string
+    quotationBuilder: string
+    saveDraft: string
+    generatePDF: string
+    header: string
+    boq: string
+    content: string
+    company: string
+    attention: string
+    project: string
+    subject: string
+    refNo: string
+    date: string
+    customer: string
+    customerName: string
+    phone: string
+    email: string
+    addRow: string
+    total: string
+    introduction: string
+    scopeOfWork: string
+    exclusions: string
+    facilities: string
+    termsAndConditions: string
+    validityPeriod: string
+    days: string
+    pdfPreview: string
+    refresh: string
+    draftSaved: string
+    pdfGenerated: string
+    activities: string
+    amount: string
+    projectCreatedButContractFailed: string
+    failedToApprove: string
+    errorApprovingQuotation: string
+    approve: string
+    deleteQuotationConfirm: string
+    deleteQuotationDescription: string
+    yes: string
+    no: string
+    delete: string
+    searchPlaceholder: string
+    filterByStatus: string
+    all: string
+    statistics: string
+    totalQuotations: string
+    draftQuotations: string
+    sentQuotations: string
+    acceptedQuotations: string
+    totalAmountLabel: string
+    customerSearchPlaceholder: string
+    customerNameLabel: string
+    customerPhoneLabel: string
+    customerEmailLabel: string
+    projectNameLabel: string
+    workTypeLabel: string
+    selectWorkType: string
+    workScopesLabel: string
+    addWorkScope: string
+    totalAmountLabelForm: string
+    statusLabel: string
+    validUntilLabel: string
+    notesLabel: string
+    notesPlaceholder: string
+    save: string
+    cancel: string
+    create: string
+    update: string
+    fillRequiredFields: string
+    convertToContract: string
+    convertToContractTitle: string
+    contractTypeLabel: string
+    selectContractType: string
+    convert: string
+    cannotConvertNonApproved: string
+    quotationDetails: string
+    close: string
   }
 }
 
@@ -490,6 +847,8 @@ const translations: Record<Language, Translations> = {
       info: 'Info',
       loading: 'Loading...',
       no: 'No',
+      and: 'and',
+      more: 'more',
       notSpecified: 'Not Specified',
       notes: 'Notes',
       optional: '(Optional)',
@@ -504,7 +863,9 @@ const translations: Record<Language, Translations> = {
       update: 'Update',
       view: 'View',
       warning: 'Warning',
-      yes: 'Yes'
+      yes: 'Yes',
+      to: 'to',
+      days: 'days'
     },
     contracts: {
       title: 'Contracts',
@@ -516,6 +877,8 @@ const translations: Record<Language, Translations> = {
       endDate: 'End Date',
       contractType: 'Contract Type',
       workType: 'Work Type',
+      workScope: 'Work Scope',
+      workScopeFromQuotation: 'Work Scope is inherited from the selected quotation',
       totalAmount: 'Total Amount',
       status: 'Status',
       newContract: 'New Contract',
@@ -638,9 +1001,39 @@ const translations: Record<Language, Translations> = {
       groupPaid: 'Payment successful',
       failedToLoadEmployees: 'Failed to load employees',
       failedToLoadGroups: 'Failed to load labor groups',
+      failedToLoadProjects: 'Failed to load projects',
       failedToSaveEmployee: 'Failed to save employee',
       failedToSaveGroup: 'Failed to save group',
       failedToDeleteEmployee: 'Failed to delete employee',
+      errorSavingEmployee: 'Error occurred while saving employee',
+      errorDeletingEmployee: 'Error occurred while deleting employee',
+      errorSavingGroup: 'Error occurred while saving group',
+      errorClosingGroup: 'Error occurred while closing group',
+      errorApprovingGroup: 'Error occurred while approving group',
+      cannotEditInactiveGroup: 'Cannot edit inactive group',
+      groupNotActive: 'Group is not active',
+      selectAtLeastOneProject: 'Please select at least one project',
+      selectedProjectsNotFound: 'Selected projects not found',
+      cannotStartBeforeProjectDate: 'Cannot start labor group before project contract date',
+      endDateRequired: 'End date is required',
+      closeDateCannotExceed7Days: 'Close date cannot exceed 7 days from current date',
+      groupNotPendingApproval: 'Group is not pending approval',
+      groupNotApprovedForPayment: 'Group is not approved for payment',
+      selectPaymentMethod: 'Please select payment method',
+      selectTreasuryAccount: 'Please select treasury account',
+      defaultEngineer: 'Engineer',
+      period: 'Period',
+      calculationDetails: 'Calculation Details',
+      normalLabor: 'Normal Labor',
+      skilledLabor: 'Skilled Labor/Professional',
+      baseTotal: 'Base Total',
+      overtime: 'Overtime/Bonus',
+      deductions: 'Deductions',
+      finalTotalAmount: 'Final Total Amount',
+      confirmCloseGroup: 'Confirm Close Group',
+      confirmAndClose: 'Confirm and Close',
+      failedToCloseGroup: 'Failed to close group',
+      failedToApproveGroup: 'Failed to approve group',
       failedToDeleteGroup: 'Failed to delete group',
       selectAtLeastOneProject: 'Please select at least one project',
       startDateBeforeProject: 'Start date cannot be before project contract date',
@@ -652,8 +1045,17 @@ const translations: Record<Language, Translations> = {
       noAdvancesAvailable: 'No approved advances with remaining balance available for this engineer',
       advanceInsufficient: 'Warning: Advance balance insufficient',
       advanceSufficient: 'Advance balance sufficient',
+      deductionReason: 'Deduction Reason',
+      deductionReasonRequired: 'Deduction reason is required when deductions exist',
       paymentFromTreasury: 'From Treasury/Bank',
-      paymentFromAdvance: 'Deduct from Engineer Advance'
+      paymentFromAdvance: 'Deduct from Engineer Advance',
+      addGroup: 'Create New Group',
+      noLaborGroups: 'No labor groups registered',
+      totalGroups: 'Total',
+      noEmployees: 'No employees registered',
+      totalEmployees: 'Total',
+      deleteEmployeeConfirm: 'Are you sure you want to delete this employee?',
+      deleteGroupConfirm: 'Are you sure you want to delete this group?'
     },
     languageSelection: {
       arabic: 'Arabic',
@@ -761,7 +1163,108 @@ const translations: Record<Language, Translations> = {
       settlementOrder: 'Settlement Order',
       settlementAdvance: 'Settlement Advance',
       advanceNumber: 'Advance Number',
-      engineerName: 'Engineer Name'
+      engineerName: 'Engineer Name',
+      // Additional Orders translations
+      unknownCustomer: 'Unknown Customer',
+      noPhone: 'No Phone',
+      unknownOrder: 'Unknown',
+      orderId: 'Order ID',
+      invoiceTitle: 'Purchase Order',
+      purchaseOrderNumber: 'Purchase Order Number',
+      date: 'Date',
+      supplierCustomerInfo: 'Supplier/Customer Information',
+      name: 'Name',
+      phone: 'Phone',
+      email: 'Email',
+      itemDescription: 'Item Description',
+      totalAmount: 'Total Amount',
+      print: 'Print',
+      deleteOrderConfirm: 'Delete Order',
+      deleteOrderDescription: 'Are you sure you want to delete this purchase order?',
+      yes: 'Yes',
+      no: 'No',
+      delete: 'Delete',
+      viewDetails: 'View Details',
+      printInvoice: 'Print Invoice',
+      statistics: 'Statistics',
+      totalOrders: 'Total Purchase Orders',
+      totalValue: 'Total Value',
+      pending: 'Pending',
+      completed: 'Completed',
+      searchPlaceholder: 'Search by order number or project name...',
+      filterByStatus: 'Order Status',
+      all: 'All',
+      workScope: 'Work Scope',
+      itemType: 'Item Type',
+      mixed: 'Mixed',
+      inventory: 'Inventory',
+      manual: 'Manual',
+      totalQuantity: 'Total Quantity',
+      orderType: 'Order Type',
+      purchase: 'Purchase',
+      totalAmountLabel: 'Total Amount',
+      status: 'Status',
+      dateLabel: 'Date',
+      actions: 'Actions',
+      unknown: 'Unknown',
+      notSpecified: 'Not Specified',
+      addPurchaseItems: 'Add Purchase Items',
+      itemDescriptionPlaceholder: 'Item description (e.g., 100 bags of cement)',
+      quantityPlaceholder: 'Quantity',
+      unitPricePlaceholder: 'Unit Price',
+      addItem: 'Add Item',
+      addedItems: 'Added Items',
+      materialDescription: 'Material/Description',
+      deleteItem: 'Delete',
+      totalAmountValue: 'Total Amount:',
+      createNewOrder: 'Create New Purchase Order',
+      create: 'Create',
+      cancel: 'Cancel',
+      project: 'Project',
+      projectRequired: 'Project *',
+      selectProject: 'Select Project',
+      workScopeOptional: 'Work Scope (Optional)',
+      selectWorkScope: 'Select Work Scope',
+      supplierCustomer: 'Supplier/Customer',
+      searchSupplierCustomer: 'Search for supplier or customer by name or phone...',
+      addNewSupplier: 'Add New Supplier',
+      supplierName: 'Supplier Name',
+      supplierNameRequired: 'Supplier Name *',
+      supplierNamePlaceholder: 'Supplier Name',
+      phoneOptional: 'Phone Number (Optional)',
+      phonePlaceholder: 'Phone Number',
+      emailOptional: 'Email (Optional)',
+      emailPlaceholder: 'Email',
+      selectedSupplier: 'Selected Supplier:',
+      purchaseItems: 'Purchase Items',
+      items: 'Items',
+      addAtLeastOneItem: '* You must add at least one item',
+      orderStatus: 'Order Status',
+      treasuryAccountWarning: 'Warning: No treasury accounts defined. Please create an account in the Treasury page first',
+      treasuryAccountRequired: 'Treasury Account *',
+      selectTreasuryAccount: 'Select Treasury Account',
+      notesOptional: 'Notes (Optional)',
+      notesPlaceholder: 'Additional notes...',
+      failedToLoadCustomers: 'Failed to load customers list',
+      failedToAddSupplier: 'Failed to add new supplier',
+      supplierAddedSuccessfully: 'New supplier added successfully',
+      selectOrAddSupplier: 'Please select or add a supplier',
+      treasuryAccountNotFound: 'Selected treasury account not found',
+      orderAddedSuccessfully: 'Purchase order added successfully!',
+      warningZeroAmount: '⚠️ Warning: Total amount is zero or negative, will not deduct from treasury',
+      amountDeductedFromTreasury: '✅ Amount deducted from treasury account',
+      failedToDeductFromTreasury: '❌ Failed to deduct amount from treasury',
+      treasuryAccountNotSelected: '⚠️ No treasury account selected, amount will not be deducted',
+      failedToAddOrder: 'Failed to add purchase order',
+      fillRequiredFieldsCorrectly: 'Please fill all required fields correctly',
+      errorSavingOrder: 'An error occurred while saving the purchase order',
+      noOrdersToPrint: 'No purchase orders to print',
+      projectName: 'Project Name',
+      shipped: 'Shipped',
+      itemDescriptionRequired: 'Please enter item description',
+      quantityRequired: 'Please enter a valid quantity greater than zero',
+      unitPriceRequired: 'Please enter a valid unit price',
+      itemAdded: 'Item added successfully'
     },
     projects: {
       title: 'Projects Management',
@@ -794,7 +1297,169 @@ const translations: Record<Language, Translations> = {
       updateDates: 'Update Dates',
       updateDatesTitle: 'Update Project Dates',
       datesUpdateNote: 'Changing project dates may affect related contracts and payments.',
-      validateDates: 'Please verify the entered dates'
+      validateDates: 'Please verify the entered dates',
+      totalProjects: 'Total Projects',
+      activeProjects: 'Active Projects',
+      totalBudget: 'Total Budget',
+      averageCompletion: 'Average Completion',
+      searchPlaceholder: 'Search by project name or client...',
+      details: 'Details',
+      editDates: 'Edit Dates',
+      edit: 'Edit',
+      deleteProjectConfirm: 'Delete Project',
+      deleteProjectDescription: 'Are you sure you want to delete this project?',
+      yes: 'Yes',
+      no: 'No',
+      delete: 'Delete',
+      errorDeletingProject: 'An error occurred while deleting the project',
+      projectNameLabel: 'Project Name',
+      clientLabel: 'Client',
+      statusLabel: 'Status',
+      budgetLabel: 'Budget',
+      completionPercentageLabel: 'Completion Percentage',
+      notesLabel: 'Notes',
+      notesOptional: 'Notes (Optional)',
+      save: 'Save',
+      cancel: 'Cancel',
+      create: 'Create',
+      update: 'Update',
+      startDateLabel: 'Start Date',
+      endDateLabel: 'End Date',
+      startDatePlaceholder: 'Select start date',
+      endDatePlaceholder: 'Select end date',
+      startDateBeforeEndDate: 'Start date must be before end date',
+      endDateAfterStartDate: 'End date must be after start date',
+      noProjectSelected: 'No project selected',
+      datesUpdateSuccess: 'Project dates updated successfully!',
+      datesUpdateError: 'Failed to update project dates',
+      datesValidationError: 'Please verify the entered dates',
+      errorUpdatingDates: 'An error occurred while updating project dates',
+      projectNotFound: 'Project not found',
+      failedToLoadProject: 'Failed to load project data'
+    },
+    projectDetails: {
+      expenseType: 'Expense Type',
+      paymentExpense: 'Payment (Expense)',
+      payment: 'Payment',
+      transactionType: 'Transaction Type',
+      milestoneNumber: 'Milestone Number',
+      descriptionMilestone: 'Description/Milestone',
+      milestone: 'Milestone',
+      engineer: 'Engineer',
+      treasuryAccount: 'Treasury/Account',
+      selectTreasuryAccount: 'Please select treasury account',
+      selectTransactionType: 'Please select transaction type',
+      investorInflowCreated: 'Investor inflow created successfully',
+      failedToCreateInvestorInflow: 'Failed to create investor inflow',
+      enterEngineerName: 'Please enter engineer/employee name',
+      advanceForEngineer: 'Advance for Engineer',
+      advanceCreatedTreasuryError: 'Advance created successfully, but error updating treasury',
+      employeeAdvanceCreated: 'Employee advance created successfully',
+      failedToCreateEmployeeAdvance: 'Failed to create employee advance',
+      errorCreatingTransaction: 'Error occurred while creating transaction',
+      projectExpenses: 'Project Expenses',
+      addNewExpense: 'Add New Expense',
+      expenseWarning: 'Warning: Expenses entered here are exclusively linked to this project',
+      itemType: 'Item Type',
+      generalExpense: 'General Expense',
+      custodyDeduction: 'Custody Deduction',
+      expensesProcurementLedger: 'Expenses & Procurement Ledger',
+      generalExpensesExcluded: 'General expenses excluded',
+      noTransactions: 'No transactions for this project',
+      totalTransactions: 'Total',
+      totalExpenses: 'Total',
+      noExpenses: 'No expenses registered',
+      projectIdNotFound: 'Project ID not found',
+      selectCustody: 'Please select custody',
+      custodyNotFound: 'Selected custody not found',
+      custodyInsufficient: 'Custody balance insufficient. Available',
+      expenseDeductedFromCustody: 'Expense deducted from custody successfully',
+      failedToDeductExpense: 'Failed to deduct expense',
+      errorCreatingExpense: 'Error occurred while creating expense',
+      expenseCreated: 'Expense created successfully',
+      failedToCreateExpense: 'Failed to create expense',
+      navigateToOrders: 'You will be redirected to the orders page to create a new purchase order',
+      totalMilestones: 'Total',
+      noMilestones: 'No milestones registered',
+      engineerAdvance: 'Engineer Advance',
+      investorInflow: 'Investor Inflow',
+      projectExpense: 'Project Expense',
+      totalBudget: 'Total Budget',
+      totalCollected: 'Total Collected',
+      cashFlow: 'Cash Flow',
+      totalLaborCost: 'Total Labor Cost',
+      budgetUsage: 'Budget Usage',
+      mainContract: 'Main Contract',
+      amendments: 'Amendments',
+      fromProjectBudget: 'From Project Budget',
+      paidMilestones: 'Paid Milestones',
+      expensePayments: 'Expense Payments',
+      paidLaborGroups: 'Paid Labor Groups',
+      margin: 'Margin',
+      netMargin: 'Net Margin',
+      used: 'Used',
+      available: 'Available',
+      backToProjects: 'Back to Projects'
+    },
+    customers: {
+      title: 'Customer Management',
+      subtitle: 'Manage company customer base',
+      customer: 'Customer',
+      contactInfo: 'Contact Information',
+      type: 'Type',
+      status: 'Status',
+      balance: 'Balance',
+      totalPurchases: 'Total Purchases',
+      actions: 'Actions',
+      viewDetails: 'View Details',
+      edit: 'Edit',
+      delete: 'Delete',
+      deleteCustomer: 'Delete Customer',
+      deleteCustomerConfirm: 'Are you sure you want to delete this customer?',
+      addCustomer: 'Add Customer',
+      editCustomer: 'Edit Customer',
+      newCustomer: 'New Customer',
+      customerName: 'Customer Name',
+      customerNameRequired: 'Please enter customer name',
+      email: 'Email',
+      emailRequired: 'Please enter email',
+      emailInvalid: 'Please enter a valid email',
+      phone: 'Phone',
+      phoneRequired: 'Please enter phone number',
+      phoneInvalid: 'Please enter a valid phone number',
+      company: 'Company Name',
+      companyOptional: 'Company Name (Optional)',
+      address: 'Address',
+      notes: 'Notes',
+      notesOptional: 'Notes (Optional)',
+      individual: 'Individual',
+      corporate: 'Corporate',
+      active: 'Active',
+      inactive: 'Inactive',
+      totalCustomers: 'Total Customers',
+      activeCustomers: 'Active Customers',
+      corporateCustomers: 'Corporate Customers',
+      totalBalance: 'Total Balance',
+      searchPlaceholder: 'Search by customer name, email or phone...',
+      statusFilter: 'Customer Status',
+      typeFilter: 'Customer Type',
+      all: 'All',
+      export: 'Export',
+      registrationDate: 'Registration Date',
+      totalOrders: 'Total Orders',
+      lastPurchase: 'Last Purchase',
+      customerAdded: 'Customer added successfully',
+      customerUpdated: 'Customer updated successfully',
+      customerDeleted: 'Customer deleted successfully',
+      failedToAdd: 'Failed to add customer',
+      failedToUpdate: 'Failed to update customer',
+      failedToDelete: 'Failed to delete customer',
+      failedToLoad: 'Failed to load customer data',
+      fillRequiredFields: 'Please fill all required fields correctly',
+      errorSaving: 'An error occurred while saving customer',
+      versionMismatch: 'Customer data has been modified. Please refresh and try again.',
+      exportSuccess: 'Data exported successfully',
+      noData: 'No data available'
     },
     treasury: {
       accountCreated: 'Account created successfully!',
@@ -885,7 +1550,62 @@ const translations: Record<Language, Translations> = {
       subtitle: 'Manage general expenses',
       title: 'General Expenses',
       totalExpenses: 'Total Expenses',
-      treasuryAccount: 'Treasury Account'
+      treasuryAccount: 'Treasury Account',
+      amountExceedsAdvance: 'Amount exceeds available advance balance',
+      categoryNameRequired: 'Please enter category name',
+      categoryAdded: 'Category added successfully',
+      failedToAddCategory: 'Failed to add category',
+      itemDescriptionRequired: 'Please enter item description',
+      quantityMustBeGreaterThanZero: 'Quantity must be greater than zero',
+      unitPriceMustBeGreaterThanOrEqualToZero: 'Unit price must be greater than or equal to zero',
+      itemAdded: 'Item added successfully',
+      addNewSupplier: 'Add New Supplier',
+      addAtLeastOneItem: 'Please add at least one item',
+      supplierNameRequired: 'Please enter supplier name',
+      supplierAddedSuccessfully: 'New supplier added successfully',
+      failedToAddSupplier: 'Failed to add new supplier',
+      selectOrAddSupplier: 'Please select or add a supplier',
+      selectProjectRequired: 'Please select project',
+      selectTreasuryAccountRequired: 'Please select treasury account/bank for payment',
+      treasuryAccountNotFound: 'Selected treasury account not found',
+      orderAddedSuccessfully: 'Purchase order added successfully',
+      zeroOrNegativeAmountWarning: 'Warning: Total amount is zero or negative, will not deduct from treasury',
+      purchaseOrderDescription: 'Purchase Order',
+      amountDeductedFromTreasury: 'Amount deducted from treasury account',
+      failedToDeductFromTreasury: 'Failed to deduct amount from treasury',
+      errorDeductingFromTreasury: 'Error while deducting amount from treasury',
+      unknownError: 'Unknown error',
+      failedToCreateOrder: 'Failed to create purchase order',
+      selectEmployeeRequired: 'Please select employee (Project manager required when linking project)',
+      employeeNotFound: 'Selected employee not found',
+      employeeLabel: 'Employee',
+      selectEmployee: 'Select Employee',
+      verifyEmployeeSelection: 'Please verify employee selection is correct',
+      enterManagerNameOrSelectEmployee: 'Please enter project manager name or select employee',
+      enterValidAmount: 'Please enter a valid amount',
+      selectOpenAdvance: 'Please select open advance',
+      linkedAdvanceDetailsNotFound: 'Linked advance details not found',
+      linkedAdvanceNoProject: 'Linked advance does not have a project. Please select a project for settlement',
+      selectOrAddVendorForPO: 'Please select or add vendor/recipient for purchase order',
+      addAtLeastOneItemForPO: 'Please add at least one item for purchase order',
+      itemTotalMustBeGreaterThanZero: 'Item total must be greater than zero',
+      advanceFullySettled: 'Advance is fully settled - cannot create new settlement',
+      amountExceedsAvailableBalance: 'Amount exceeds available advance balance',
+      enterVendorRecipientName: 'Please enter vendor/recipient name',
+      settlementAndPOSaved: 'Settlement and purchase order saved successfully',
+      failedToSaveSettlementAndPO: 'Failed to save settlement and purchase order',
+      selectTreasuryAccountForReturn: 'Please select treasury account for return',
+      settlementSaved: 'Settlement saved successfully',
+      advanceRequestSaved: 'Advance request saved successfully - pending approval',
+      advanceSaved: 'Advance saved successfully',
+      settlementReturnDescription: 'Settlement Advance (Return)',
+      selectCategory: 'Please select category',
+      selectPaymentFrequency: 'Please select payment frequency',
+      expenseRequestSaved: 'Expense request saved successfully - pending approval',
+      expenseSaved: 'Expense saved successfully',
+      failedToSaveExpense: 'Failed to save expense',
+      saveError: 'Save error',
+      allowPopupsForPrinting: 'Please allow popups for printing'
     },
     quotations: {
       accepted: 'Accepted',
@@ -910,7 +1630,39 @@ const translations: Record<Language, Translations> = {
       title: 'Quotations',
       totalAmount: 'Total Amount',
       validUntil: 'Valid Until',
-      workType: 'Work Type'
+      workType: 'Work Type',
+      builder: 'Builder',
+      quotationBuilder: 'Quotation Builder',
+      saveDraft: 'Save Draft',
+      generatePDF: 'Generate PDF',
+      header: 'Header',
+      boq: 'BOQ',
+      content: 'Content',
+      company: 'Company',
+      attention: 'Attention',
+      project: 'Project',
+      subject: 'Subject',
+      refNo: 'REF NO',
+      date: 'Date',
+      customer: 'Customer',
+      customerName: 'Customer Name',
+      phone: 'Phone',
+      email: 'Email',
+      addRow: 'Add Row',
+      total: 'Total',
+      introduction: 'Introduction',
+      scopeOfWork: 'Scope of Work',
+      exclusions: 'Exclusions',
+      facilities: 'Facilities',
+      termsAndConditions: 'Terms & Conditions',
+      validityPeriod: 'Validity Period (Days)',
+      days: 'days',
+      pdfPreview: 'PDF Preview',
+      refresh: 'Refresh',
+      draftSaved: 'Draft saved successfully',
+      pdfGenerated: 'PDF generated successfully',
+      activities: 'Activities',
+      amount: 'Amount'
     }
   },
   ar: {
@@ -931,6 +1683,8 @@ const translations: Record<Language, Translations> = {
       info: 'معلومات',
       loading: 'جاري التحميل...',
       no: 'لا',
+      and: 'و',
+      more: 'المزيد',
       notSpecified: 'غير محدد',
       notes: 'ملاحظات',
       optional: '(اختياري)',
@@ -945,7 +1699,9 @@ const translations: Record<Language, Translations> = {
       update: 'تحديث',
       view: 'عرض',
       warning: 'تحذير',
-      yes: 'نعم'
+      yes: 'نعم',
+      to: 'إلى',
+      days: 'أيام'
     },
     contracts: {
       title: 'العقود',
@@ -957,6 +1713,8 @@ const translations: Record<Language, Translations> = {
       endDate: 'تاريخ الانتهاء',
       contractType: 'نوع العقد',
       workType: 'نوع العمل',
+      workScope: 'نطاق العمل',
+      workScopeFromQuotation: 'نطاق العمل موروث من العرض المحدد',
       totalAmount: 'المبلغ الإجمالي',
       status: 'الحالة',
       newContract: 'عقد جديد',
@@ -1087,6 +1845,8 @@ const translations: Record<Language, Translations> = {
       startDateBeforeProject: 'لا يمكن بدء مجموعة العمل قبل تاريخ عقد المشروع',
       endDateMoreThan7Days: 'تاريخ الإغلاق لا يمكن أن يتجاوز 7 أيام من التاريخ الحالي',
       endDateBeforeStartDate: 'تاريخ النهاية لا يمكن أن يكون قبل تاريخ البداية',
+      deductionReason: 'سبب الخصومات',
+      deductionReasonRequired: 'سبب الخصومات مطلوب عند وجود خصومات',
       selectPaymentMethod: 'يرجى اختيار طريقة الدفع',
       selectTreasuryAccount: 'يرجى اختيار حساب الخزينة',
       selectAdvance: 'يرجى اختيار العهدة',
@@ -1094,7 +1854,14 @@ const translations: Record<Language, Translations> = {
       advanceInsufficient: 'تحذير: رصيد العهدة غير كاف',
       advanceSufficient: 'رصيد العهدة كاف',
       paymentFromTreasury: 'من الخزينة/البنك',
-      paymentFromAdvance: 'خصم من عهدة المهندس'
+      paymentFromAdvance: 'خصم من عهدة المهندس',
+      addGroup: 'إنشاء مجموعة جديدة',
+      noLaborGroups: 'لا توجد مجموعات عمالة مسجلة',
+      totalGroups: 'إجمالي',
+      noEmployees: 'لا توجد موظفين مسجلين',
+      totalEmployees: 'إجمالي',
+      deleteEmployeeConfirm: 'هل أنت متأكد من حذف هذا الموظف؟',
+      deleteGroupConfirm: 'هل أنت متأكد من حذف هذه المجموعة؟'
     },
     languageSelection: {
       arabic: 'العربية',
@@ -1235,7 +2002,73 @@ const translations: Record<Language, Translations> = {
       updateDates: 'تعديل التواريخ',
       updateDatesTitle: 'تعديل تواريخ المشروع',
       datesUpdateNote: 'تغيير تواريخ المشروع قد يؤثر على العقود والدفعات المرتبطة.',
-      validateDates: 'يرجى التحقق من صحة التواريخ المدخلة'
+      validateDates: 'يرجى التحقق من صحة التواريخ المدخلة',
+      projectNotFound: 'المشروع غير موجود',
+      failedToLoadProject: 'فشل في تحميل بيانات المشروع'
+    },
+    projectDetails: {
+      expenseType: 'نوع المصروف',
+      paymentExpense: 'دفعة (مصروف)',
+      payment: 'دفعة',
+      transactionType: 'نوع المعاملة',
+      milestoneNumber: 'رقم المستخلص',
+      descriptionMilestone: 'الوصف/المرحلة',
+      milestone: 'مستخلص',
+      engineer: 'المهندس',
+      treasuryAccount: 'الخزينة/الحساب',
+      selectTreasuryAccount: 'يرجى اختيار حساب الخزينة',
+      selectTransactionType: 'يرجى اختيار نوع المعاملة',
+      investorInflowCreated: 'تم إنشاء وارد المستثمر بنجاح',
+      failedToCreateInvestorInflow: 'فشل في إنشاء وارد المستثمر',
+      enterEngineerName: 'يرجى إدخال اسم المهندس/الموظف',
+      advanceForEngineer: 'صرف عهدة لمهندس',
+      advanceCreatedTreasuryError: 'تم إنشاء العهدة بنجاح، لكن حدث خطأ في تحديث الخزينة',
+      employeeAdvanceCreated: 'تم إنشاء عهدة الموظف بنجاح',
+      failedToCreateEmployeeAdvance: 'فشل في إنشاء عهدة الموظف',
+      errorCreatingTransaction: 'حدث خطأ أثناء إنشاء المعاملة',
+      projectExpenses: 'مصاريف المشروع',
+      addNewExpense: 'إضافة مصروف جديد',
+      expenseWarning: 'تنبيه: المصاريف المدخلة هنا مرتبطة حصرياً بهذا المشروع',
+      itemType: 'نوع العنصر',
+      generalExpense: 'مصروف عام',
+      custodyDeduction: 'خصم من عهدة',
+      expensesProcurementLedger: 'سجل المصاريف والمشتريات',
+      generalExpensesExcluded: 'المصاريف العامة مستثناة',
+      noTransactions: 'لا توجد معاملات لهذا المشروع',
+      totalTransactions: 'إجمالي',
+      totalExpenses: 'إجمالي',
+      noExpenses: 'لا توجد مصاريف مسجلة',
+      projectIdNotFound: 'معرف المشروع غير موجود',
+      selectCustody: 'يرجى اختيار العهدة',
+      custodyNotFound: 'العهدة المحددة غير موجودة',
+      custodyInsufficient: 'رصيد العهدة غير كاف. المتاح',
+      expenseDeductedFromCustody: 'تم خصم المصروف من العهدة بنجاح',
+      failedToDeductExpense: 'فشل في خصم المصروف',
+      errorCreatingExpense: 'حدث خطأ أثناء إنشاء المصروف',
+      expenseCreated: 'تم إنشاء المصروف بنجاح',
+      failedToCreateExpense: 'فشل في إنشاء المصروف',
+      navigateToOrders: 'سيتم توجيهك إلى صفحة أوامر الشراء لإنشاء أمر شراء جديد',
+      totalMilestones: 'إجمالي',
+      noMilestones: 'لا توجد مستخلصات مسجلة',
+      engineerAdvance: 'عهدة مهندس',
+      investorInflow: 'وارد مستثمر',
+      projectExpense: 'مصروف مشروع',
+      totalBudget: 'الميزانية الإجمالية',
+      totalCollected: 'إجمالي المحصل',
+      cashFlow: 'التدفق النقدي',
+      totalLaborCost: 'إجمالي تكلفة العمالة',
+      budgetUsage: 'استخدام الميزانية',
+      mainContract: 'العقد الأساسي',
+      amendments: 'ملحق',
+      fromProjectBudget: 'من ميزانية المشروع',
+      paidMilestones: 'مستخلص مدفوع',
+      expensePayments: 'دفعة مصروف',
+      paidLaborGroups: 'مجموعة عمالة مدفوعة',
+      margin: 'الهامش',
+      netMargin: 'صافي الهامش',
+      used: 'المستخدم',
+      available: 'المتاح',
+      backToProjects: 'العودة إلى المشاريع'
     },
     treasury: {
       accountCreated: 'تم إنشاء الحساب بنجاح!',
@@ -1326,7 +2159,62 @@ const translations: Record<Language, Translations> = {
       subtitle: 'إدارة المصاريف العامة',
       title: 'المصاريف العامة',
       totalExpenses: 'إجمالي المصاريف',
-      treasuryAccount: 'حساب الخزينة'
+      treasuryAccount: 'حساب الخزينة',
+      amountExceedsAdvance: 'المبلغ المدخل أكبر من الرصيد المتاح في العهدة',
+      categoryNameRequired: 'يرجى إدخال اسم الفئة',
+      categoryAdded: 'تم إضافة الفئة بنجاح',
+      failedToAddCategory: 'فشل في إضافة الفئة',
+      itemDescriptionRequired: 'يرجى إدخال وصف البند',
+      quantityMustBeGreaterThanZero: 'الكمية يجب أن تكون أكبر من صفر',
+      unitPriceMustBeGreaterThanOrEqualToZero: 'سعر الوحدة يجب أن يكون أكبر من أو يساوي صفر',
+      itemAdded: 'تم إضافة البند',
+      addNewSupplier: 'إضافة مورد جديد',
+      addAtLeastOneItem: 'يرجى إضافة بند واحد على الأقل',
+      supplierNameRequired: 'يرجى إدخال اسم المورد',
+      supplierAddedSuccessfully: 'تم إضافة المورد الجديد بنجاح',
+      failedToAddSupplier: 'فشل في إضافة المورد الجديد',
+      selectOrAddSupplier: 'يرجى اختيار أو إضافة مورد',
+      selectProjectRequired: 'يرجى اختيار المشروع',
+      selectTreasuryAccountRequired: 'يرجى اختيار حساب الخزينة/البنك للصرف',
+      treasuryAccountNotFound: 'حساب الخزينة المحدد غير موجود',
+      orderAddedSuccessfully: 'تم إضافة أمر الشراء بنجاح',
+      zeroOrNegativeAmountWarning: '⚠️ تحذير: المبلغ الإجمالي صفر أو سالب، لن يتم خصم من الخزينة',
+      purchaseOrderDescription: 'أمر شراء',
+      amountDeductedFromTreasury: 'تم خصم المبلغ من حساب الخزينة',
+      failedToDeductFromTreasury: 'فشل خصم المبلغ من الخزينة',
+      errorDeductingFromTreasury: 'خطأ أثناء خصم المبلغ من الخزينة',
+      unknownError: 'خطأ غير معروف',
+      failedToCreateOrder: 'فشل في إنشاء أمر الشراء',
+      selectEmployeeRequired: 'يرجى اختيار الموظف (مدير المشروع مطلوب عند ربط المشروع)',
+      employeeNotFound: 'الموظف المحدد غير موجود',
+      employeeLabel: 'الموظف',
+      selectEmployee: 'اختر الموظف',
+      verifyEmployeeSelection: 'يرجى التأكد من اختيار الموظف بشكل صحيح',
+      enterManagerNameOrSelectEmployee: 'يرجى إدخال اسم مدير المشروع أو اختيار الموظف',
+      enterValidAmount: 'يرجى إدخال مبلغ صحيح',
+      selectOpenAdvance: 'يرجى اختيار العهدة المفتوحة',
+      linkedAdvanceDetailsNotFound: 'لم يتم العثور على تفاصيل العهدة المرتبطة',
+      linkedAdvanceNoProject: 'العهدة المرتبطة لا تحتوي على مشروع. يرجى اختيار مشروع للتسوية',
+      selectOrAddVendorForPO: 'يرجى اختيار أو إضافة مورد/مستلم لأمر الشراء',
+      addAtLeastOneItemForPO: 'يرجى إضافة بند واحد على الأقل لأمر الشراء',
+      itemTotalMustBeGreaterThanZero: 'يجب أن يكون مجموع البنود أكبر من صفر',
+      advanceFullySettled: 'العهدة تم تسويتها بالكامل - لا يمكن إنشاء تسوية جديدة',
+      amountExceedsAvailableBalance: 'المبلغ المدخل أكبر من الرصيد المتاح في العهدة',
+      enterVendorRecipientName: 'يرجى إدخال اسم المورد/المستلم',
+      settlementAndPOSaved: 'تم حفظ التسوية وأمر الشراء بنجاح',
+      failedToSaveSettlementAndPO: 'فشل في حفظ التسوية وأمر الشراء',
+      selectTreasuryAccountForReturn: 'يرجى اختيار حساب الخزينة للإرجاع',
+      settlementSaved: 'تم حفظ التسوية بنجاح',
+      advanceRequestSaved: 'تم حفظ طلب العهدة بنجاح - في انتظار الموافقة',
+      advanceSaved: 'تم حفظ العهدة بنجاح',
+      settlementReturnDescription: 'تسوية عهدة (مرتجع)',
+      selectCategory: 'يرجى اختيار الفئة',
+      selectPaymentFrequency: 'يرجى اختيار دورية الصرف',
+      expenseRequestSaved: 'تم حفظ طلب المصروف بنجاح - في انتظار الموافقة',
+      expenseSaved: 'تم حفظ المصروف بنجاح',
+      failedToSaveExpense: 'فشل في حفظ المصروف',
+      saveError: 'خطأ في الحفظ',
+      allowPopupsForPrinting: 'يرجى السماح بالنوافذ المنبثقة للطباعة'
     },
     quotations: {
       accepted: 'مقبول',
@@ -1351,7 +2239,39 @@ const translations: Record<Language, Translations> = {
       title: 'العروض',
       totalAmount: 'المبلغ الإجمالي',
       validUntil: 'صالح حتى',
-      workType: 'نوع العمل'
+      workType: 'نوع العمل',
+      builder: 'منشئ',
+      quotationBuilder: 'منشئ العروض',
+      saveDraft: 'حفظ المسودة',
+      generatePDF: 'إنشاء PDF',
+      header: 'الرأس',
+      boq: 'جدول الكميات',
+      content: 'المحتوى',
+      company: 'الشركة',
+      attention: 'الانتباه',
+      project: 'المشروع',
+      subject: 'الموضوع',
+      refNo: 'رقم المرجع',
+      date: 'التاريخ',
+      customer: 'العميل',
+      customerName: 'اسم العميل',
+      phone: 'الهاتف',
+      email: 'البريد الإلكتروني',
+      addRow: 'إضافة صف',
+      total: 'الإجمالي',
+      introduction: 'المقدمة',
+      scopeOfWork: 'نطاق العمل',
+      exclusions: 'الاستثناءات',
+      facilities: 'المرافق',
+      termsAndConditions: 'الشروط والأحكام',
+      validityPeriod: 'فترة الصلاحية (أيام)',
+      days: 'أيام',
+      pdfPreview: 'معاينة PDF',
+      refresh: 'تحديث',
+      draftSaved: 'تم حفظ المسودة بنجاح',
+      pdfGenerated: 'تم إنشاء PDF بنجاح',
+      activities: 'الأنشطة',
+      amount: 'المبلغ'
     }
   }
 }

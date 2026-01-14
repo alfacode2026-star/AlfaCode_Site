@@ -19,6 +19,7 @@ import ProjectsPage from './pages/Projects';
 import ProjectDetails from './pages/ProjectDetails';
 import SetupPage from './pages/SetupPage';
 import QuotationsPage from './pages/QuotationsPage';
+import QuotationBuilder from './pages/QuotationBuilder';
 import ContractsPage from './pages/ContractsPage';
 import LaborPage from './pages/LaborPage';
 import GeneralExpenses from './pages/GeneralExpenses';
@@ -175,6 +176,7 @@ function AppContent() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/quotations" element={<QuotationsPage />} />
+              <Route path="/quotation-builder" element={<QuotationBuilder />} />
               <Route path="/contracts" element={<ContractsPage />} />
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:id" element={<ProjectDetails />} />
@@ -209,6 +211,8 @@ function AppWrapper() {
   // If language is not set, show ONLY LanguageSelection component
   // Do NOT mount the Sidebar, Navbar, or any Routes until language is set
   if (!hasLanguage) {
+    // Force English locale and LTR for language selection screen
+    moment.locale('en');
     return (
       <ConfigProvider direction="ltr" locale={enUS}>
         <LanguageSelection />
@@ -216,13 +220,18 @@ function AppWrapper() {
     );
   }
   
-  // ENGLISH-FIRST BOOT: Language defaults to 'en', so we always have a language
-  // Set moment locale based on language
+  // ENGLISH-FIRST BOOT: Set moment locale based on language
+  // CRITICAL: When English is selected, MUST use 'en' locale globally
   useEffect(() => {
-    moment.locale(language === 'en' ? 'en' : 'ar');
+    if (language === 'en') {
+      moment.locale('en');
+    } else {
+      moment.locale('ar');
+    }
   }, [language]);
 
   // ENGLISH CLEAN ROOM: When English is active, MUST use LTR and en_US locale
+  // CRITICAL: Force LTR and en_US when language is English
   const locale = language === 'en' ? enUS : arEG;
   const direction = language === 'en' ? 'ltr' : 'rtl';
 

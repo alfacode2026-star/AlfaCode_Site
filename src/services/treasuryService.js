@@ -370,16 +370,6 @@ class TreasuryService {
       const currentBalance = parseFloat(accountData.current_balance) || 0
       const newBalance = currentBalance + balanceChange
 
-      console.log('Treasury Transaction:', {
-        accountId,
-        accountName: accountData.name,
-        accountType: accountData.type,
-        currentBalance,
-        balanceChange,
-        newBalance,
-        transactionType,
-        amount
-      })
 
       // STEP 3: Create transaction record FIRST
       const transactionId = transactionData.id || crypto.randomUUID()
@@ -447,15 +437,6 @@ class TreasuryService {
         }
       }
 
-      console.log('✅ Treasury transaction created successfully:', {
-        transactionId: insertedTransaction.id,
-        accountId,
-        accountName: updatedAccount.name,
-        oldBalance: currentBalance,
-        newBalance,
-        amount,
-        transactionType
-      })
 
       return {
         success: true,
@@ -485,6 +466,110 @@ class TreasuryService {
       initialBalance: parseFloat(data.initial_balance) || 0,
       createdAt: data.created_at,
       updatedAt: data.updated_at
+    }
+  }
+
+  // Delete treasury transaction by reference_id (used when expense/payment is deleted)
+  async deleteTransactionByReference(referenceType, referenceId) {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      const tenantValidation = validateTenantId(tenantId)
+      if (!tenantValidation.valid) {
+        return {
+          success: false,
+          error: tenantValidation.error || 'Select a Company first',
+          errorCode: 'NO_TENANT_ID'
+        }
+      }
+
+      if (!referenceType || !referenceId) {
+        return {
+          success: false,
+          error: 'Reference type and ID are required',
+          errorCode: 'INVALID_REFERENCE'
+        }
+      }
+
+      // Find the transaction by reference
+      const { data: transactions, error: findError } = await supabase
+        .from('treasury_transactions')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('reference_type', referenceType)
+        .eq('reference_id', referenceId)
+
+      if (findError) {
+        console.error('Error finding treasury transaction:', findError)
+        return {
+          success: false,
+          error: `Failed to find transaction: ${findError.message}`,
+          errorCode: 'FIND_TRANSACTION_FAILED'
+        }
+      }
+
+      if (!transactions || transactions.length === 0) {
+        // No transaction found - this is OK (expense might not have been paid yet)
+        return { success: true, message: 'No treasury transaction found to reverse' }
+      }
+
+      // Reverse each transaction (there might be multiple if expense was edited)
+      for (const transaction of transactions) {
+        const accountId = transaction.account_id
+        const amount = parseFloat(transaction.amount) || 0
+        const transactionType = transaction.transaction_type // 'inflow' or 'outflow'
+        
+        // Reverse the balance change: if it was outflow, add it back (inflow), and vice versa
+        const reverseBalanceChange = transactionType === 'outflow' ? amount : -amount
+
+        // Get current account balance
+        const { data: accountData, error: accountError } = await supabase
+          .from('treasury_accounts')
+          .select('current_balance')
+          .eq('id', accountId)
+          .eq('tenant_id', tenantId)
+          .single()
+
+        if (accountError || !accountData) {
+          console.error('Error fetching account for reversal:', accountError)
+          continue // Skip this transaction but continue with others
+        }
+
+        const currentBalance = parseFloat(accountData.current_balance) || 0
+        const newBalance = currentBalance + reverseBalanceChange
+
+        // Update account balance
+        const { error: updateError } = await supabase
+          .from('treasury_accounts')
+          .update({ current_balance: newBalance })
+          .eq('id', accountId)
+          .eq('tenant_id', tenantId)
+
+        if (updateError) {
+          console.error('Error reversing account balance:', updateError)
+          continue // Skip this transaction but continue with others
+        }
+
+        // Delete the transaction record
+        const { error: deleteError } = await supabase
+          .from('treasury_transactions')
+          .delete()
+          .eq('id', transaction.id)
+          .eq('tenant_id', tenantId)
+
+        if (deleteError) {
+          console.error('Error deleting treasury transaction:', deleteError)
+          // Balance was already reversed, so we continue
+        }
+      }
+
+      return { success: true, reversed: transactions.length }
+    } catch (error) {
+      console.error('Error deleting treasury transaction by reference:', error)
+      return {
+        success: false,
+        error: error.message || 'Failed to reverse treasury transaction',
+        errorCode: 'DELETE_TRANSACTION_FAILED'
+      }
     }
   }
 

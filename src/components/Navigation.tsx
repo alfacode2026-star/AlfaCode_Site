@@ -52,6 +52,11 @@ const Navigation = () => {
         label: t.navigation.quotations,
       },
       {
+        key: '/quotation-builder',
+        icon: <FileTextOutlined />,
+        label: t.quotations.quotationBuilder,
+      },
+      {
         key: '/contracts',
         icon: <FileProtectOutlined />,
         label: t.navigation.contracts,

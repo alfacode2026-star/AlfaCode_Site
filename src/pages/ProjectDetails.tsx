@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 import projectsService from '../services/projectsService'
 import ordersService from '../services/ordersService'
 import contractsService from '../services/contractsService'
@@ -61,6 +63,8 @@ const { TextArea } = Input
 const ProjectDetails = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const [form] = Form.useForm()
   
   const [project, setProject] = useState(null)
@@ -149,7 +153,7 @@ const ProjectDetails = () => {
       // Load project details
       const projectData = await projectsService.getProjectById(id)
       if (!projectData) {
-        message.error('المشروع غير موجود')
+        message.error(t.projects.projectNotFound || 'Project not found')
         navigate('/projects')
         return
       }
@@ -172,7 +176,7 @@ const ProjectDetails = () => {
       loadTreasuryAccountNamesForPayments(projectPayments || [])
     } catch (error) {
       console.error('Error loading project details:', error)
-      message.error('فشل في تحميل بيانات المشروع')
+      message.error(t.projects.failedToLoadProject || 'Failed to load project data')
     } finally {
       setLoading(false)
     }
@@ -441,17 +445,17 @@ const ProjectDetails = () => {
   // Get status tag color
   const getStatusConfig = (status: string) => {
     const statusConfig: Record<string, { color: string; text: string }> = {
-      active: { color: 'green', text: 'نشط' },
-      on_hold: { color: 'orange', text: 'متوقف' },
-      completed: { color: 'blue', text: 'مكتمل' },
-      cancelled: { color: 'red', text: 'ملغي' },
+      active: { color: 'green', text: t.projects.active || 'Active' },
+      on_hold: { color: 'orange', text: t.projects.onHold || 'On Hold' },
+      completed: { color: 'blue', text: t.projects.completed || 'Completed' },
+      cancelled: { color: 'red', text: t.projects.cancelled || 'Cancelled' },
     }
-    return statusConfig[status] || { color: 'default', text: 'غير محدد' }
+    return statusConfig[status] || { color: 'default', text: t.common.notSpecified }
   }
 
   // Format currency
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ar-SA', {
+    return new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', {
       style: 'currency',
       currency: 'SAR',
       minimumFractionDigits: 0,
@@ -470,10 +474,10 @@ const ProjectDetails = () => {
         id: order.id,
         type: 'order',
         paymentType: 'expense',
-        typeLabel: 'أمر شراء',
+        typeLabel: t.orders.purchaseOrder || 'Purchase Order',
         date: order.createdAt,
-        description: `أمر شراء ${order.workScope ? `- ${order.workScope}` : ''}`,
-        customer: order.customerName || 'غير محدد',
+        description: `${t.orders.purchaseOrder || 'Purchase Order'} ${order.workScope ? `- ${order.workScope}` : ''}`,
+        customer: order.customerName || t.common.notSpecified,
         amount: parseFloat(order.total) || 0,
         status: order.status,
         reference: `PO-${order.id}`,
@@ -515,10 +519,10 @@ const ProjectDetails = () => {
         id: payment.id,
         type: 'payment',
         paymentType: paymentType,
-        typeLabel: 'دفعة (مصروف)',
+        typeLabel: t.projectDetails.paymentExpense || 'Payment (Expense)',
         date: payment.paidDate || payment.dueDate,
-        description: `دفعة ${payment.paymentNumber}${payment.workScope ? ` - ${payment.workScope}` : ''}`,
-        customer: 'المورد',
+        description: `${t.projectDetails.payment || 'Payment'} ${payment.paymentNumber}${payment.workScope ? ` - ${payment.workScope}` : ''}`,
+        customer: t.common.supplier || 'Supplier',
         amount: parseFloat(payment.amount) || 0,
         status: payment.status,
         reference: payment.paymentNumber,
@@ -541,13 +545,13 @@ const ProjectDetails = () => {
     try {
       // Validate treasury account
       if (!values.treasuryAccountId) {
-        message.error('يرجى اختيار حساب الخزينة')
+        message.error(t.projectDetails.selectTreasuryAccount || 'Please select treasury account')
         return
       }
 
       // Validate transaction type
       if (!values.transactionType) {
-        message.error('يرجى اختيار نوع المعاملة')
+        message.error(t.projectDetails.selectTransactionType || 'Please select transaction type')
         return
       }
 
@@ -587,18 +591,18 @@ const ProjectDetails = () => {
             }
           }
 
-          message.success('تم إنشاء وارد المستثمر بنجاح')
+          message.success(t.projectDetails.investorInflowCreated || 'Investor inflow created successfully')
           setInvoiceModalVisible(false)
           form.resetFields()
           await loadProjectDetails() // Reload data
           loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
         } else {
-          message.error(result.error || 'فشل في إنشاء وارد المستثمر')
+          message.error(result.error || (t.projectDetails.failedToCreateInvestorInflow || 'Failed to create investor inflow'))
         }
       } else if (values.transactionType === 'employee_advance') {
         // Type B: Employee Advance - use paymentsService
         if (!values.managerName || values.managerName.trim() === '') {
-          message.error('يرجى إدخال اسم المهندس/الموظف')
+          message.error(t.projectDetails.enterEngineerName || 'Please enter engineer/employee name')
           return
         }
 
@@ -630,37 +634,37 @@ const ProjectDetails = () => {
             amount: values.amount,
             referenceType: 'expense', // Employee advances are expenses
             referenceId: result.payment.id,
-            description: `صرف عهدة لمهندس: ${values.managerName} - مشروع: ${project?.name || ''}`
+            description: `${t.projectDetails.advanceForEngineer || 'Advance for Engineer'}: ${values.managerName} - ${t.common.project || 'Project'}: ${project?.name || ''}`
           })
 
           if (!treasuryResult.success) {
             console.error('Error creating treasury transaction for advance:', treasuryResult.error)
             // Don't fail the whole operation, but log the error
-            message.warning('تم إنشاء العهدة بنجاح، لكن حدث خطأ في تحديث الخزينة')
+            message.warning(t.projectDetails.advanceCreatedTreasuryError || 'Advance created successfully, but error updating treasury')
           }
 
-          message.success('تم إنشاء عهدة الموظف بنجاح')
+          message.success(t.projectDetails.employeeAdvanceCreated || 'Employee advance created successfully')
           setInvoiceModalVisible(false)
           form.resetFields()
           await loadProjectDetails() // Reload data
           loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
         } else {
-          message.error(result.error || 'فشل في إنشاء عهدة الموظف')
+          message.error(result.error || (t.projectDetails.failedToCreateEmployeeAdvance || 'Failed to create employee advance'))
         }
       }
     } catch (error) {
       console.error('Error creating transaction:', error)
-      message.error('حدث خطأ أثناء إنشاء المعاملة')
+      message.error(t.projectDetails.errorCreatingTransaction || 'Error occurred while creating transaction')
     }
   }
 
   // Get available work scopes from project
   const availableWorkScopes = project?.workScopes || []
 
-  // Table columns for unified ledger
-  const ledgerColumns = [
+  // Table columns for unified ledger - Golden Template
+  const ledgerColumns = useMemo(() => [
     {
-      title: 'التاريخ',
+      title: t.common.date,
       dataIndex: 'date',
       key: 'date',
       render: (date: string) => moment(date).format('YYYY-MM-DD'),
@@ -668,17 +672,17 @@ const ProjectDetails = () => {
       width: 120,
     },
     {
-      title: 'النوع',
+      title: t.common.type || 'Type',
       dataIndex: 'typeLabel',
       key: 'type',
-                  render: (typeLabel: string, record: any) => {
+      render: (typeLabel: string, record: any) => {
         const isIncome = record.paymentType === 'income'
         const color = isIncome ? 'green' : record.type === 'order' ? 'red' : 'orange'
         return (
           <Tag color={color}>
             {typeLabel}
             {record.isGeneralExpense && (
-              <span style={{ marginRight: 4, fontSize: '10px' }}> / مصروف عام</span>
+              <span style={{ marginRight: 4, fontSize: '10px' }}> / {t.projectDetails.generalExpense || 'General Expense'}</span>
             )}
           </Tag>
         )
@@ -686,7 +690,7 @@ const ProjectDetails = () => {
       width: 120,
     },
     {
-      title: 'الوصف',
+      title: t.common.description,
       dataIndex: 'description',
       key: 'description',
       render: (description: string, record: any) => (
@@ -697,7 +701,7 @@ const ProjectDetails = () => {
       ),
     },
     {
-      title: 'نطاق العمل',
+      title: t.common.workScope || 'Work Scope',
       dataIndex: 'workScope',
       key: 'workScope',
       render: (workScope: string) => workScope ? (
@@ -708,25 +712,25 @@ const ProjectDetails = () => {
       width: 120,
     },
     {
-      title: 'الحالة',
+      title: t.common.status,
       dataIndex: 'status',
       key: 'status',
       render: (status: string, record: any) => {
         const statusConfig: Record<string, { color: string; text: string }> = {
-          pending: { color: 'orange', text: 'قيد الانتظار' },
-          processing: { color: 'blue', text: 'قيد المعالجة' },
-          shipped: { color: 'cyan', text: 'تم الشحن' },
-          completed: { color: 'green', text: 'مكتمل' },
-          paid: { color: 'green', text: 'مدفوع' },
-          cancelled: { color: 'red', text: 'ملغي' },
+          pending: { color: 'orange', text: t.common.pending || 'Pending' },
+          processing: { color: 'blue', text: t.common.processing || 'Processing' },
+          shipped: { color: 'cyan', text: t.common.shipped || 'Shipped' },
+          completed: { color: 'green', text: t.common.completed || 'Completed' },
+          paid: { color: 'green', text: t.common.paid || 'Paid' },
+          cancelled: { color: 'red', text: t.common.cancelled || 'Cancelled' },
         }
-        const config = statusConfig[status] || { color: 'default', text: status || 'غير محدد' }
+        const config = statusConfig[status] || { color: 'default', text: status || t.common.notSpecified }
         return <Tag color={config.color}>{config.text}</Tag>
       },
       width: 120,
     },
     {
-      title: 'المبلغ',
+      title: t.common.amount,
       dataIndex: 'amount',
       key: 'amount',
       render: (amount: number, record: any) => {
@@ -742,7 +746,7 @@ const ProjectDetails = () => {
       align: 'right' as const,
       width: 150,
     },
-  ]
+  ], [t, language])
 
   if (loading) {
     return (
@@ -752,7 +756,7 @@ const ProjectDetails = () => {
         alignItems: 'center', 
         minHeight: '400px' 
       }}>
-        <Spin size="large" tip="جاري التحميل..." />
+        <Spin size="large" tip={t.common.loading} />
       </div>
     )
   }
@@ -760,7 +764,7 @@ const ProjectDetails = () => {
   if (!project) {
     return (
       <div style={{ padding: 24 }}>
-        <Empty description="المشروع غير موجود" />
+        <Empty description={t.projects.projectNotFound || 'Project not found'} />
       </div>
     )
   }
@@ -775,7 +779,7 @@ const ProjectDetails = () => {
         onClick={() => navigate('/projects')}
         style={{ alignSelf: 'flex-start' }}
       >
-        العودة إلى المشاريع
+        {t.projects.backToProjects || 'Back to Projects'}
       </Button>
 
       {/* Header Card */}
@@ -804,7 +808,7 @@ const ProjectDetails = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <UserOutlined style={{ color: 'white' }} />
                     <span style={{ color: 'white', fontSize: '16px' }}>
-                      <strong>العميل:</strong> {project.client.name}
+                      <strong>{t.projects.client || 'Client'}:</strong> {project.client.name}
                     </span>
                   </div>
                 )}
@@ -812,7 +816,7 @@ const ProjectDetails = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <CalendarOutlined style={{ color: 'white' }} />
                     <span style={{ color: 'white', fontSize: '16px' }}>
-                      <strong>تاريخ البدء:</strong> {moment(project.startDate).format('YYYY-MM-DD')}
+                      <strong>{t.projects.startDate || 'Start Date'}:</strong> {moment(project.startDate).format('YYYY-MM-DD')}
                     </span>
                   </div>
                 )}
@@ -820,7 +824,7 @@ const ProjectDetails = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <CalendarOutlined style={{ color: 'white' }} />
                     <span style={{ color: 'white', fontSize: '16px' }}>
-                      <strong>تاريخ الانتهاء:</strong> {moment(project.endDate).format('YYYY-MM-DD')}
+                      <strong>{t.projects.endDate || 'End Date'}:</strong> {moment(project.endDate).format('YYYY-MM-DD')}
                     </span>
                   </div>
                 )}
@@ -830,7 +834,7 @@ const ProjectDetails = () => {
                 <div style={{ marginTop: 16, padding: 12, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <FileTextOutlined style={{ color: 'white' }} />
-                    <strong style={{ color: 'white' }}>ملاحظات:</strong>
+                    <strong style={{ color: 'white' }}>{t.common.notes || 'Notes'}:</strong>
                   </div>
                   <p style={{ margin: 0, color: 'white' }}>{project.notes}</p>
                 </div>
@@ -852,17 +856,17 @@ const ProjectDetails = () => {
             bodyStyle={{ padding: 24 }}
           >
             <Statistic
-              title={<span style={{ color: 'white', fontSize: '16px' }}>الميزانية الإجمالية</span>}
+              title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalBudget || 'Total Budget'}</span>}
               value={totalBudget}
               prefix={<WalletOutlined style={{ color: 'white' }} />}
-              suffix={<span style={{ color: 'white' }}>ريال</span>}
+              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
               {contracts.length > 0 ? (
-                <div>العقد الأساسي + {contracts.filter(c => c.contractType === 'amendment').length} ملحق</div>
+                <div>{t.projectDetails.mainContract || 'Main Contract'} + {contracts.filter(c => c.contractType === 'amendment').length} {t.projectDetails.amendments || 'Amendments'}</div>
               ) : (
-                <div>من ميزانية المشروع</div>
+                <div>{t.projectDetails.fromProjectBudget || 'From Project Budget'}</div>
               )}
             </div>
           </Card>
@@ -877,14 +881,14 @@ const ProjectDetails = () => {
             bodyStyle={{ padding: 24 }}
           >
             <Statistic
-              title={<span style={{ color: 'white', fontSize: '16px' }}>إجمالي المحصل</span>}
+              title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalCollected || 'Total Collected'}</span>}
               value={totalCollected}
               prefix={<InboxOutlined style={{ color: 'white' }} />}
-              suffix={<span style={{ color: 'white' }}>ريال</span>}
+              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-              <div>{payments.filter(p => (p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)) && p.status === 'paid').length} مستخلص مدفوع</div>
+              <div>{payments.filter(p => (p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)) && p.status === 'paid').length} {t.projectDetails.paidMilestones || 'Paid Milestones'}</div>
             </div>
           </Card>
         </Col>
@@ -898,14 +902,14 @@ const ProjectDetails = () => {
             bodyStyle={{ padding: 24 }}
           >
             <Statistic
-              title={<span style={{ color: 'white', fontSize: '16px' }}>إجمالي المصروف</span>}
+              title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalExpenses || 'Total Expenses'}</span>}
               value={totalExpenses}
               prefix={<ShoppingOutlined style={{ color: 'white' }} />}
-              suffix={<span style={{ color: 'white' }}>ريال</span>}
+              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-              <div>{orders.length} أمر شراء + {payments.filter(p => (p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)) && p.status === 'paid').length} دفعة مصروف + {laborGroups.length} مجموعة عمالة</div>
+              <div>{orders.length} {t.orders.purchaseOrder || 'Purchase Orders'} + {payments.filter(p => (p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)) && p.status === 'paid').length} {t.projectDetails.expensePayments || 'Expense Payments'} + {laborGroups.length} {t.labor.laborGroups || 'Labor Groups'}</div>
             </div>
           </Card>
         </Col>
@@ -921,15 +925,15 @@ const ProjectDetails = () => {
             bodyStyle={{ padding: 24 }}
           >
             <Statistic
-              title={<span style={{ color: 'white', fontSize: '16px' }}>التدفق النقدي</span>}
+              title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.cashFlow || 'Cash Flow'}</span>}
               value={cashFlow}
               prefix={cashFlow >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <RiseOutlined style={{ color: 'white', transform: 'rotate(180deg)' }} />}
-              suffix={<span style={{ color: 'white' }}>ريال</span>}
+              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-              <div>الهامش: {profitMargin.toFixed(2)}%</div>
-              <div>صافي الهامش: {formatCurrency(netMargin)}</div>
+              <div>{t.projectDetails.margin || 'Margin'}: {profitMargin.toFixed(2)}%</div>
+              <div>{t.projectDetails.netMargin || 'Net Margin'}: {formatCurrency(netMargin)}</div>
             </div>
           </Card>
         </Col>
@@ -948,14 +952,14 @@ const ProjectDetails = () => {
               bodyStyle={{ padding: 24 }}
             >
               <Statistic
-                title={<span style={{ color: 'white', fontSize: '16px' }}>إجمالي تكلفة العمالة</span>}
+                title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalLaborCost || 'Total Labor Cost'}</span>}
                 value={calculateTotalLaborCost()}
                 prefix={<UserOutlined style={{ color: 'white' }} />}
-                suffix={<span style={{ color: 'white' }}>ريال</span>}
+                suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
                 styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
               />
               <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-                <div>{laborGroups.length} مجموعة عمالة مدفوعة</div>
+                <div>{laborGroups.length} {t.projectDetails.paidLaborGroups || 'Paid Labor Groups'}</div>
               </div>
             </Card>
           </Col>
@@ -968,7 +972,7 @@ const ProjectDetails = () => {
           <Card>
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <Title level={4} style={{ margin: 0 }}>استخدام الميزانية</Title>
+                <Title level={4} style={{ margin: 0 }}>{t.projectDetails.budgetUsage || 'Budget Usage'}</Title>
                 <span style={{ fontSize: '20px', fontWeight: 'bold', color: getProgressColor(budgetUsagePercent) }}>
                   {budgetUsagePercent.toFixed(1)}%
                 </span>
@@ -978,7 +982,7 @@ const ProjectDetails = () => {
                 strokeColor={getProgressColor(budgetUsagePercent)}
                 trailColor="#f0f0f0"
                 strokeWidth={20}
-                format={() => `${formatCurrency(totalExpenses)} من ${formatCurrency(totalBudget)}`}
+                format={() => `${formatCurrency(totalExpenses)} ${t.common.of || 'of'} ${formatCurrency(totalBudget)}`}
                 status={budgetUsagePercent >= 100 ? 'exception' : budgetUsagePercent >= 90 ? 'active' : 'success'}
               />
             </div>
@@ -991,10 +995,10 @@ const ProjectDetails = () => {
               borderRadius: 4
             }}>
               <span style={{ color: '#666' }}>
-                <strong>المستخدم:</strong> {formatCurrency(totalExpenses)}
+                <strong>{t.projectDetails.used || 'Used'}:</strong> {formatCurrency(totalExpenses)}
               </span>
               <span style={{ color: '#666' }}>
-                <strong>المتاح:</strong> {formatCurrency(remainingBudget)}
+                <strong>{t.projectDetails.available || 'Available'}:</strong> {formatCurrency(remainingBudget)}
               </span>
             </div>
           </Card>
@@ -1097,9 +1101,9 @@ const ProjectDetails = () => {
         }
       >
         <Table
-          columns={[
+          columns={useMemo(() => [
             {
-              title: 'نوع المعاملة',
+              title: t.projectDetails.transactionType || 'Transaction Type',
               dataIndex: 'transactionType',
               key: 'transactionType',
               width: 150,
@@ -1109,29 +1113,29 @@ const ProjectDetails = () => {
                 const isInvestorInflow = record.paymentType === 'income' || (record.paymentType === undefined && record.contractId)
                 
                 if (isEmployeeAdvance) {
-                  return <Tag color="orange">عهدة مهندس</Tag>
+                  return <Tag color="orange">{t.projectDetails.engineerAdvance || 'Engineer Advance'}</Tag>
                 } else if (isInvestorInflow) {
-                  return <Tag color="green">وارد مستثمر</Tag>
+                  return <Tag color="green">{t.projectDetails.investorInflow || 'Investor Inflow'}</Tag>
                 } else {
-                  return <Tag color="blue">مستخلص</Tag>
+                  return <Tag color="blue">{t.projectDetails.milestone || 'Milestone'}</Tag>
                 }
               },
             },
             {
-              title: 'رقم المستخلص',
+              title: t.projectDetails.milestoneNumber || 'Milestone Number',
               dataIndex: 'paymentNumber',
               key: 'paymentNumber',
               width: 150,
             },
             {
-              title: 'الوصف/المرحلة',
+              title: t.projectDetails.descriptionMilestone || 'Description/Milestone',
               dataIndex: 'notes',
               key: 'notes',
               render: (notes: string, record: any) => (
                 <div>
-                  <div style={{ fontWeight: 500 }}>{notes || 'مستخلص'}</div>
+                  <div style={{ fontWeight: 500 }}>{notes || (t.projectDetails.milestone || 'Milestone')}</div>
                   {record.managerName && (
-                    <Tag color="orange" style={{ marginTop: 4 }}>المهندس: {record.managerName}</Tag>
+                    <Tag color="orange" style={{ marginTop: 4 }}>{t.projectDetails.engineer || 'Engineer'}: {record.managerName}</Tag>
                   )}
                   {record.workScope && (
                     <Tag color="cyan" style={{ marginTop: 4 }}>{record.workScope}</Tag>
@@ -1140,7 +1144,7 @@ const ProjectDetails = () => {
               ),
             },
             {
-              title: 'المبلغ',
+              title: t.common.amount,
               dataIndex: 'amount',
               key: 'amount',
               render: (amount: number) => (
@@ -1152,21 +1156,21 @@ const ProjectDetails = () => {
               width: 150,
             },
             {
-              title: 'تاريخ الاستحقاق',
+              title: t.common.dueDate || 'Due Date',
               dataIndex: 'dueDate',
               key: 'dueDate',
               render: (date: string) => moment(date).format('YYYY-MM-DD'),
               width: 120,
             },
             {
-              title: 'تاريخ الدفع',
+              title: t.common.paidDate || 'Paid Date',
               dataIndex: 'paidDate',
               key: 'paidDate',
               render: (date: string | null) => date ? moment(date).format('YYYY-MM-DD') : '-',
               width: 120,
             },
             {
-              title: 'الخزينة/الحساب',
+              title: t.projectDetails.treasuryAccount || 'Treasury/Account',
               dataIndex: 'treasuryAccountName',
               key: 'treasuryAccountName',
               render: (accountName: string | null) => (
@@ -1177,23 +1181,23 @@ const ProjectDetails = () => {
               width: 150,
             },
             {
-              title: 'الحالة',
+              title: t.common.status,
               dataIndex: 'status',
               key: 'status',
               render: (status: string) => {
                 const statusConfig: Record<string, { color: string; text: string }> = {
-                  paid: { color: 'green', text: 'مدفوع' },
-                  pending: { color: 'orange', text: 'قيد الانتظار' },
-                  overdue: { color: 'red', text: 'متأخر' },
-                  cancelled: { color: 'default', text: 'ملغي' },
+                  paid: { color: 'green', text: t.common.paid || 'Paid' },
+                  pending: { color: 'orange', text: t.common.pending || 'Pending' },
+                  overdue: { color: 'red', text: t.common.overdue || 'Overdue' },
+                  cancelled: { color: 'default', text: t.common.cancelled || 'Cancelled' },
                 }
-                const config = statusConfig[status] || { color: 'default', text: status || 'غير محدد' }
+                const config = statusConfig[status] || { color: 'default', text: status || t.common.notSpecified }
                 return <Tag color={config.color}>{config.text}</Tag>
               },
               width: 100,
             },
-          ]}
-          dataSource={(paymentsWithTreasuryAccounts.length > 0 ? paymentsWithTreasuryAccounts : payments)
+          ], [t, language])}
+          dataSource={useMemo(() => (paymentsWithTreasuryAccounts.length > 0 ? paymentsWithTreasuryAccounts : payments)
             ?.filter((p: any) => {
               // Exclude general expenses
               const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
@@ -1207,13 +1211,14 @@ const ProjectDetails = () => {
               
               return isIncome || isEmployeeAdvance
             })
-            ?.map((p: any) => ({ ...p, key: `income-${p.id}` })) || []}
+            ?.map((p: any) => ({ ...p, key: p.id || p.updatedAt || `income-${Date.now()}` })) || [], [paymentsWithTreasuryAccounts, payments])}
+          rowKey={(record) => record.id || record.updatedAt || `income-${Date.now()}`}
           pagination={{ 
             pageSize: 5, 
             showSizeChanger: true, 
-            showTotal: (total) => `إجمالي ${total} مستخلص`
+            showTotal: (total) => `${t.projectDetails.totalMilestones || 'Total'}: ${total}`
           }}
-          locale={{ emptyText: 'لا توجد مستخلصات مسجلة' }}
+          locale={{ emptyText: t.projectDetails.noMilestones || 'No milestones registered' }}
         />
       </Card>
 
@@ -1223,7 +1228,7 @@ const ProjectDetails = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <ShoppingOutlined />
-              <Title level={4} style={{ margin: 0 }}>مصاريف المشروع</Title>
+              <Title level={4} style={{ margin: 0 }}>{t.projectDetails.projectExpenses || 'Project Expenses'}</Title>
             </div>
             <Button 
               type="primary" 
@@ -1234,35 +1239,35 @@ const ProjectDetails = () => {
                 setExpenseModalVisible(true)
               }}
             >
-              إضافة مصروف جديد
+              {t.projectDetails.addNewExpense || 'Add New Expense'}
             </Button>
           </div>
         }
       >
         <Alert
-          message="تنبيه: المصاريف المدخلة هنا مرتبطة حصرياً بهذا المشروع"
+          message={t.projectDetails.expenseWarning || 'Warning: Expenses entered here are exclusively linked to this project'}
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
         />
         <Table
-          columns={[
+          columns={useMemo(() => [
             {
-              title: 'التاريخ',
+              title: t.common.date,
               dataIndex: 'date',
               key: 'date',
               render: (date: string) => moment(date).format('YYYY-MM-DD'),
               width: 120,
             },
             {
-              title: 'نوع المصروف',
+              title: t.projectDetails.expenseType || 'Expense Type',
               dataIndex: 'expenseType',
               key: 'expenseType',
               render: (type: string) => {
                 const typeMap: Record<string, { color: string; text: string }> = {
-                  'purchase_order': { color: 'blue', text: 'أمر شراء' },
-                  'custody_deduction': { color: 'orange', text: 'خصم من عهدة' },
-                  'general_expense': { color: 'purple', text: 'مصروف عام' },
+                  'purchase_order': { color: 'blue', text: t.orders.purchaseOrder || 'Purchase Order' },
+                  'custody_deduction': { color: 'orange', text: t.projectDetails.custodyDeduction || 'Custody Deduction' },
+                  'general_expense': { color: 'purple', text: t.projectDetails.generalExpense || 'General Expense' },
                 }
                 const config = typeMap[type] || { color: 'default', text: type }
                 return <Tag color={config.color}>{config.text}</Tag>
@@ -1270,13 +1275,13 @@ const ProjectDetails = () => {
               width: 150,
             },
             {
-              title: 'نوع العنصر',
+              title: t.projectDetails.itemType || 'Item Type',
               dataIndex: 'itemType',
               key: 'itemType',
               render: (itemType: string) => itemType || '-',
             },
             {
-              title: 'المبلغ',
+              title: t.common.amount,
               dataIndex: 'amount',
               key: 'amount',
               render: (amount: number) => (
@@ -1288,19 +1293,19 @@ const ProjectDetails = () => {
               width: 150,
             },
             {
-              title: 'المهندس',
+              title: t.projectDetails.engineer || 'Engineer',
               dataIndex: 'engineerName',
               key: 'engineerName',
               render: (name: string) => name || '-',
               width: 150,
             },
             {
-              title: 'الوصف',
+              title: t.common.description,
               dataIndex: 'description',
               key: 'description',
             },
-          ]}
-          dataSource={payments
+          ], [t, language])}
+          dataSource={useMemo(() => payments
             .filter((p: any) => {
               // Only show project expenses (not general expenses, not income)
               const isExpense = p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)
@@ -1308,22 +1313,23 @@ const ProjectDetails = () => {
               const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
               return isExpense && !isGeneralExpense && !isIncome && p.projectId === id
             })
-            .map((p: any, index: number) => ({
-              key: `expense-${p.id}-${index}`,
+            .map((p: any) => ({
+              key: p.id || p.updatedAt || `expense-${Date.now()}`,
               date: p.paidDate || p.dueDate,
               expenseType: p.transactionType === 'advance' ? 'custody_deduction' : 
                           p.expenseCategory ? 'general_expense' : 'purchase_order',
-              itemType: p.expenseCategory || 'مصروف مشروع',
+              itemType: p.expenseCategory || (t.projectDetails.projectExpense || 'Project Expense'),
               amount: parseFloat(p.amount) || 0,
               engineerName: p.managerName || null,
               description: p.notes || '-',
-            }))}
+            })), [payments, id, t])}
+          rowKey={(record) => record.key || `expense-${Date.now()}`}
           pagination={{ 
             pageSize: 10, 
             showSizeChanger: true, 
-            showTotal: (total) => `إجمالي ${total} مصروف`
+            showTotal: (total) => `${t.projectDetails.totalExpenses || 'Total'}: ${total}`
           }}
-          locale={{ emptyText: 'لا توجد مصاريف مسجلة' }}
+          locale={{ emptyText: t.projectDetails.noExpenses || 'No expenses registered' }}
         />
       </Card>
 
@@ -1332,26 +1338,27 @@ const ProjectDetails = () => {
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <FileTextOutlined />
-            <Title level={4} style={{ margin: 0 }}>سجل المصاريف والمشتريات</Title>
+            <Title level={4} style={{ margin: 0 }}>{t.projectDetails.expensesProcurementLedger || 'Expenses & Procurement Ledger'}</Title>
             <span style={{ fontSize: '12px', color: '#999', marginRight: 8 }}>
-              (المصاريف العامة مستثناة)
+              ({t.projectDetails.generalExpensesExcluded || 'General expenses excluded'})
             </span>
           </div>
         }
       >
         {unifiedLedger.length === 0 ? (
           <Empty 
-            description="لا توجد معاملات لهذا المشروع"
+            description={t.projectDetails.noTransactions || 'No transactions for this project'}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         ) : (
           <Table
             columns={ledgerColumns}
-            dataSource={unifiedLedger}
+            dataSource={useMemo(() => unifiedLedger.map(item => ({ ...item, key: item.id || item.updatedAt || `ledger-${Date.now()}` })), [unifiedLedger])}
+            rowKey={(record) => record.id || record.updatedAt || `ledger-${Date.now()}`}
             pagination={{ 
               pageSize: 10, 
               showSizeChanger: true, 
-              showTotal: (total) => `إجمالي ${total} معاملة`
+              showTotal: (total) => `${t.projectDetails.totalTransactions || 'Total'}: ${total}`
             }}
             scroll={{ x: 'max-content' }}
             summary={() => {
@@ -1360,7 +1367,7 @@ const ProjectDetails = () => {
                 <Table.Summary fixed>
                   <Table.Summary.Row>
                     <Table.Summary.Cell index={0} colSpan={5} align="right">
-                      <strong style={{ fontSize: '16px' }}>الإجمالي:</strong>
+                      <strong style={{ fontSize: '16px' }}>{t.common.total || 'Total'}:</strong>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={1} align="right">
                       <strong style={{ color: '#1890ff', fontSize: '18px' }}>
@@ -1648,18 +1655,18 @@ const ProjectDetails = () => {
                 label="تاريخ الاستحقاق"
                 rules={[{ required: true, message: 'يرجى اختيار تاريخ الاستحقاق' }]}
               >
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" disabled={true} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
                 name="status"
-                label="الحالة"
+                label={t.common.status}
                 initialValue="pending"
               >
                 <Select>
-                  <Option value="pending">قيد الانتظار</Option>
-                  <Option value="paid">مدفوع</Option>
+                  <Option value="pending">{t.common.pending || 'Pending'}</Option>
+                  <Option value="paid">{t.common.paid || 'Paid'}</Option>
                 </Select>
               </Form.Item>
             </Col>
@@ -1673,10 +1680,10 @@ const ProjectDetails = () => {
               getFieldValue('status') === 'paid' ? (
                 <Form.Item
                   name="paidDate"
-                  label="تاريخ الدفع"
-                  rules={[{ required: true, message: 'يرجى اختيار تاريخ الدفع' }]}
+                  label={t.common.paidDate || 'Paid Date'}
+                  rules={[{ required: true, message: t.common.selectPaidDate || 'Please select paid date' }]}
                 >
-                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" disabled={true} />
                 </Form.Item>
               ) : null
             }
@@ -1746,21 +1753,21 @@ const ProjectDetails = () => {
           onFinish={async (values) => {
             try {
               if (!id) {
-                message.error('معرف المشروع غير موجود')
+                message.error(t.projectDetails.projectIdNotFound)
                 return
               }
 
               // Handle different expense types
               if (values.expenseType === 'purchase_order') {
                 // Link to PO creation - navigate to orders page with project pre-selected
-                message.info('سيتم توجيهك إلى صفحة أوامر الشراء لإنشاء أمر شراء جديد')
+                message.info(t.projectDetails.navigateToOrders)
                 navigate(`/orders?projectId=${id}`)
                 setExpenseModalVisible(false)
                 return
               } else if (values.expenseType === 'general_expense') {
                 // Create general expense payment
                 if (!values.treasuryAccountId) {
-                  message.error('يرجى اختيار حساب الخزينة')
+                  message.error(t.projectDetails.selectTreasuryAccount)
                   return
                 }
 
@@ -1787,30 +1794,30 @@ const ProjectDetails = () => {
                     amount: values.amount,
                     referenceType: 'expense',
                     referenceId: result.payment.id,
-                    description: `مصروف مشروع: ${values.description || ''} - مشروع: ${project?.name || ''}`
+                    description: `${t.projectDetails.projectExpense}: ${values.description || ''} - ${t.common.project || 'Project'}: ${project?.name || ''}`
                   })
 
-                  message.success('تم إنشاء المصروف بنجاح')
+                  message.success(t.projectDetails.expenseCreated)
                   setExpenseModalVisible(false)
                   expenseForm.resetFields()
                   await loadProjectDetails()
                 } else {
-                  message.error(result.error || 'فشل في إنشاء المصروف')
+                  message.error(result.error || t.projectDetails.failedToCreateExpense)
                 }
               } else if (values.expenseType === 'custody_deduction') {
                 // Deduct from custody
                 if (!values.linkedAdvanceId) {
-                  message.error('يرجى اختيار العهدة')
+                  message.error(t.projectDetails.selectCustody)
                   return
                 }
                 if (!values.engineerName) {
-                  message.error('يرجى إدخال اسم المهندس')
+                  message.error(t.projectDetails.enterEngineerName)
                   return
                 }
 
                 const selectedAdvance = engineerAdvances.find(a => a.id === values.linkedAdvanceId)
                 if (!selectedAdvance) {
-                  message.error('العهدة المحددة غير موجودة')
+                  message.error(t.projectDetails.custodyNotFound)
                   return
                 }
 
@@ -1819,7 +1826,7 @@ const ProjectDetails = () => {
                   : parseFloat(selectedAdvance.amount || 0)
 
                 if (values.amount > remaining) {
-                  message.error(`رصيد العهدة غير كاف. المتاح: ${remaining.toFixed(2)} ريال`)
+                  message.error(`${t.projectDetails.custodyInsufficient}: ${remaining.toFixed(2)} ${t.common.sar}`)
                   return
                 }
 
@@ -1846,18 +1853,18 @@ const ProjectDetails = () => {
                     remainingAmount: Math.max(0, newRemaining)
                   })
 
-                  message.success('تم خصم المصروف من العهدة بنجاح')
+                  message.success(t.projectDetails.expenseDeductedFromCustody)
                   setExpenseModalVisible(false)
                   expenseForm.resetFields()
                   setEngineerAdvances([])
                   await loadProjectDetails()
                 } else {
-                  message.error(result.error || 'فشل في خصم المصروف')
+                  message.error(result.error || t.projectDetails.failedToDeductExpense)
                 }
               }
             } catch (error) {
               console.error('Error creating expense:', error)
-              message.error('حدث خطأ أثناء إنشاء المصروف')
+              message.error(t.projectDetails.errorCreatingExpense)
             }
           }}
           style={{ marginTop: 24 }}
@@ -1868,12 +1875,12 @@ const ProjectDetails = () => {
             rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
             initialValue={moment()}
           >
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" disabled={true} />
           </Form.Item>
 
           <Form.Item
             name="expenseType"
-            label="نوع المصروف"
+            label={t.projectDetails.expenseType || 'Expense Type'}
             rules={[{ required: true, message: 'يرجى اختيار نوع المصروف' }]}
           >
             <Select

@@ -17,6 +17,7 @@ import treasuryService from '../services/treasuryService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getTranslations } from '../utils/translations'
+import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
 import type { Contract, Customer, Quotation, Project, Payment, TreasuryAccount, ContractItem } from '../types'
 import {
   Card,
@@ -91,7 +92,7 @@ interface WorkTypeCategory {
 }
 
 const ContractsPage = () => {
-  const { industryType } = useTenant()
+  const { industryType, currentTenantId } = useTenant()
   const { language } = useLanguage()
   const t = getTranslations(language || 'en')
   
@@ -127,7 +128,7 @@ const ContractsPage = () => {
     if (industryType === 'engineering') {
       loadProjects()
     }
-  }, [industryType])
+  }, [industryType, currentTenantId])
 
   const loadCustomers = async (): Promise<void> => {
     try {
@@ -143,9 +144,12 @@ const ContractsPage = () => {
     try {
       const quotationsList = await quotationsService.getQuotations()
       // Show all quotations with 'Accepted' and 'Sent' status
-      const availableQuotations = quotationsList.filter(
-        (q: Quotation) => q.status === 'accepted' || q.status === 'sent'
-      )
+      // Add null check to prevent errors
+      const availableQuotations = (quotationsList && Array.isArray(quotationsList)) 
+        ? quotationsList.filter(
+            (q: Quotation) => q && (q.status === 'accepted' || q.status === 'sent')
+          )
+        : []
       
       setQuotations(availableQuotations)
     } catch (error) {
@@ -178,7 +182,21 @@ const ContractsPage = () => {
     setLoading(true)
     try {
       const data = await contractsService.getContracts()
-      setContracts(data.map((c: Contract) => ({ ...c, key: c.id })))
+      
+      // Ensure data is an array and map safely
+      if (data && Array.isArray(data)) {
+        const mappedContracts = data
+          .map((c: Contract) => {
+            if (!c || !c.id) {
+              return null
+            }
+            return { ...c, key: c.id } as ContractWithKey
+          })
+          .filter((c: ContractWithKey | null) => c !== null) as ContractWithKey[]
+        setContracts(mappedContracts)
+      } else {
+        setContracts([])
+      }
     } catch (error) {
       console.error('Error loading contracts:', error)
       message.error(t.contracts.failedToLoad)
@@ -212,12 +230,14 @@ const ContractsPage = () => {
   }
 
   const stats = useMemo(() => {
+    // Safety check: ensure contracts is an array
+    const safeContracts = Array.isArray(contracts) ? contracts : []
     return {
-      totalContracts: contracts.length,
-      inProgress: contracts.filter((c: ContractWithKey) => c.status === 'in_progress').length,
-      onHold: contracts.filter((c: ContractWithKey) => c.status === 'on_hold').length,
-      completed: contracts.filter((c: ContractWithKey) => c.status === 'fully_completed').length,
-      totalAmount: contracts.reduce((sum: number, c: ContractWithKey) => sum + (c.totalAmount || 0), 0)
+      totalContracts: safeContracts.length,
+      inProgress: safeContracts.filter((c: ContractWithKey) => c?.status === 'in_progress').length,
+      onHold: safeContracts.filter((c: ContractWithKey) => c?.status === 'on_hold').length,
+      completed: safeContracts.filter((c: ContractWithKey) => c?.status === 'fully_completed').length,
+      totalAmount: safeContracts.reduce((sum: number, c: ContractWithKey) => sum + (c?.totalAmount || 0), 0)
     }
   }, [contracts])
 
@@ -353,7 +373,7 @@ const ContractsPage = () => {
       title: t.contracts.contractNumber,
       dataIndex: 'contractNumber',
       key: 'contractNumber',
-      render: (contractNumber: string) => <span style={{ fontWeight: 500 }}>{contractNumber}</span>
+      render: (contractNumber: string) => <span style={{ fontWeight: 500 }}>{contractNumber ?? '---'}</span>
     },
     {
       title: t.contracts.clientName,
@@ -361,8 +381,8 @@ const ContractsPage = () => {
       key: 'customerName',
       render: (name: string, record: ContractWithKey) => (
         <div>
-          <div style={{ fontWeight: 500 }}>{name}</div>
-          <div style={{ fontSize: 12, color: '#666' }}>{record.customerPhone}</div>
+          <div style={{ fontWeight: 500 }}>{name ?? '---'}</div>
+          <div style={{ fontSize: 12, color: '#666' }}>{record?.customerPhone ?? '---'}</div>
         </div>
       )
     },
@@ -430,13 +450,74 @@ const ContractsPage = () => {
       title: t.contracts.contractType,
       dataIndex: 'contractType',
       key: 'contractType',
-      render: (type: string) => contractTypeLabels[type] || type
+      render: (type: string) => (type ? (contractTypeLabels[type] ?? type) : '---')
     },
     {
-      title: t.contracts.workType,
-      dataIndex: 'workType',
-      key: 'workType',
-      render: (workType: string) => getWorkTypeLabel(workType)
+      title: t.contracts.workScope || t.quotations.workScope || 'Work Scope',
+      dataIndex: 'workScopes',
+      key: 'workScopes',
+      render: (_: any, record: ContractWithKey) => {
+        // CRITICAL: Always return a valid React element, never undefined/null
+        if (!record) {
+          return <span style={{ color: '#999' }}>{t.common.notSpecified}</span>
+        }
+
+        try {
+          // Step 1: Get workScopes from associated quotation (if exists)
+          let workScopes: string[] = []
+          
+          // Safely check if quotations array exists and has data
+          if (record.quotationId && quotations && Array.isArray(quotations) && quotations.length > 0) {
+            const associatedQuotation = quotations.find((q: Quotation) => q && q.id === record.quotationId)
+            if (associatedQuotation?.workScopes && Array.isArray(associatedQuotation.workScopes) && associatedQuotation.workScopes.length > 0) {
+              workScopes = associatedQuotation.workScopes
+            }
+          }
+          
+          // Step 2: Fallback to contract's workType (for legacy data without quotations)
+          if (workScopes.length === 0 && record.workType) {
+            // Convert single workType to array format for display
+            const workTypeLabel = translateWorkType(record.workType, language || 'en')
+            if (workTypeLabel && workTypeLabel !== record.workType) {
+              return <span>{workTypeLabel}</span>
+            }
+            // If translation didn't change it, still show the original
+            return <span>{record.workType}</span>
+          }
+          
+          // Step 3: If we have workScopes array, display them
+          if (workScopes.length > 0) {
+            // Ensure we have a valid array before processing
+            const safeScopes = Array.isArray(workScopes) ? workScopes : []
+            if (safeScopes.length === 0) {
+              return <span style={{ color: '#999' }}>{t.common.notSpecified}</span>
+            }
+            
+            // Display first 3 items, then "and more..." if there are more
+            const translatedScopes = translateWorkScopes(safeScopes.slice(0, 3), language || 'en')
+            const displayScopes = (translatedScopes || []).join(', ')
+            const moreCount = safeScopes.length - 3
+            
+            return (
+              <span>
+                {displayScopes || t.common.notSpecified}
+                {moreCount > 0 && <span style={{ color: '#1890ff' }}> {t.common.and || 'and'} {moreCount} {t.common.more || 'more'}...</span>}
+              </span>
+            )
+          }
+          
+          // Step 4: Final fallback - no data available
+          return <span style={{ color: '#999' }}>{t.common.notSpecified}</span>
+        } catch (error) {
+          console.error('Error rendering work scope:', error, record)
+          // Ultimate fallback - always return something valid
+          if (record?.workType) {
+            const workTypeLabel = translateWorkType(record.workType, language || 'en')
+            return <span>{workTypeLabel || record.workType || t.common.notSpecified}</span>
+          }
+          return <span style={{ color: '#999' }}>{t.common.notSpecified}</span>
+        }
+      }
     },
     {
       title: t.contracts.totalAmount,
@@ -624,21 +705,41 @@ const ContractsPage = () => {
         </Space>
       )
     }
-  ], [customers, quotations, t, language])
+  ], [customers, quotations, t, language, contracts])
 
   // Memoize filtered contracts to ensure Table always uses fresh data
   const filteredContracts = useMemo(() => {
-    return contracts.filter((contract: ContractWithKey) => {
+    // CRITICAL: Always return an array, never undefined/null
+    if (!contracts || !Array.isArray(contracts) || contracts.length === 0) {
+      return []
+    }
+    
+    // Filter contracts safely
+    const filtered = contracts.filter((contract: ContractWithKey) => {
+      // Skip invalid contracts
+      if (!contract || !contract.id) {
+        return false
+      }
+      
+      // Search filter
       const matchesSearch =
         contract.contractNumber?.toLowerCase().includes(searchText.toLowerCase()) ||
         contract.customerName?.toLowerCase().includes(searchText.toLowerCase())
+      
+      // Status filter
       const matchesStatus = statusFilter === 'all' || contract.status === statusFilter
+      
       return matchesSearch && matchesStatus
     })
+    
+    return filtered
   }, [contracts, searchText, statusFilter])
 
   // Dynamic rowKey function that includes updated timestamp to force re-render
   const getRowKey = (record: ContractWithKey): string => {
+    if (!record || !record.id) {
+      return `contract-${Date.now()}-${Math.random()}`
+    }
     const timestamp = record.updatedAt || record.updated_at || record.lastUpdated || ''
     const dateKey = record.startDate || record.start_date || ''
     return `${record.id}-${timestamp}-${dateKey}`
@@ -836,8 +937,6 @@ const ContractsPage = () => {
         endDate: newEndDate
       }
 
-      console.log('🔵 [handleUpdateDates] Sending update:', apiPayload)
-      console.log('🔵 [handleUpdateDates] Start moment valid:', startMoment?.isValid(), 'End moment valid:', endMoment?.isValid())
 
       const result = await contractsService.updateContract(selectedContract.id, apiPayload)
 
@@ -1136,7 +1235,7 @@ const ContractsPage = () => {
                       customerPhone: selectedQuotation.customerPhone || '',
                       customerEmail: selectedQuotation.customerEmail || '',
                       projectName: selectedQuotation.projectName || '',
-                      workType: selectedQuotation.workType,
+                      workType: selectedQuotation.workType, // Keep for backward compatibility
                       totalAmount: selectedQuotation.totalAmount
                     })
                   }
@@ -1220,12 +1319,17 @@ const ContractsPage = () => {
             <Col span={12}>
               <Form.Item
                 name="workType"
-                label={t.contracts.workType}
-                rules={[{ required: true, message: 'Please select work type' }]}
+                label={t.contracts.workScope || t.quotations.workScope || 'Work Scope'}
+                tooltip={t.contracts.workScopeFromQuotation || 'Work Scope is inherited from the selected quotation'}
               >
-                <Select placeholder={t.contracts.selectWorkType} showSearch filterOption={(input: string, option?: { label?: string }) =>
-                  String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                }>
+                <Select 
+                  placeholder={t.contracts.selectWorkType} 
+                  disabled={!!form.getFieldValue('quotationId')}
+                  showSearch 
+                  filterOption={(input: string, option?: { label?: string }) =>
+                    String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                >
                   {Object.keys(workTypeGroups).map((groupKey: string) => (
                     <Select.OptGroup key={groupKey} label={workTypeGroups[groupKey]}>
                       {workTypeCategories
@@ -1238,6 +1342,33 @@ const ContractsPage = () => {
                     </Select.OptGroup>
                   ))}
                 </Select>
+              </Form.Item>
+              <Form.Item
+                noStyle
+                shouldUpdate={(prevValues, currentValues) => prevValues.quotationId !== currentValues.quotationId}
+              >
+                {({ getFieldValue }) => {
+                  const quotationId = getFieldValue('quotationId')
+                  if (quotationId) {
+                    const selectedQuotation = quotations.find((q: Quotation) => q.id === quotationId)
+                    if (selectedQuotation && selectedQuotation.workScopes && selectedQuotation.workScopes.length > 0) {
+                      const translatedScopes = translateWorkScopes(selectedQuotation.workScopes, language || 'en')
+                      return (
+                        <div style={{ marginTop: 8, padding: 8, backgroundColor: '#f5f5f5', borderRadius: 4 }}>
+                          <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
+                            {t.contracts.workScopeFromQuotation || 'Work Scopes from Quotation'}:
+                          </div>
+                          <div>
+                            {translatedScopes.map((scope, idx) => (
+                              <Tag key={idx} style={{ marginBottom: 4 }}>{scope}</Tag>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    }
+                  }
+                  return null
+                }}
               </Form.Item>
             </Col>
           </Row>
@@ -1276,12 +1407,22 @@ const ContractsPage = () => {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="startDate" label={t.contracts.startDate}>
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                <DatePicker 
+                  style={{ width: '100%' }} 
+                  format="YYYY-MM-DD" 
+                  disabled
+                  readOnly
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item name="endDate" label={t.contracts.endDate}>
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                <DatePicker 
+                  style={{ width: '100%' }} 
+                  format="YYYY-MM-DD" 
+                  disabled
+                  readOnly
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -1371,8 +1512,32 @@ const ContractsPage = () => {
                       <Descriptions.Item label={t.contracts.projectName}>
                         {selectedContract.projectName || t.contracts.notSpecified}
                       </Descriptions.Item>
-                      <Descriptions.Item label={t.contracts.workType}>
-                        {getWorkTypeLabel(selectedContract.workType)}
+                      <Descriptions.Item label={t.contracts.workScope || t.quotations.workScope || 'Work Scope'}>
+                        {(() => {
+                          // Get workScopes from associated quotation
+                          let workScopes: string[] = []
+                          if (selectedContract.quotationId && quotations.length > 0) {
+                            const associatedQuotation = quotations.find((q: Quotation) => q.id === selectedContract.quotationId)
+                            if (associatedQuotation && associatedQuotation.workScopes && Array.isArray(associatedQuotation.workScopes)) {
+                              workScopes = associatedQuotation.workScopes
+                            }
+                          }
+                          
+                          // If no workScopes found, return not specified
+                          if (!workScopes || workScopes.length === 0) {
+                            return <span style={{ color: '#999' }}>{t.common.notSpecified}</span>
+                          }
+                          
+                          // Display all work scopes as tags (matching QuotationsPage view modal format)
+                          const translatedScopes = translateWorkScopes(workScopes, language || 'en')
+                          return (
+                            <div>
+                              {translatedScopes.map((scope, idx) => (
+                                <Tag key={idx} style={{ marginBottom: 4 }}>{scope}</Tag>
+                              ))}
+                            </div>
+                          )
+                        })()}
                       </Descriptions.Item>
                       <Descriptions.Item label={t.contracts.totalAmount}>
                         {formatCurrencyWithSymbol(selectedContract.totalAmount || 0)}
@@ -1710,35 +1875,13 @@ const ContractsPage = () => {
               <Form.Item
                 name="startDate"
                 label={t.contracts.startDate}
-                rules={[
-                  ({ getFieldValue }) => ({
-                    validator(_: unknown, value: moment.Moment | null) {
-                      if (!value) {
-                        return Promise.resolve()
-                      }
-                      
-                      const endDate = getFieldValue('endDate')
-                      if (!endDate) {
-                        return Promise.resolve()
-                      }
-                      
-                      const startMoment = moment(value).startOf('day')
-                      const endMoment = moment(endDate).startOf('day')
-                      
-                      if (startMoment.isAfter(endMoment) || startMoment.isSame(endMoment)) {
-                        return Promise.reject(new Error('Start date must be before end date'))
-                      }
-                      
-                      return Promise.resolve()
-                    }
-                  })
-                ]}
-                dependencies={['endDate']}
               >
                 <DatePicker 
                   style={{ width: '100%' }} 
                   format="YYYY-MM-DD"
                   placeholder="Select start date"
+                  disabled
+                  readOnly
                 />
               </Form.Item>
             </Col>
@@ -1746,35 +1889,13 @@ const ContractsPage = () => {
               <Form.Item
                 name="endDate"
                 label={t.contracts.endDate}
-                rules={[
-                  ({ getFieldValue }) => ({
-                    validator(_: unknown, value: moment.Moment | null) {
-                      if (!value) {
-                        return Promise.resolve()
-                      }
-                      
-                      const startDate = getFieldValue('startDate')
-                      if (!startDate) {
-                        return Promise.resolve()
-                      }
-                      
-                      const startMoment = moment(startDate).startOf('day')
-                      const endMoment = moment(value).startOf('day')
-                      
-                      if (endMoment.isBefore(startMoment) || endMoment.isSame(startMoment)) {
-                        return Promise.reject(new Error(t.contracts.endDateAfterStartDate))
-                      }
-                      
-                      return Promise.resolve()
-                    }
-                  })
-                ]}
-                dependencies={['startDate']}
               >
                 <DatePicker 
                   style={{ width: '100%' }} 
                   format="YYYY-MM-DD"
                   placeholder="Select end date"
+                  disabled
+                  readOnly
                 />
               </Form.Item>
             </Col>

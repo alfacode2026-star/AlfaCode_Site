@@ -303,6 +303,7 @@ class PaymentsService {
         reference_number: paymentData.referenceNumber || null,
         notes: paymentData.notes || null,
         recipient_name: paymentData.recipientName || null,
+        employee_id: paymentData.employeeId || null, // Relational link to employees table
         // payment_frequency: null for project expenses/manager advances, required value for administrative expenses
         payment_frequency: paymentFrequency,
         transaction_type: paymentData.transactionType || 'regular',
@@ -421,6 +422,7 @@ class PaymentsService {
       if (paymentData.referenceNumber !== undefined) updateData.reference_number = paymentData.referenceNumber
       if (paymentData.notes !== undefined) updateData.notes = paymentData.notes
       if (paymentData.recipientName !== undefined) updateData.recipient_name = paymentData.recipientName || null
+      if (paymentData.employeeId !== undefined) updateData.employee_id = paymentData.employeeId || null
       
       // Handle project_id and isGeneralExpense
       if (paymentData.isGeneralExpense !== undefined) {
@@ -640,14 +642,6 @@ class PaymentsService {
               })
 
               if (treasuryResult.success) {
-                console.log('✅ Treasury transaction created on approval:', {
-                  paymentId: id,
-                  transactionId: treasuryResult.transaction?.id,
-                  accountId: treasuryAccount.id,
-                  accountName: treasuryResult.accountName,
-                  newBalance: treasuryResult.newBalance,
-                  amount: amount
-                })
               } else {
                 console.error('❌ Failed to create treasury transaction on approval:', treasuryResult.error)
                 // Don't fail the approval if treasury transaction fails - log error but continue
@@ -1383,6 +1377,7 @@ class PaymentsService {
       referenceNumber: payment.reference_number,
       notes: payment.notes,
       recipientName: payment.recipient_name || null,
+      employeeId: payment.employee_id || null, // Relational link to employees table
       paymentFrequency: payment.payment_frequency !== null && payment.payment_frequency !== undefined ? payment.payment_frequency : null,
       transactionType: payment.transaction_type || 'regular',
       paymentType: payment.payment_type || null,

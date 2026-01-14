@@ -496,7 +496,7 @@ const TreasuryPage: FC = () => {
                 precision={0}
                 prefix={<WalletOutlined />}
                 suffix="SAR"
-                valueStyle={{ color: totalCash >= 0 ? '#52c41a' : '#ff4d4f' }}
+                styles={{ value: { color: totalCash >= 0 ? '#52c41a' : '#ff4d4f' } }}
               />
             </Card>
           </Col>
@@ -508,7 +508,7 @@ const TreasuryPage: FC = () => {
                 precision={0}
                 prefix={<BankOutlined />}
                 suffix="SAR"
-                valueStyle={{ color: totalBank >= 0 ? '#1890ff' : '#ff4d4f' }}
+                styles={{ value: { color: totalBank >= 0 ? '#1890ff' : '#ff4d4f' } }}
               />
             </Card>
           </Col>
@@ -520,7 +520,7 @@ const TreasuryPage: FC = () => {
                 precision={0}
                 prefix={<DollarOutlined />}
                 suffix="SAR"
-                valueStyle={{ color: grandTotal >= 0 ? '#722ed1' : '#ff4d4f' }}
+                styles={{ value: { color: grandTotal >= 0 ? '#722ed1' : '#ff4d4f' } }}
               />
             </Card>
           </Col>

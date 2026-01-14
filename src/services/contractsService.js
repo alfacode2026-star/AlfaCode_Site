@@ -183,8 +183,10 @@ class ContractsService {
         .select('*')
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
-
-      if (error) throw error
+      if (error) {
+        console.error('[contractsService] Supabase error:', error)
+        throw error
+      }
 
       // Fetch contract items for each contract
       const contractsWithItems = await Promise.all(
@@ -355,8 +357,6 @@ class ContractsService {
   async updateContract(id, contractData) {
     try {
       // DEBUG: Log received updates
-      console.log('🔵 [updateContract] Service received updates:', contractData)
-      console.log('🔵 [updateContract] Contract ID:', id)
 
       if (!id) {
         return {
@@ -404,7 +404,6 @@ class ContractsService {
           }
           dbPayload.start_date = startDateStr
         }
-        console.log('🔵 [updateContract] Mapped startDate:', contractData.startDate, '->', dbPayload.start_date)
       }
       
       if (contractData.endDate !== undefined) {
@@ -429,7 +428,6 @@ class ContractsService {
           }
           dbPayload.end_date = endDateStr
         }
-        console.log('🔵 [updateContract] Mapped endDate:', contractData.endDate, '->', dbPayload.end_date)
       }
       
       // Map other valid fields (excluding startDate/endDate to avoid duplicates)
@@ -451,9 +449,6 @@ class ContractsService {
       if (contractData.projectName !== undefined) dbPayload.project_name = contractData.projectName || null
       if (contractData.notes !== undefined) dbPayload.notes = contractData.notes
 
-      // DEBUG: Log final payload before sending to Supabase
-      console.log('🟢 [updateContract] Sending to Supabase:', JSON.stringify(dbPayload, null, 2))
-      console.log('🟢 [updateContract] Payload keys:', Object.keys(dbPayload))
 
       const { data, error } = await supabase
         .from('contracts')
@@ -464,19 +459,16 @@ class ContractsService {
         .single()
 
       if (error) {
-        console.error('🔴 [updateContract] Supabase error:', error)
+        console.error('Error updating contract:', error)
         throw error
       }
-
-      console.log('✅ [updateContract] Update successful. Response:', data)
 
       return {
         success: true,
         contract: await this.getContract(id)
       }
     } catch (error) {
-      console.error('🔴 [updateContract] Error updating contract:', error.message)
-      console.error('🔴 [updateContract] Full error:', error)
+      console.error('Error updating contract:', error.message)
       return {
         success: false,
         error: error.message || 'فشل في تحديث العقد',
