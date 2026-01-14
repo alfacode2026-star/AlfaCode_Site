@@ -94,7 +94,7 @@ const formatNumber = (value: number): string => {
 ======================= */
 
 const TreasuryPage: FC = () => {
-  const { setLanguage } = useLanguage();
+  const { language } = useLanguage();
 
   const [accounts, setAccounts] = useState<TreasuryAccount[]>([]);
   const [transactions, setTransactions] = useState<TreasuryTransaction[]>([]);
@@ -112,10 +112,10 @@ const TreasuryPage: FC = () => {
      Language & Locale Sync
   ======================= */
 
+  // Sync moment locale with current language (read-only, no language override)
   useEffect(() => {
-    setLanguage('en');
-    moment.locale('en');
-  }, [setLanguage]);
+    moment.locale(language === 'en' ? 'en' : 'ar');
+  }, [language]);
 
   /* =======================
      Data Loading
