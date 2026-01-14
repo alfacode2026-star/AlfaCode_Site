@@ -517,7 +517,7 @@ const IncomesPage: FC = () => {
                 title="Total Incomes"
                 value={totalAmount}
                 prefix={<DollarOutlined />}
-                valueStyle={{ color: '#52c41a' }}
+                styles={{ value: { color: '#52c41a' } }}
                 formatter={(value) => formatCurrency(Number(value))}
               />
             </Card>
@@ -541,6 +541,7 @@ const IncomesPage: FC = () => {
             `${record.id}-${record.updatedAt || record.lastUpdated || ''}`
           }
           pagination={{ pageSize: 10 }}
+          locale={{ emptyText: 'No incomes found' }}
         />
       </Card>
 

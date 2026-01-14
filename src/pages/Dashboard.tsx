@@ -13,10 +13,11 @@ import {
 import { useNavigate } from 'react-router-dom'
 import inventoryService from '../services/inventoryService'
 import paymentsService from '../services/paymentsService'
+import ordersService from '../services/ordersService'
+import customersService from '../services/customersService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getTranslations } from '../utils/translations'
-import { useFormatting } from '../utils/formatting'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 
 const Dashboard = () => {
@@ -24,8 +25,9 @@ const Dashboard = () => {
   const { industryType } = useTenant()
   const { language } = useLanguage()
   const t = getTranslations(language)
-  const { formatCurrency } = useFormatting()
   const [products, setProducts] = useState([])
+  const [orders, setOrders] = useState([])
+  const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [financialMetrics, setFinancialMetrics] = useState({
     totalProjectsProfit: 0,
@@ -37,10 +39,14 @@ const Dashboard = () => {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [productsData] = await Promise.all([
-          inventoryService.getProducts()
+        const [productsData, ordersData, customersData] = await Promise.all([
+          inventoryService.getProducts(),
+          ordersService.getOrders(),
+          customersService.getCustomers()
         ])
         setProducts(Array.isArray(productsData) ? productsData : [])
+        setOrders(Array.isArray(ordersData) ? ordersData : [])
+        setCustomers(Array.isArray(customersData) ? customersData : [])
 
         // Calculate financial metrics for engineering companies
         if (industryType === 'engineering') {
@@ -93,22 +99,24 @@ const Dashboard = () => {
     fetchData()
   }, [industryType])
 
-  // Calculate stats dynamically from products data
+  // Calculate stats dynamically from real data
   const totalProducts = products.length
   const totalValue = products.reduce((sum, p) => sum + ((p.purchasePrice || 0) * (p.quantity || 0)), 0)
   const lowStockCount = products.filter(p => (p.quantity || 0) <= (p.minQuantity || 0)).length
+  const totalOrders = orders.length
+  const totalCustomers = customers.length
 
   const stats = [
     {
       title: t.dashboard.totalOrders,
-      value: 128,
+      value: totalOrders,
       icon: <ShoppingOutlined />,
       color: '#1890ff',
       link: '/orders'
     },
     {
       title: t.dashboard.totalCustomers,
-      value: 45,
+      value: totalCustomers,
       icon: <UserOutlined />,
       color: '#52c41a',
       link: '/customers'
@@ -147,7 +155,7 @@ const Dashboard = () => {
         style={{ marginBottom: 24 }}
       />
 
-      {/* الإحصائيات */}
+      {/* Statistics */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {stats.map((stat, index) => (
           <Col xs={24} sm={12} lg={6} key={index}>

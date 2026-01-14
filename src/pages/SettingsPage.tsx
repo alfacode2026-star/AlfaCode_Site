@@ -1,6 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useTenant } from '../contexts/TenantContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
+import companySettingsService from '../services/companySettingsService'
 import {
   Card,
   Form,
@@ -41,18 +45,29 @@ import {
   CloudOutlined,
   DatabaseOutlined,
   AppstoreOutlined,
-  SettingOutlined
+  SettingOutlined,
+  FileImageOutlined
 } from '@ant-design/icons'
+import type { UploadFile, UploadProps } from 'antd/es/upload/interface'
 
 const { Option } = Select
 // const { TabPane } = Tabs
 const { Title, Text } = Typography
 
 const SettingsPage = () => {
+  const { currentTenantId } = useTenant()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const [form] = Form.useForm()
+  const [companyForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [companyLoading, setCompanyLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('general')
   const [logo, setLogo] = useState(null)
+  const [companySettings, setCompanySettings] = useState<any>(null)
+  const [letterheadFile, setLetterheadFile] = useState<UploadFile | null>(null)
+  const [stampFile, setStampFile] = useState<UploadFile | null>(null)
+  const [logoFile, setLogoFile] = useState<UploadFile | null>(null)
 
   // بيانات الشركة
   const companyData = {
@@ -135,14 +150,172 @@ const SettingsPage = () => {
     { date: '2024-02-11 02:00', size: '2.3 GB', type: 'تلقائي', status: 'failed' }
   ]
 
+  useEffect(() => {
+    if (activeTab === 'company') {
+      loadCompanySettings()
+    }
+  }, [activeTab, currentTenantId])
+
+  const loadCompanySettings = async () => {
+    try {
+      const settings = await companySettingsService.getCompanySettings()
+      setCompanySettings(settings) // Set even if null for null-safety checks
+      if (settings) {
+        companyForm.setFieldsValue({
+          companyName: settings.companyName || '',
+          authorizedManagerName: settings.authorizedManagerName || '',
+          authorizedManagerTitle: settings.authorizedManagerTitle || '',
+          companyAddress: settings.companyAddress || '',
+          companyPhone: settings.companyPhone || '',
+          companyEmail: settings.companyEmail || '',
+          companyWebsite: settings.companyWebsite || '',
+          taxNumber: settings.taxNumber || '',
+          commercialRegister: settings.commercialRegister || '',
+          topMargin: settings.topMarginCm ?? 4.0,
+          bottomMargin: settings.bottomMarginCm ?? 3.0
+        })
+      } else {
+        // Set defaults if no settings exist
+        companyForm.setFieldsValue({
+          topMargin: 4.0,
+          bottomMargin: 3.0
+        })
+      }
+    } catch (error) {
+      console.error('Error loading company settings:', error)
+      // Set defaults on error
+      companyForm.setFieldsValue({
+        topMargin: 4.0,
+        bottomMargin: 3.0
+      })
+    }
+  }
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = error => reject(error)
+    })
+  }
+
+  const handleLetterheadUpload: UploadProps['customRequest'] = async ({ file, onSuccess, onError }) => {
+    try {
+      const base64 = await fileToBase64(file as File)
+      setLetterheadFile({
+        uid: file.uid,
+        name: file.name,
+        status: 'done',
+        url: base64
+      } as UploadFile)
+      if (onSuccess) onSuccess('ok')
+      message.success(language === 'ar' ? 'تم رفع الورقة الرسمية بنجاح' : 'Letterhead uploaded successfully')
+    } catch (error) {
+      console.error('Error uploading letterhead:', error)
+      if (onError) onError(error as Error)
+      message.error(language === 'ar' ? 'فشل رفع الورقة الرسمية' : 'Failed to upload letterhead')
+    }
+  }
+
+  const handleStampUpload: UploadProps['customRequest'] = async ({ file, onSuccess, onError }) => {
+    try {
+      const base64 = await fileToBase64(file as File)
+      setStampFile({
+        uid: file.uid,
+        name: file.name,
+        status: 'done',
+        url: base64
+      } as UploadFile)
+      if (onSuccess) onSuccess('ok')
+      message.success(language === 'ar' ? 'تم رفع الختم الرقمي بنجاح' : 'Digital stamp uploaded successfully')
+    } catch (error) {
+      console.error('Error uploading stamp:', error)
+      if (onError) onError(error as Error)
+      message.error(language === 'ar' ? 'فشل رفع الختم الرقمي' : 'Failed to upload digital stamp')
+    }
+  }
+
+  const handleLogoUpload: UploadProps['customRequest'] = async ({ file, onSuccess, onError }) => {
+    try {
+      const base64 = await fileToBase64(file as File)
+      setLogoFile({
+        uid: file.uid,
+        name: file.name,
+        status: 'done',
+        url: base64
+      } as UploadFile)
+      if (onSuccess) onSuccess('ok')
+      message.success(language === 'ar' ? 'تم رفع الشعار بنجاح' : 'Logo uploaded successfully')
+    } catch (error) {
+      console.error('Error uploading logo:', error)
+      if (onError) onError(error as Error)
+      message.error(language === 'ar' ? 'فشل رفع الشعار' : 'Failed to upload logo')
+    }
+  }
+
+  const handleCompanySettingsSave = async () => {
+    try {
+      setCompanyLoading(true)
+      const values = await companyForm.validateFields()
+
+      const settingsData: any = {
+        companyName: values.companyName,
+        authorizedManagerName: values.authorizedManagerName,
+        authorizedManagerTitle: values.authorizedManagerTitle,
+        companyAddress: values.companyAddress,
+        companyPhone: values.companyPhone,
+        companyEmail: values.companyEmail,
+        companyWebsite: values.companyWebsite,
+        taxNumber: values.taxNumber,
+        commercialRegister: values.commercialRegister,
+        topMarginCm: values.topMargin || 4,
+        bottomMarginCm: values.bottomMargin || 3
+      }
+
+      if (letterheadFile?.url) {
+        settingsData.letterheadUrl = letterheadFile.url
+      } else if (companySettings?.letterheadUrl) {
+        settingsData.letterheadUrl = companySettings.letterheadUrl
+      }
+
+      if (stampFile?.url) {
+        settingsData.digitalStampUrl = stampFile.url
+      } else if (companySettings?.digitalStampUrl) {
+        settingsData.digitalStampUrl = companySettings.digitalStampUrl
+      }
+
+      if (logoFile?.url) {
+        settingsData.logoUrl = logoFile.url
+      } else if (companySettings?.logoUrl) {
+        settingsData.logoUrl = companySettings.logoUrl
+      }
+
+      const result = await companySettingsService.saveCompanySettings(settingsData)
+
+      if (result.success) {
+        message.success(language === 'ar' ? 'تم حفظ إعدادات الشركة بنجاح' : 'Company settings saved successfully!')
+        await loadCompanySettings()
+        setLetterheadFile(null)
+        setStampFile(null)
+        setLogoFile(null)
+      } else {
+        message.error(result.error || (language === 'ar' ? 'فشل حفظ الإعدادات' : 'Failed to save settings'))
+      }
+    } catch (error) {
+      console.error('Error saving company settings:', error)
+      message.error(language === 'ar' ? 'فشل حفظ الإعدادات' : 'Failed to save settings')
+    } finally {
+      setCompanyLoading(false)
+    }
+  }
+
   const handleSave = () => {
     setLoading(true)
     form.validateFields().then(values => {
-      // هنا يمكنك إرسال البيانات إلى الخادم
-      console.log('Settings saved:', values)
       setTimeout(() => {
         setLoading(false)
-        message.success('تم حفظ الإعدادات بنجاح')
+        message.success(language === 'ar' ? 'تم حفظ الإعدادات بنجاح' : 'Settings saved successfully')
       }, 1000)
     }).catch(error => {
       console.error('Validation failed:', error)
@@ -150,10 +323,11 @@ const SettingsPage = () => {
     })
   }
 
-  const handleLogoUpload = (info) => {
+  // Old logo upload handler for general settings tab (legacy)
+  const handleGeneralLogoUpload = (info: any) => {
     if (info.file.status === 'done') {
       setLogo(info.file.originFileObj)
-      message.success('تم رفع الشعار بنجاح')
+      message.success(language === 'ar' ? 'تم رفع الشعار بنجاح' : 'Logo uploaded successfully')
     }
   }
 
@@ -306,7 +480,7 @@ const SettingsPage = () => {
                         <Upload
                           accept="image/*"
                           showUploadList={false}
-                          onChange={handleLogoUpload}
+                          onChange={handleGeneralLogoUpload}
                         >
                           <Button icon={<UploadOutlined />}>
                             تغيير الشعار
@@ -664,6 +838,260 @@ const SettingsPage = () => {
               )}
             />
           </Card>
+            )
+          },
+          {
+            key: 'company',
+            label: language === 'ar' ? 'إعدادات الشركة' : 'Company Settings',
+            icon: <ShopOutlined />,
+            children: (
+              <>
+                <Alert
+                  message={language === 'ar' ? 'تعليمات الورقة الرسمية' : 'Full-Page Letterhead Instructions'}
+                  description={language === 'ar' 
+                    ? 'قم برفع صورة عالية الدقة PNG/JPG لصفحة A4 كاملة تتضمن الرأس والتذييل والعلامة المائية. سيستخدم النظام هذا كطبقة خلفية، وسيتدفق محتوى العرض فوقها.'
+                    : 'Upload a high-resolution PNG/JPG image of your entire A4 page including header, footer, and watermark. The system will use this as a background layer, and quotation content will flow over it.'}
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+                <Form form={companyForm} layout="vertical">
+                  <Card title={language === 'ar' ? 'معلومات الشركة' : 'Company Information'} style={{ marginBottom: 16 }}>
+                    <Row gutter={[24, 16]}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="companyName"
+                          label={language === 'ar' ? 'اسم الشركة' : 'Company Name'}
+                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال اسم الشركة' : 'Please enter company name' }]}
+                        >
+                          <Input prefix={<ShopOutlined />} placeholder={language === 'ar' ? 'اسم الشركة' : 'Company Name'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="authorizedManagerName"
+                          label={language === 'ar' ? 'اسم المدير المصرح' : 'Authorized Manager Name'}
+                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال اسم المدير' : 'Please enter manager name' }]}
+                        >
+                          <Input prefix={<UserOutlined />} placeholder={language === 'ar' ? 'اسم المدير' : 'Manager Name'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="authorizedManagerTitle"
+                          label={language === 'ar' ? 'منصب المدير' : 'Manager Title/Position'}
+                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال منصب المدير' : 'Please enter manager title' }]}
+                        >
+                          <Input placeholder={language === 'ar' ? 'مثل: المدير العام' : 'e.g., General Manager'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="companyPhone" label={language === 'ar' ? 'هاتف الشركة' : 'Company Phone'}>
+                          <Input placeholder={language === 'ar' ? 'رقم الهاتف' : 'Phone Number'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="companyEmail" label={language === 'ar' ? 'بريد الشركة' : 'Company Email'}>
+                          <Input placeholder={language === 'ar' ? 'البريد الإلكتروني' : 'Email Address'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="companyWebsite" label={language === 'ar' ? 'موقع الشركة' : 'Company Website'}>
+                          <Input placeholder={language === 'ar' ? 'رابط الموقع' : 'Website URL'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={24}>
+                        <Form.Item name="companyAddress" label={language === 'ar' ? 'عنوان الشركة' : 'Company Address'}>
+                          <Input.TextArea rows={2} placeholder={language === 'ar' ? 'العنوان الكامل' : 'Full Address'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="taxNumber" label={language === 'ar' ? 'الرقم الضريبي' : 'Tax Number'}>
+                          <Input placeholder={language === 'ar' ? 'الرقم الضريبي' : 'Tax Number'} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item name="commercialRegister" label={language === 'ar' ? 'السجل التجاري' : 'Commercial Register'}>
+                          <Input placeholder={language === 'ar' ? 'رقم السجل التجاري' : 'Commercial Register Number'} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Card>
+
+                  <Card title={language === 'ar' ? 'العلامة التجارية والوسائط' : 'Branding & Media'} style={{ marginBottom: 16 }}>
+                    <Row gutter={[24, 24]}>
+                      <Col span={24}>
+                        <Divider orientation="left">{language === 'ar' ? 'الورقة الرسمية الكاملة (خلفية A4)' : 'Full-Page Letterhead (A4 Background)'}</Divider>
+                        <Form.Item
+                          label={language === 'ar' ? 'صورة الورقة الرسمية' : 'Letterhead Image'}
+                          extra={language === 'ar' 
+                            ? 'قم برفع صورة عالية الدقة PNG/JPG للصفحة الكاملة (210mm x 297mm) تتضمن الرأس والتذييل والعلامة المائية. الموصى به: 2480x3508 بكسل بدقة 300 DPI.'
+                            : 'Upload a high-resolution PNG/JPG of the entire A4 page (210mm x 297mm) including header, footer, and watermark. Recommended: 2480x3508 pixels at 300 DPI.'}
+                        >
+                          <Upload
+                            customRequest={handleLetterheadUpload}
+                            accept="image/png,image/jpeg,image/jpg"
+                            maxCount={1}
+                            listType="picture-card"
+                            showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+                          >
+                            {(!letterheadFile && !companySettings?.letterheadUrl) && (
+                              <div>
+                                <UploadOutlined />
+                                <div style={{ marginTop: 8 }}>{language === 'ar' ? 'رفع الورقة الرسمية' : 'Upload Letterhead'}</div>
+                              </div>
+                            )}
+                          </Upload>
+                          {companySettings?.letterheadUrl && !letterheadFile && (
+                            <div style={{ marginTop: 16 }}>
+                              <Text type="secondary">{language === 'ar' ? 'الورقة الرسمية الحالية:' : 'Current letterhead:'}</Text>
+                              <div style={{ marginTop: 8 }}>
+                                <img
+                                  src={companySettings.letterheadUrl}
+                                  alt="Current letterhead"
+                                  style={{ maxWidth: '100%', maxHeight: '200px', border: '1px solid #d9d9d9', borderRadius: 4 }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          {letterheadFile?.url && (
+                            <div style={{ marginTop: 16 }}>
+                              <Text type="success">{language === 'ar' ? 'معاينة الورقة الرسمية الجديدة:' : 'New letterhead preview:'}</Text>
+                              <div style={{ marginTop: 8 }}>
+                                <img
+                                  src={letterheadFile.url}
+                                  alt="New letterhead"
+                                  style={{ maxWidth: '100%', maxHeight: '200px', border: '1px solid #52c41a', borderRadius: 4 }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </Form.Item>
+                      </Col>
+
+                      <Col span={12}>
+                        <Divider orientation="left">{language === 'ar' ? 'الختم الرقمي' : 'Digital Stamp'}</Divider>
+                        <Form.Item
+                          label={language === 'ar' ? 'الختم الرقمي (PNG شفاف)' : 'Digital Stamp (Transparent PNG)'}
+                          extra={language === 'ar' ? 'قم برفع PNG شفاف لختم الشركة/التوقيع. الموصى به: 300x300 بكسل.' : 'Upload a transparent PNG of your company stamp/signature. Recommended: 300x300 pixels.'}
+                        >
+                          <Upload
+                            customRequest={handleStampUpload}
+                            accept="image/png"
+                            maxCount={1}
+                            listType="picture-card"
+                            showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+                          >
+                            {(!stampFile && !companySettings?.digitalStampUrl) && (
+                              <div>
+                                <FileImageOutlined />
+                                <div style={{ marginTop: 8 }}>{language === 'ar' ? 'رفع الختم' : 'Upload Stamp'}</div>
+                              </div>
+                            )}
+                          </Upload>
+                          {companySettings?.digitalStampUrl && !stampFile && (
+                            <div style={{ marginTop: 16 }}>
+                              <img
+                                src={companySettings.digitalStampUrl}
+                                alt="Current stamp"
+                                style={{ maxWidth: '150px', maxHeight: '150px', border: '1px solid #d9d9d9', borderRadius: 4 }}
+                              />
+                            </div>
+                          )}
+                          {stampFile?.url && (
+                            <div style={{ marginTop: 16 }}>
+                              <img
+                                src={stampFile.url}
+                                alt="New stamp"
+                                style={{ maxWidth: '150px', maxHeight: '150px', border: '1px solid #52c41a', borderRadius: 4 }}
+                              />
+                            </div>
+                          )}
+                        </Form.Item>
+                      </Col>
+
+                      <Col span={12}>
+                        <Divider orientation="left">{language === 'ar' ? 'شعار الشركة' : 'Company Logo'}</Divider>
+                        <Form.Item
+                          label={language === 'ar' ? 'شعار الشركة (اختياري)' : 'Company Logo (Optional)'}
+                          extra={language === 'ar' ? 'قم برفع شعار الشركة. الموصى به: 300x100 بكسل.' : 'Upload your company logo. Recommended: 300x100 pixels.'}
+                        >
+                          <Upload
+                            customRequest={handleLogoUpload}
+                            accept="image/png,image/jpeg,image/jpg"
+                            maxCount={1}
+                            listType="picture-card"
+                            showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+                          >
+                            {(!logoFile && !companySettings?.logoUrl) && (
+                              <div>
+                                <FileImageOutlined />
+                                <div style={{ marginTop: 8 }}>{language === 'ar' ? 'رفع الشعار' : 'Upload Logo'}</div>
+                              </div>
+                            )}
+                          </Upload>
+                          {companySettings?.logoUrl && !logoFile && (
+                            <div style={{ marginTop: 16 }}>
+                              <img
+                                src={companySettings.logoUrl}
+                                alt="Current logo"
+                                style={{ maxWidth: '150px', maxHeight: '100px', border: '1px solid #d9d9d9', borderRadius: 4 }}
+                              />
+                            </div>
+                          )}
+                          {logoFile?.url && (
+                            <div style={{ marginTop: 16 }}>
+                              <img
+                                src={logoFile.url}
+                                alt="New logo"
+                                style={{ maxWidth: '150px', maxHeight: '100px', border: '1px solid #52c41a', borderRadius: 4 }}
+                              />
+                            </div>
+                          )}
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Card>
+
+                  <Card title={language === 'ar' ? 'هوامش المحتوى' : 'Content Margins'}>
+                    <Row gutter={[24, 16]}>
+                      <Col span={12}>
+                        <Form.Item
+                          name="topMargin"
+                          label={language === 'ar' ? 'الهامش العلوي (سم)' : 'Top Margin (cm)'}
+                          extra={language === 'ar' ? 'المسافة من أعلى الورقة الرسمية إلى بداية المحتوى. الافتراضي: 4سم' : 'Distance from top of letterhead to start of content. Default: 4cm'}
+                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال الهامش العلوي' : 'Please enter top margin' }]}
+                          initialValue={4}
+                        >
+                          <InputNumber type="number" min={1} max={10} step={0.5} style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          name="bottomMargin"
+                          label={language === 'ar' ? 'الهامش السفلي (سم)' : 'Bottom Margin (cm)'}
+                          extra={language === 'ar' ? 'المسافة من أسفل الورقة الرسمية إلى نهاية المحتوى. الافتراضي: 3سم' : 'Distance from bottom of letterhead to end of content. Default: 3cm'}
+                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال الهامش السفلي' : 'Please enter bottom margin' }]}
+                          initialValue={3}
+                        >
+                          <InputNumber type="number" min={1} max={10} step={0.5} style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Card>
+                </Form>
+                <div style={{ marginTop: 16, textAlign: 'right' }}>
+                  <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    onClick={handleCompanySettingsSave}
+                    loading={companyLoading}
+                    size="large"
+                  >
+                    {language === 'ar' ? 'حفظ إعدادات الشركة' : 'Save Company Settings'}
+                  </Button>
+                </div>
+              </>
             )
           }
         ]}

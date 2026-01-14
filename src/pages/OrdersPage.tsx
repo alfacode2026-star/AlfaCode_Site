@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import moment from 'moment'
 import ordersService from '../services/ordersService'
 import customersService from '../services/customersService'
@@ -8,6 +8,9 @@ import projectsService from '../services/projectsService'
 import treasuryService from '../services/treasuryService'
 import paymentsService from '../services/paymentsService'
 import { useTenant } from '../contexts/TenantContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
+import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
 import { 
   Card, 
   Table, 
@@ -58,6 +61,8 @@ const { Step } = Steps
 
 const OrdersPage = () => {
   const { industryType } = useTenant()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const isEngineering = industryType === 'engineering'
   
   const [orders, setOrders] = useState([])
@@ -101,7 +106,7 @@ const OrdersPage = () => {
       setCustomers(customersList || [])
     } catch (error) {
       console.error('Error loading customers:', error)
-      message.error('فشل في تحميل قائمة العملاء')
+      message.error(t.orders.failedToLoadCustomers)
       setCustomers([])
     }
   }
@@ -143,11 +148,11 @@ const OrdersPage = () => {
           }
           
           // Check if this is a settlement order and fetch engineer name
-          const isSettlement = order.notes && typeof order.notes === 'string' && order.notes.includes('تسوية عهدة')
+          const isSettlement = order.notes && typeof order.notes === 'string' && order.notes.includes(t.orders.settlementAdvance)
           if (isSettlement && order.projectId) {
             try {
-              // Extract reference number from notes (format: "تسوية عهدة رقم XXX")
-              const notesMatch = order.notes.match(/تسوية عهدة رقم\s+([^\s-]+)/)
+              // Extract reference number from notes (format: "Settlement Advance Number XXX")
+              const notesMatch = order.notes.match(new RegExp(`${t.orders.settlementAdvance}\\s+${t.orders.advanceNumber}\\s+([^\\s-]+)`))
               if (notesMatch && notesMatch[1]) {
                 const referenceNumber = notesMatch[1].trim()
                 // Find settlement payment by reference number
@@ -189,14 +194,14 @@ const OrdersPage = () => {
           // If customer is an object, keep it; otherwise create from customerName/customerPhone
           if (!normalizedOrder.customer && (normalizedOrder.customerName || normalizedOrder.customerPhone)) {
             normalizedOrder.customer = {
-              name: normalizedOrder.customerName || 'عميل غير معروف',
-              phone: normalizedOrder.customerPhone || 'لا يوجد',
+              name: normalizedOrder.customerName || t.orders.unknownCustomer,
+              phone: normalizedOrder.customerPhone || t.orders.noPhone,
               email: normalizedOrder.customerEmail || ''
             }
           } else if (!normalizedOrder.customer) {
             normalizedOrder.customer = {
-              name: 'عميل غير معروف',
-              phone: 'لا يوجد',
+              name: t.orders.unknownCustomer,
+              phone: t.orders.noPhone,
               email: ''
             }
           }
@@ -225,7 +230,7 @@ const OrdersPage = () => {
       }
     } catch (error) {
       console.error('Error loading orders:', error)
-      message.error('فشل في تحميل بيانات أوامر الشراء')
+      message.error(t.orders.failedToLoad)
       // Set empty array on error to prevent crashes
       setOrders([])
     } finally {
@@ -234,7 +239,7 @@ const OrdersPage = () => {
   }
 
 
-  // إحصائيات
+  // Statistics
   const stats = {
     totalOrders: orders.length,
     totalRevenue: orders.reduce((sum, order) => sum + (order.total || 0), 0),
@@ -242,24 +247,24 @@ const OrdersPage = () => {
     completedOrders: orders.filter(o => o.status === 'completed').length,
   }
 
-  // دالة الطباعة
+  // Print function
   const handlePrint = (order) => {
     if (!order) return
     
-    const orderId = order.id || 'غير معروف'
+    const orderId = order.id || t.orders.unknownOrder
     const orderDate = order.dates?.created || order.createdAt || moment().format('DD-MMM-YYYY')
-    const customerName = order.customer?.name || order.customerName || 'عميل غير معروف'
-    const customerPhone = order.customer?.phone || order.customerPhone || 'لا يوجد'
+    const customerName = order.customer?.name || order.customerName || t.orders.unknownCustomer
+    const customerPhone = order.customer?.phone || order.customerPhone || t.orders.noPhone
     const customerEmail = order.customer?.email || order.customerEmail || ''
     const orderItems = Array.isArray(order.items) ? order.items : []
     const orderTotal = order.total || 0
     
     const printContent = `
       <!DOCTYPE html>
-      <html dir="rtl" lang="ar">
+      <html dir="ltr" lang="en">
       <head>
         <meta charset="UTF-8">
-        <title>فاتورة ${orderId}</title>
+        <title>${t.orders.invoiceTitle} ${orderId}</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; }
           .invoice { max-width: 800px; margin: 0 auto; }
@@ -270,42 +275,42 @@ const OrdersPage = () => {
           .section { flex: 1; }
           .section-title { font-weight: bold; margin-bottom: 10px; }
           table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
           th { background-color: #f2f2f2; }
-          .total { text-align: left; font-size: 18px; font-weight: bold; margin-top: 20px; }
+          .total { text-align: right; font-size: 18px; font-weight: bold; margin-top: 20px; }
           .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #666; }
         </style>
       </head>
       <body>
         <div class="invoice">
           <div class="header">
-            <div class="company-name">نظام ERP المتكامل</div>
-            <div class="invoice-title">أمر شراء</div>
-            <div>رقم أمر الشراء: PO-${orderId}</div>
-            <div>التاريخ: ${orderDate}</div>
+            <div class="company-name">Integrated ERP System</div>
+            <div class="invoice-title">${t.orders.invoiceTitle}</div>
+            <div>${t.orders.purchaseOrderNumber}: PO-${orderId}</div>
+            <div>${t.orders.date}: ${orderDate}</div>
           </div>
           
           <div class="details">
             <div class="section">
-              <div class="section-title">معلومات المورد/العميل:</div>
-              <div>الاسم: ${customerName}</div>
-              <div>الهاتف: ${customerPhone}</div>
-              ${customerEmail ? `<div>البريد: ${customerEmail}</div>` : ''}
+              <div class="section-title">${t.orders.supplierCustomerInfo}:</div>
+              <div>${t.orders.name}: ${customerName}</div>
+              <div>${t.orders.phone}: ${customerPhone}</div>
+              ${customerEmail ? `<div>${t.orders.email}: ${customerEmail}</div>` : ''}
             </div>
           </div>
           
           <table>
             <thead>
               <tr>
-                <th>وصف البند/المادة</th>
-                <th>الكمية</th>
-                <th>سعر الوحدة</th>
-                <th>الإجمالي</th>
+                <th>${t.orders.itemDescription}</th>
+                <th>${t.orders.quantity}</th>
+                <th>${t.orders.unitPrice}</th>
+                <th>${t.orders.itemTotal}</th>
               </tr>
             </thead>
             <tbody>
               ${orderItems.map(item => {
-                const productName = item.product || item.productName || 'بند غير معروف'
+                const productName = item.product || item.productName || t.orders.unknownOrder
                 const quantity = item.quantity || 0
                 const price = item.price || item.unitPrice || 0
                 const total = price * quantity
@@ -313,8 +318,8 @@ const OrdersPage = () => {
                   <tr>
                     <td>${productName}</td>
                     <td>${quantity}</td>
-                    <td>${price.toLocaleString()} ريال</td>
-                    <td>${total.toLocaleString()} ريال</td>
+                    <td>${price.toLocaleString()} ${t.common.sar}</td>
+                    <td>${total.toLocaleString()} ${t.common.sar}</td>
                   </tr>
                 `
               }).join('')}
@@ -322,7 +327,7 @@ const OrdersPage = () => {
           </table>
           
           <div class="total">
-            المبلغ الإجمالي: ${orderTotal.toLocaleString()} ريال
+            ${t.orders.totalAmount}: ${orderTotal.toLocaleString()} ${t.common.sar}
           </div>
         </div>
         <script>
@@ -341,32 +346,32 @@ const OrdersPage = () => {
     }
   }
 
-  // أعمدة الجدول
-  const columns = [
+  // Table columns with useMemo for performance
+  const columns = useMemo(() => [
     {
-      title: 'رقم أمر الشراء',
+      title: t.orders.orderNumber,
       dataIndex: 'id',
       key: 'id',
-      render: (id) => <span style={{ fontWeight: 500 }}>PO-{id || 'غير معروف'}</span>,
+      render: (id) => <span style={{ fontWeight: 500 }}>PO-{id || t.orders.unknownOrder}</span>,
     },
     ...(isEngineering ? [{
-      title: 'اسم المشروع',
+      title: t.orders.projectName || 'Project Name',
       dataIndex: 'projectName',
       key: 'projectName',
       render: (projectName) => (
-        <span style={{ fontWeight: 500 }}>{projectName || 'غير محدد'}</span>
+        <span style={{ fontWeight: 500 }}>{projectName || t.common.notSpecified}</span>
       ),
     },
     {
-      title: 'نطاق العمل',
+      title: t.orders.workScope,
       dataIndex: 'workScope',
       key: 'workScope',
       render: (workScope) => (
-        <Tag color="blue">{workScope || 'غير محدد'}</Tag>
+        <Tag color="blue">{workScope ? translateWorkType(workScope, language) : t.common.notSpecified}</Tag>
       ),
     }] : []),
     {
-      title: 'نوع البند',
+      title: t.orders.itemType,
       dataIndex: 'items',
       key: 'itemType',
       width: 120,
@@ -376,16 +381,16 @@ const OrdersPage = () => {
         const hasInventoryItems = items.some(item => item.productId && !item.isManualEntry)
         const hasManualItems = items.some(item => !item.productId || item.isManualEntry)
         if (hasInventoryItems && hasManualItems) {
-          return <Tag color="purple">مختلط</Tag>
+          return <Tag color="purple">{t.orders.mixed}</Tag>
         } else if (hasInventoryItems) {
-          return <Tag color="blue">مخزون</Tag>
+          return <Tag color="blue">{t.orders.inventory}</Tag>
         } else {
-          return <Tag color="orange">يدوي</Tag>
+          return <Tag color="orange">{t.orders.manual}</Tag>
         }
       },
     },
     {
-      title: 'الكمية الإجمالية',
+      title: t.orders.totalQuantity,
       dataIndex: 'items',
       key: 'totalQuantity',
       width: 120,
@@ -401,27 +406,27 @@ const OrdersPage = () => {
       },
     },
     {
-      title: 'نوع أمر الشراء',
+      title: t.orders.orderType,
       dataIndex: 'notes',
       key: 'poType',
       width: 150,
       render: (notes, record) => {
         // Check if this is a settlement order by looking at notes
-        const isSettlement = notes && typeof notes === 'string' && notes.includes('تسوية عهدة')
+        const isSettlement = notes && typeof notes === 'string' && notes.includes(t.orders.settlementAdvance)
         if (isSettlement) {
-          return <Tag color="cyan">تسوية عهدة</Tag>
+          return <Tag color="cyan">{t.orders.settlementOrder}</Tag>
         }
-        return <Tag color="green">شراء</Tag>
+        return <Tag color="green">{t.orders.purchase}</Tag>
       },
     },
     {
-      title: 'اسم المهندس',
+      title: t.orders.engineerName,
       dataIndex: 'engineerName',
       key: 'engineerName',
       width: 150,
       render: (engineerName, record) => {
         // Only show for settlement orders
-        const isSettlement = record.notes && typeof record.notes === 'string' && record.notes.includes('تسوية عهدة')
+        const isSettlement = record.notes && typeof record.notes === 'string' && record.notes.includes(t.orders.settlementAdvance)
         if (isSettlement && engineerName) {
           return <Tag color="purple">{engineerName}</Tag>
         }
@@ -429,32 +434,32 @@ const OrdersPage = () => {
       },
     },
     {
-      title: 'المبلغ الإجمالي',
+      title: t.orders.totalAmountLabel,
       dataIndex: 'total',
       key: 'total',
       render: (total) => {
         const totalValue = total || 0
         return (
           <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-            {totalValue.toLocaleString()} ريال
+            {totalValue.toLocaleString()} {t.common.sar}
           </span>
         )
       },
       sorter: (a, b) => (a?.total || 0) - (b?.total || 0),
     },
     {
-      title: 'الحالة',
+      title: t.orders.status,
       dataIndex: 'status',
       key: 'status',
       render: (status) => {
         const statusConfig = {
-          pending: { color: 'orange', text: 'قيد الانتظار', icon: <ClockCircleOutlined /> },
-          processing: { color: 'blue', text: 'قيد المعالجة', icon: <ClockCircleOutlined /> },
-          shipped: { color: 'purple', text: 'تم الشحن', icon: <TruckOutlined /> },
-          completed: { color: 'green', text: 'مكتمل', icon: <CheckCircleOutlined /> },
-          cancelled: { color: 'red', text: 'ملغي', icon: <CloseCircleOutlined /> },
+          pending: { color: 'orange', text: t.orders.pending, icon: <ClockCircleOutlined /> },
+          processing: { color: 'blue', text: t.orders.processing, icon: <ClockCircleOutlined /> },
+          shipped: { color: 'purple', text: t.orders.shipped || 'Shipped', icon: <TruckOutlined /> },
+          completed: { color: 'green', text: t.orders.completed, icon: <CheckCircleOutlined /> },
+          cancelled: { color: 'red', text: t.orders.cancelled, icon: <CloseCircleOutlined /> },
         }
-        const config = statusConfig[status] || { color: 'default', text: 'غير محدد', icon: null }
+        const config = statusConfig[status] || { color: 'default', text: t.common.notSpecified, icon: null }
         return (
           <Tag color={config.color} icon={config.icon}>
             {config.text}
@@ -463,11 +468,11 @@ const OrdersPage = () => {
       },
     },
     {
-      title: 'التاريخ',
+      title: t.orders.dateLabel,
       dataIndex: 'createdAt',
       key: 'createdAt',
       render: (date) => {
-        if (!date) return 'غير محدد'
+        if (!date) return t.common.notSpecified
         const parsed = moment(date, 'YYYY-MM-DD', true)
         return parsed.isValid() ? parsed.format('DD-MMM-YYYY') : '-'
       },
@@ -478,7 +483,7 @@ const OrdersPage = () => {
       },
     },
     {
-      title: 'الإجراءات',
+      title: t.common.actions,
       key: 'actions',
       render: (_, record) => (
         <Space>
@@ -505,47 +510,47 @@ const OrdersPage = () => {
                 setSelectedOrderTreasuryAccount(null)
               }
             }}
-            title="عرض التفاصيل"
+            title={t.orders.viewDetails}
           />
           <Button 
             type="link" 
             icon={<PrinterOutlined />}
             onClick={() => handlePrint(record)}
-            title="طباعة الفاتورة"
+            title={t.orders.printInvoice}
           />
           <Popconfirm
-            title="حذف أمر الشراء"
-            description="هل أنت متأكد من حذف أمر الشراء هذا؟"
+            title={t.orders.deleteOrderConfirm}
+            description={t.orders.deleteOrderDescription}
             onConfirm={async () => {
               try {
                 const result = await ordersService.deleteOrder(record.id)
                 if (result.success) {
-                  message.success('تم حذف أمر الشراء بنجاح')
+                  message.success(t.orders.orderDeleted)
                   loadOrders() // Refresh the list
                 } else {
-                  message.error(result.error || 'فشل في حذف أمر الشراء')
+                  message.error(result.error || t.orders.failedToDelete)
                 }
               } catch (error) {
                 console.error('Error deleting order:', error)
-                message.error('حدث خطأ أثناء حذف أمر الشراء')
+                message.error(t.orders.failedToDelete)
               }
             }}
-            okText="نعم"
-            cancelText="لا"
+            okText={t.orders.yes}
+            cancelText={t.orders.no}
           >
             <Button 
               type="link" 
               danger 
               icon={<DeleteOutlined />}
-              title="حذف"
+              title={t.orders.delete}
             />
           </Popconfirm>
         </Space>
       ),
     },
-  ]
+  ], [t, language, treasuryAccounts])
 
-  // فلترة الطلبات
+  // Filter orders
   const filteredOrders = (Array.isArray(orders) ? orders : []).filter(order => {
     if (!order) return false
     
@@ -561,7 +566,7 @@ const OrdersPage = () => {
     return matchesSearch && matchesStatus && matchesTab
   })
 
-  // مكون إضافة البنود (Manual Entry)
+  // Item selector component (Manual Entry)
   const ItemSelector = () => {
     const [itemDescription, setItemDescription] = useState('')
     const [quantity, setQuantity] = useState(undefined)
@@ -569,17 +574,17 @@ const OrdersPage = () => {
     
     const handleAddItem = () => {
       if (!itemDescription || itemDescription.trim() === '') {
-        message.error('يرجى إدخال وصف البند')
+        message.error(t.orders.itemDescriptionRequired || 'Please enter item description')
         return
       }
 
       if (quantity === undefined || quantity === null || quantity <= 0) {
-        message.error('يرجى إدخال كمية صحيحة أكبر من صفر')
+        message.error(t.orders.quantityRequired || 'Please enter a valid quantity greater than zero')
         return
       }
 
       if (unitPrice === undefined || unitPrice === null || unitPrice < 0) {
-        message.error('يرجى إدخال سعر الوحدة بشكل صحيح')
+        message.error(t.orders.unitPriceRequired || 'Please enter a valid unit price')
         return
       }
       
@@ -597,7 +602,7 @@ const OrdersPage = () => {
       setItemDescription('')
       setQuantity(undefined)
       setUnitPrice(undefined)
-      message.success('تم إضافة البند')
+      message.success(t.orders.itemAdded || 'Item added successfully')
     }
     
     const handleRemoveProduct = (index) => {
@@ -609,12 +614,12 @@ const OrdersPage = () => {
     return (
       <div style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 16 }}>
-          <h4 style={{ marginBottom: 8 }}>إضافة بنود الشراء</h4>
+          <h4 style={{ marginBottom: 8 }}>{t.orders.addPurchaseItems}</h4>
           
           <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
             <Col span={12}>
               <Input
-                placeholder="وصف البند/المادة (مثال: 100 كيس أسمنت)"
+                placeholder={t.orders.itemDescriptionPlaceholder}
                 value={itemDescription}
                 onChange={(e) => setItemDescription(e.target.value)}
                 onPressEnter={handleAddItem}
@@ -622,7 +627,7 @@ const OrdersPage = () => {
             </Col>
             <Col span={6}>
               <InputNumber
-                placeholder="الكمية"
+                placeholder={t.orders.quantityPlaceholder}
                 min={0.01}
                 step={1}
                 value={quantity}
@@ -632,7 +637,7 @@ const OrdersPage = () => {
             </Col>
             <Col span={6}>
               <InputNumber
-                placeholder="سعر الوحدة"
+                placeholder={t.orders.unitPricePlaceholder}
                 min={0}
                 step={0.01}
                 value={unitPrice}
@@ -650,27 +655,27 @@ const OrdersPage = () => {
             disabled={!itemDescription || !quantity || quantity <= 0 || unitPrice === undefined || unitPrice === null || unitPrice < 0}
             icon={<PlusOutlined />}
           >
-            إضافة بند
+            {t.orders.addItem}
           </Button>
         </div>
         
-        {/* قائمة البنود المضافة */}
+        {/* Added Items List */}
         {selectedProducts.length > 0 && (
-          <Card title="البنود المضافة" size="small">
+          <Card title={t.orders.addedItems} size="small">
             <Table
               dataSource={selectedProducts.map((item, index) => ({ ...item, key: index }))}
               columns={[
                 { 
-                  title: 'المادة/الوصف', 
+                  title: t.orders.materialDescription, 
                   dataIndex: 'product',
                   render: (product) => <span style={{ fontWeight: 500 }}>{product}</span>
                 },
                 { 
-                  title: 'الكمية', 
+                  title: t.orders.quantity, 
                   dataIndex: 'quantity',
                   render: (quantity, record) => (
                     <InputNumber
-                      placeholder="الكمية"
+                      placeholder={t.orders.quantityPlaceholder}
                       min={1}
                       value={quantity}
                       onChange={(value) => {
@@ -687,11 +692,11 @@ const OrdersPage = () => {
                   )
                 },
                 { 
-                  title: 'سعر الوحدة', 
+                  title: t.orders.unitPrice, 
                   dataIndex: 'price', 
                   render: (p, record) => (
                     <InputNumber
-                      placeholder="سعر الوحدة"
+                      placeholder={t.orders.unitPricePlaceholder}
                       min={0}
                       precision={2}
                       value={p}
@@ -709,16 +714,16 @@ const OrdersPage = () => {
                   )
                 },
                 { 
-                  title: 'الإجمالي', 
+                  title: t.orders.itemTotal, 
                   dataIndex: 'total', 
                   render: t => (
                     <span style={{ fontWeight: 500, color: '#1890ff' }}>
-                      {t.toLocaleString()} ريال
+                      {t.toLocaleString()} {t.common.sar}
                     </span>
                   )
                 },
                 {
-                  title: 'حذف',
+                  title: t.orders.deleteItem,
                   render: (_, record) => (
                     <Button
                       type="link"
@@ -727,7 +732,7 @@ const OrdersPage = () => {
                       icon={<DeleteOutlined />}
                       onClick={() => handleRemoveProduct(record.key)}
                     >
-                      حذف
+                      {t.orders.delete}
                     </Button>
                   ),
                 },
@@ -739,11 +744,11 @@ const OrdersPage = () => {
                 return (
                   <Table.Summary.Row>
                     <Table.Summary.Cell colSpan={3} align="right">
-                      <strong>المبلغ الإجمالي:</strong>
+                      <strong>{t.orders.totalAmountValue}</strong>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell>
                       <strong style={{ color: '#1890ff', fontSize: 16, fontWeight: 'bold' }}>
-                        {total.toLocaleString()} ريال
+                        {total.toLocaleString()} {t.common.sar}
                       </strong>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell />
@@ -776,7 +781,7 @@ const OrdersPage = () => {
     form.setFieldsValue({ workScope: undefined })
   }
 
-  // إنشاء طلب جديد
+  // Create new order
   const createOrder = () => {
     setSelectedOrder(null)
     setSelectedProducts([])
@@ -793,7 +798,7 @@ const OrdersPage = () => {
     setIsModalVisible(true)
   }
 
-  // البحث عن العملاء
+  // Search customers
   // STRICT VENDOR FILTERING: Only fetch type = 'vendor' or 'supplier', exclude 'client'
   const handleCustomerSearch = async (searchText) => {
     setCustomerSearchValue(searchText)
@@ -823,7 +828,7 @@ const OrdersPage = () => {
       if (!exactMatch && searchText.trim().length > 0) {
         options.push({
           value: '__NEW__',
-          label: `إضافة مورد جديد: "${searchText.trim()}"`,
+          label: `${t.orders.addNewSupplier}: "${searchText.trim()}"`,
           isNew: true
         })
       }
@@ -835,7 +840,7 @@ const OrdersPage = () => {
     }
   }
 
-  // اختيار عميل
+  // Select customer
   const handleCustomerSelect = (value, option) => {
     if (value === '__NEW__' || option?.isNew) {
       // New supplier mode
@@ -861,7 +866,7 @@ const OrdersPage = () => {
     }
   }
 
-  // عند تغيير نص البحث يدوياً
+  // When search text changes manually
   const handleCustomerChange = (value) => {
     setCustomerSearchValue(value)
     if (!value) {
@@ -873,13 +878,13 @@ const OrdersPage = () => {
     }
   }
 
-  // حفظ الطلب
+  // Save order
   const handleSave = async () => {
     try {
       const values = await form.validateFields()
       
       if (selectedProducts.length === 0) {
-        message.error('يرجى إضافة بنود على الأقل')
+        message.error(t.orders.selectAtLeastOneItem)
         return
       }
 
@@ -893,7 +898,7 @@ const OrdersPage = () => {
         // Validate new supplier name is required
         const supplierName = newSupplierName.trim() || customerSearchValue.trim()
         if (!supplierName) {
-          message.error('يرجى إدخال اسم المورد')
+          message.error(t.orders.supplierNameRequired)
           return
         }
 
@@ -912,11 +917,11 @@ const OrdersPage = () => {
           finalCustomerName = createResult.customer.name
           finalCustomerPhone = createResult.customer.phone || ''
           finalCustomerEmail = createResult.customer.email || ''
-          message.success('تم إضافة المورد الجديد بنجاح')
+          message.success(t.orders.supplierAddedSuccessfully)
           // Refresh customers list
           await loadCustomers()
         } else {
-          message.error(createResult.error || 'فشل في إضافة المورد الجديد')
+          message.error(createResult.error || t.orders.failedToAddSupplier)
           return
         }
       } else if (selectedCustomer) {
@@ -926,11 +931,11 @@ const OrdersPage = () => {
         finalCustomerPhone = selectedCustomer.phone || ''
         finalCustomerEmail = selectedCustomer.email || ''
       } else {
-        message.error('يرجى اختيار أو إضافة مورد')
+        message.error(t.orders.selectOrAddSupplier)
         return
       }
 
-      // تحويل البنود المختارة إلى تنسيق أمر الشراء
+      // Convert selected items to order format
       const orderItems = selectedProducts.map(p => {
         return {
           productId: p.productId || null, // null for manual entries
@@ -944,20 +949,20 @@ const OrdersPage = () => {
 
       // Validate treasury account selection
       if (!values.treasuryAccountId) {
-        message.error('يرجى اختيار حساب الخزينة/البنك للصرف')
+        message.error(t.orders.selectTreasuryAccount)
         return
       }
 
       // Derive payment method from treasury account type
       const selectedAccount = treasuryAccounts.find(acc => acc.id === values.treasuryAccountId)
       if (!selectedAccount) {
-        message.error('حساب الخزينة المحدد غير موجود')
+        message.error(t.orders.treasuryAccountNotFound)
         return
       }
       // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
       const derivedPaymentMethod = selectedAccount.type === 'bank' ? 'bank_transfer' : 'cash'
 
-      // إنشاء بيانات الطلب
+      // Create order data
       const orderData = {
         customerId: finalCustomerId,
         customerName: finalCustomerName,
@@ -977,24 +982,16 @@ const OrdersPage = () => {
       const result = await ordersService.createOrder(orderData)
       
       if (result.success) {
-        message.success('تم إضافة أمر الشراء بنجاح!')
+        message.success(t.orders.orderAddedSuccessfully)
         
         // CRITICAL: Update treasury if account selected - must succeed
         if (values.treasuryAccountId && result.order?.id) {
           try {
-            // Console log to trace account_id value
-            console.log('OrdersPage: Creating treasury transaction for order', {
-              orderId: result.order.id,
-              accountId: values.treasuryAccountId,
-              accountIdType: typeof values.treasuryAccountId,
-              accountIdLength: values.treasuryAccountId?.length
-            })
-            
             // Use order total (includes tax and discount) instead of items total
             const totalAmount = parseFloat(result.order.total) || 0
             
             if (totalAmount <= 0) {
-              message.warning('⚠️ تحذير: المبلغ الإجمالي صفر أو سالب، لن يتم خصم من الخزينة')
+              message.warning(t.orders.warningZeroAmount)
             } else {
               const treasuryResult = await treasuryService.createTransaction({
                 accountId: values.treasuryAccountId,
@@ -1002,25 +999,19 @@ const OrdersPage = () => {
                 amount: totalAmount,
                 referenceType: 'order',
                 referenceId: result.order.id,
-                description: `أمر شراء: ${finalCustomerName} - ${values.notes || ''}`
+                description: `${t.orders.invoiceTitle}: ${finalCustomerName} - ${values.notes || ''}`
               })
               
               if (treasuryResult.success) {
-                console.log('✅ OrdersPage: Treasury transaction created successfully', {
-                  transactionId: treasuryResult.transaction?.id,
-                  accountId: values.treasuryAccountId,
-                  accountName: treasuryResult.accountName,
-                  newBalance: treasuryResult.newBalance
-                })
-                message.success(`✅ تم خصم ${totalAmount.toLocaleString()} ريال من حساب الخزينة (${treasuryResult.accountName || 'غير محدد'})`)
+                message.success(`${t.orders.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${t.common.sar} (${treasuryResult.accountName || t.common.notSpecified})`)
               } else {
                 // VISIBLE UI ERROR: Show detailed error to user
                 console.error('❌ OrdersPage: Failed to update treasury:', treasuryResult.error)
-                const errorMessage = treasuryResult.error || 'خطأ غير معروف'
+                const errorMessage = treasuryResult.error || t.common.error
                 const errorCode = treasuryResult.errorCode || 'UNKNOWN_ERROR'
                 
                 message.error({
-                  content: `❌ فشل خصم المبلغ من الخزينة: ${errorMessage}`,
+                  content: `${t.orders.failedToDeductFromTreasury}: ${errorMessage}`,
                   duration: 10, // Show for 10 seconds
                   style: { marginTop: '10vh' }
                 })
@@ -1039,14 +1030,14 @@ const OrdersPage = () => {
             // VISIBLE UI ERROR: Show exception error to user
             console.error('❌ OrdersPage: Exception during treasury update:', error)
             message.error({
-              content: `❌ خطأ أثناء خصم المبلغ من الخزينة: ${error.message || 'خطأ غير معروف'}`,
+              content: `${t.orders.failedToDeductFromTreasury}: ${error.message || t.common.error}`,
               duration: 10, // Show for 10 seconds
               style: { marginTop: '10vh' }
             })
           }
         } else if (!values.treasuryAccountId) {
           // Warning if no account was selected
-          message.warning('⚠️ لم يتم اختيار حساب خزينة، لن يتم خصم المبلغ')
+          message.warning(t.orders.treasuryAccountNotSelected)
         }
         
         setIsModalVisible(false)
@@ -1062,14 +1053,14 @@ const OrdersPage = () => {
         loadOrders() // Refresh the list
         loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
       } else {
-        message.error(result.error || 'فشل في إضافة أمر الشراء')
+        message.error(result.error || t.orders.failedToAddOrder)
       }
     } catch (error) {
       console.error('Validation failed:', error)
       if (error.errorFields) {
-        message.error('يرجى ملء جميع الحقول المطلوبة بشكل صحيح')
+        message.error(t.orders.fillRequiredFieldsCorrectly)
       } else {
-        message.error('حدث خطأ أثناء حفظ أمر الشراء')
+        message.error(t.orders.errorSavingOrder)
       }
     }
   }
@@ -1078,20 +1069,20 @@ const OrdersPage = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>إدارة أوامر الشراء</h1>
-          <p style={{ color: '#666', margin: '4px 0 0 0' }}>عرض وإدارة جميع أوامر الشراء للمشاريع</p>
+          <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>{t.orders.title}</h1>
+          <p style={{ color: '#666', margin: '4px 0 0 0' }}>{t.orders.subtitle}</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={createOrder}>
-          أمر شراء جديد
+          {t.orders.newOrder}
         </Button>
       </div>
 
-      {/* إحصائيات سريعة */}
+      {/* Statistics */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي أوامر الشراء"
+              title={t.orders.totalOrders}
               value={stats.totalOrders}
               prefix={<ShoppingOutlined />}
             />
@@ -1100,18 +1091,18 @@ const OrdersPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي القيمة"
+              title={t.orders.totalValue}
               value={stats.totalRevenue}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix="ريال"
+              suffix={t.common.sar}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="قيد الانتظار"
+              title={t.orders.pending}
               value={stats.pendingOrders}
               prefix={<ClockCircleOutlined />}
             />
@@ -1120,7 +1111,7 @@ const OrdersPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="مكتملة"
+              title={t.orders.completed}
               value={stats.completedOrders}
               prefix={<CheckCircleOutlined />}
             />
@@ -1128,11 +1119,11 @@ const OrdersPage = () => {
         </Col>
       </Row>
 
-      {/* أدوات البحث */}
+      {/* Search Tools */}
       <Card>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <Input
-            placeholder="ابحث برقم أمر الشراء أو اسم المشروع..."
+            placeholder={t.orders.searchPlaceholder}
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -1142,12 +1133,12 @@ const OrdersPage = () => {
             value={statusFilter}
             onChange={setStatusFilter}
             style={{ width: 150 }}
-            placeholder="حالة أمر الشراء"
+            placeholder={t.orders.filterByStatus}
           >
-            <Option value="all">الكل</Option>
-            <Option value="pending">قيد الانتظار</Option>
-            <Option value="processing">قيد المعالجة</Option>
-            <Option value="completed">مكتمل</Option>
+            <Option value="all">{t.orders.all}</Option>
+            <Option value="pending">{t.orders.pending}</Option>
+            <Option value="processing">{t.orders.processing}</Option>
+            <Option value="completed">{t.orders.completed}</Option>
           </Select>
           <Button 
             icon={<PrinterOutlined />}
@@ -1155,34 +1146,35 @@ const OrdersPage = () => {
               if (filteredOrders.length > 0) {
                 handlePrint(filteredOrders[0])
               } else {
-                message.warning('لا توجد أوامر شراء للطباعة')
+                message.warning(t.orders.noOrdersToPrint)
               }
             }}
           >
-            طباعة
+            {t.orders.print}
           </Button>
         </div>
       </Card>
 
-      {/* جدول أوامر الشراء */}
+      {/* Orders Table */}
       <Card>
         <Table 
           columns={columns} 
           dataSource={filteredOrders}
           loading={loading}
           pagination={{ pageSize: 10 }}
-          rowKey="key"
+          rowKey={(record) => record.id || record.updatedAt || `order-${Date.now()}-${Math.random()}`}
+          locale={{ emptyText: 'No orders found' }}
         />
       </Card>
 
-      {/* Modal إنشاء أمر شراء جديد */}
+      {/* Modal Create New Purchase Order */}
       <Modal
-        title="إنشاء أمر شراء جديد"
+        title={t.orders.createNewOrder}
         open={isModalVisible}
         onOk={handleSave}
         okButtonProps={{ disabled: treasuryAccounts.length === 0 }}
-        okText="إنشاء"
-        cancelText="إلغاء"
+        okText={t.orders.create}
+        cancelText={t.orders.cancel}
         onCancel={() => {
           setIsModalVisible(false)
           setSelectedProducts([])
@@ -1204,7 +1196,7 @@ const OrdersPage = () => {
           {treasuryAccounts.length === 0 && (
             <Alert
               type="error"
-              message="تنبيه: لا يوجد حسابات خزينة معرفة. يرجى إنشاء حساب في صفحة الخزينة أولاً"
+              message={t.orders.treasuryAccountWarning}
               style={{ marginBottom: 16 }}
               showIcon
             />
@@ -1218,11 +1210,11 @@ const OrdersPage = () => {
                   <Col span={12}>
                     <Form.Item
                       name="projectId"
-                      label={<span style={{ fontWeight: 'bold' }}>المشروع <span style={{ color: 'red' }}>*</span></span>}
-                      rules={[{ required: true, message: 'يرجى اختيار المشروع (مطلوب)' }]}
+                      label={<span style={{ fontWeight: 'bold' }}>{t.orders.projectRequired}</span>}
+                      rules={[{ required: true, message: t.orders.projectRequired }]}
                     >
                       <Select
-                        placeholder="اختر المشروع"
+                        placeholder={t.orders.selectProject}
                         showSearch
                         onChange={handleProjectChange}
                         filterOption={(input, option) =>
@@ -1242,10 +1234,10 @@ const OrdersPage = () => {
                     {selectedProject && availableWorkScopes.length > 0 && (
                       <Form.Item
                         name="workScope"
-                        label={<span style={{ fontWeight: 'bold' }}>نطاق العمل (اختياري)</span>}
+                        label={<span style={{ fontWeight: 'bold' }}>{t.orders.workScopeOptional}</span>}
                       >
                         <Select
-                          placeholder="اختر نطاق العمل"
+                          placeholder={t.orders.selectWorkScope}
                           showSearch
                           filterOption={(input, option) =>
                             (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
@@ -1254,7 +1246,7 @@ const OrdersPage = () => {
                         >
                           {availableWorkScopes.map(scope => (
                             <Option key={scope} value={scope}>
-                              {scope}
+                              {translateWorkType(scope, language)}
                             </Option>
                           ))}
                         </Select>
@@ -1268,12 +1260,12 @@ const OrdersPage = () => {
 
           <Form.Item
             name="customerSearch"
-            label="المورد/العميل"
+            label={t.orders.supplierCustomer}
             rules={[
               {
                 validator: (_, value) => {
                   if (!selectedCustomer && !isNewSupplier) {
-                    return Promise.reject(new Error('يرجى البحث واختيار مورد أو عميل'))
+                    return Promise.reject(new Error(t.orders.selectOrAddSupplier))
                   }
                   return Promise.resolve()
                 }
@@ -1286,10 +1278,10 @@ const OrdersPage = () => {
               onSelect={handleCustomerSelect}
               onChange={handleCustomerChange}
               value={customerSearchValue}
-              placeholder="ابحث عن مورد أو عميل بالاسم أو الهاتف..."
+              placeholder={t.orders.searchSupplierCustomer}
               style={{ width: '100%' }}
               filterOption={false}
-              notFoundContent={customerSearchOptions.length === 0 && customerSearchValue ? 'لا توجد نتائج - يمكنك إضافة مورد جديد' : null}
+              notFoundContent={customerSearchOptions.length === 0 && customerSearchValue ? t.orders.addNewSupplier : null}
               size="large"
             />
           </Form.Item>
@@ -1298,17 +1290,17 @@ const OrdersPage = () => {
           {isNewSupplier && (
             <Card size="small" style={{ marginBottom: 16, backgroundColor: '#fff7e6', border: '1px solid #ffd591' }}>
               <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#d46b08' }}>
-                إضافة مورد جديد
+                {t.orders.addNewSupplier}
               </div>
               <Row gutter={16}>
                 <Col span={24}>
                   <Form.Item
-                    label="اسم المورد"
+                    label={t.orders.supplierNameRequired}
                     required
-                    tooltip="اسم المورد مطلوب"
+                    tooltip={t.orders.supplierNameRequired}
                   >
                     <Input
-                      placeholder="اسم المورد"
+                      placeholder={t.orders.supplierNamePlaceholder}
                       value={newSupplierName}
                       onChange={(e) => {
                         const value = e.target.value
@@ -1319,18 +1311,18 @@ const OrdersPage = () => {
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="رقم الهاتف (اختياري)">
+                  <Form.Item label={t.orders.phoneOptional}>
                     <Input
-                      placeholder="رقم الهاتف"
+                      placeholder={t.orders.phonePlaceholder}
                       value={newSupplierPhone}
                       onChange={(e) => setNewSupplierPhone(e.target.value)}
                     />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="البريد الإلكتروني (اختياري)">
+                  <Form.Item label={t.orders.emailOptional}>
                     <Input
-                      placeholder="البريد الإلكتروني"
+                      placeholder={t.orders.emailPlaceholder}
                       value={newSupplierEmail}
                       onChange={(e) => setNewSupplierEmail(e.target.value)}
                     />
@@ -1344,22 +1336,22 @@ const OrdersPage = () => {
           {selectedCustomer && !isNewSupplier && (
             <Card size="small" style={{ marginBottom: 16, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f' }}>
               <div style={{ marginBottom: 8, fontWeight: 'bold', color: '#389e0d' }}>
-                المورد المحدد:
+                {t.orders.selectedSupplier}:
               </div>
-              <div>الاسم: {selectedCustomer.name}</div>
-              {selectedCustomer.phone && <div>الهاتف: {selectedCustomer.phone}</div>}
-              {selectedCustomer.email && <div>البريد: {selectedCustomer.email}</div>}
+              <div>{t.orders.name}: {selectedCustomer.name}</div>
+              {selectedCustomer.phone && <div>{t.orders.phone}: {selectedCustomer.phone}</div>}
+              {selectedCustomer.email && <div>{t.orders.email}: {selectedCustomer.email}</div>}
             </Card>
           )}
 
-          <Divider>بنود الشراء</Divider>
+          <Divider>{t.orders.purchaseItems}</Divider>
           
-          {/* إضافة البنود */}
-          <Form.Item label="البنود" required>
+          {/* Add Items */}
+          <Form.Item label={t.orders.items} required>
             <ItemSelector />
             {selectedProducts.length === 0 && (
               <div style={{ color: '#ff4d4f', fontSize: 12 }}>
-                * يجب إضافة بند واحد على الأقل
+                {t.orders.addAtLeastOneItem}
               </div>
             )}
           </Form.Item>
@@ -1368,27 +1360,27 @@ const OrdersPage = () => {
           
           <Form.Item
             name="status"
-            label="حالة أمر الشراء"
+            label={t.orders.orderStatus}
             initialValue="pending"
           >
             <Select>
-              <Option value="pending">قيد الانتظار</Option>
-              <Option value="processing">قيد المعالجة</Option>
-              <Option value="completed">مكتمل</Option>
+              <Option value="pending">{t.orders.pending}</Option>
+              <Option value="processing">{t.orders.processing}</Option>
+              <Option value="completed">{t.orders.completed}</Option>
             </Select>
           </Form.Item>
 
           {/* Treasury Account Selection */}
           <Form.Item
             name="treasuryAccountId"
-            label="حساب الخزينة"
-            rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة/البنك للصرف' }]}
-            tooltip="اختر الحساب الذي سيتم خصم قيمة أمر الشراء منه"
+            label={t.orders.treasuryAccountRequired}
+            rules={[{ required: true, message: t.orders.selectTreasuryAccount }]}
+            tooltip={t.orders.selectTreasuryAccount}
           >
             <Select 
-              placeholder="اختر حساب الخزينة" 
+              placeholder={t.orders.selectTreasuryAccount} 
               disabled={treasuryAccounts.length === 0}
-              notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+              notFoundContent={treasuryAccounts.length === 0 ? t.orders.treasuryAccountWarning : null}
             >
               {treasuryAccounts.map(acc => (
                 <Option key={acc.id} value={acc.id}>
@@ -1400,23 +1392,23 @@ const OrdersPage = () => {
 
           <Form.Item
             name="shippingAddress"
-            label="عنوان التسليم (اختياري)"
+            label={t.orders.shippingAddress || 'Shipping Address (Optional)'}
           >
-            <Input.TextArea rows={2} placeholder="أدخل عنوان التسليم" />
+            <Input.TextArea rows={2} placeholder={t.orders.shippingAddressPlaceholder || 'Enter shipping address'} />
           </Form.Item>
 
           <Form.Item
             name="notes"
-            label="ملاحظات (اختياري)"
+            label={t.orders.notesOptional}
           >
-            <Input.TextArea rows={2} placeholder="ملاحظات إضافية..." />
+            <Input.TextArea rows={2} placeholder={t.orders.notesPlaceholder} />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* Modal عرض التفاصيل */}
+      {/* Modal View Details */}
       <Modal
-        title={`تفاصيل أمر الشراء PO-${selectedOrder?.id}`}
+        title={`${t.orders.viewOrder} PO-${selectedOrder?.id}`}
         open={viewModalVisible}
         onCancel={() => {
           setViewModalVisible(false)
@@ -1424,7 +1416,7 @@ const OrdersPage = () => {
         }}
         footer={[
           <Button key="close" onClick={() => setViewModalVisible(false)}>
-            إغلاق
+            {t.common.close}
           </Button>,
           <Button 
             key="print" 
@@ -1432,7 +1424,7 @@ const OrdersPage = () => {
             icon={<PrinterOutlined />}
             onClick={() => handlePrint(selectedOrder)}
           >
-            طباعة أمر الشراء
+            {t.orders.printInvoice}
           </Button>,
         ]}
         width={700}
@@ -1440,28 +1432,28 @@ const OrdersPage = () => {
         {selectedOrder && (
           <div style={{ marginTop: 24 }}>
             <Descriptions column={2} size="small">
-              <Descriptions.Item label="رقم أمر الشراء">PO-{selectedOrder.id || 'غير معروف'}</Descriptions.Item>
-              <Descriptions.Item label="التاريخ">{selectedOrder.dates?.created || selectedOrder.createdAt || 'غير محدد'}</Descriptions.Item>
+              <Descriptions.Item label={t.orders.orderNumber}>PO-{selectedOrder.id || t.orders.unknownOrder}</Descriptions.Item>
+              <Descriptions.Item label={t.orders.date}>{selectedOrder.dates?.created || selectedOrder.createdAt || t.common.notSpecified}</Descriptions.Item>
               {isEngineering && selectedOrder.projectName && (
-                <Descriptions.Item label="المشروع">{selectedOrder.projectName}</Descriptions.Item>
+                <Descriptions.Item label={t.orders.projectName || 'Project'}>{selectedOrder.projectName}</Descriptions.Item>
               )}
               {isEngineering && selectedOrder.workScope && (
-                <Descriptions.Item label="نطاق العمل">
-                  <Tag color="blue">{selectedOrder.workScope}</Tag>
+                <Descriptions.Item label={t.orders.workScope}>
+                  <Tag color="blue">{translateWorkType(selectedOrder.workScope, language)}</Tag>
                 </Descriptions.Item>
               )}
-              <Descriptions.Item label="المورد/العميل">{selectedOrder.customer?.name || selectedOrder.customerName || 'غير معروف'}</Descriptions.Item>
-              <Descriptions.Item label="الهاتف">{selectedOrder.customer?.phone || selectedOrder.customerPhone || 'لا يوجد'}</Descriptions.Item>
-              <Descriptions.Item label="الحالة">
+              <Descriptions.Item label={t.orders.supplierCustomer}>{selectedOrder.customer?.name || selectedOrder.customerName || t.orders.unknownCustomer}</Descriptions.Item>
+              <Descriptions.Item label={t.orders.phone}>{selectedOrder.customer?.phone || selectedOrder.customerPhone || t.orders.noPhone}</Descriptions.Item>
+              <Descriptions.Item label={t.orders.status}>
                 <Tag color={selectedOrder.status === 'completed' ? 'green' : 'orange'}>
-                  {selectedOrder.status === 'completed' ? 'مكتمل' : selectedOrder.status || 'قيد الانتظار'}
+                  {selectedOrder.status === 'completed' ? t.orders.completed : selectedOrder.status || t.orders.pending}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="طريقة الدفع">
-                {selectedOrder.payment?.method === 'credit_card' ? 'بطاقة ائتمان' : selectedOrder.paymentMethod === 'credit_card' ? 'بطاقة ائتمان' : selectedOrder.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : selectedOrder.paymentMethod === 'check' ? 'شيك' : 'نقداً'}
+              <Descriptions.Item label={t.orders.paymentMethod || 'Payment Method'}>
+                {selectedOrder.payment?.method === 'credit_card' ? 'Credit Card' : selectedOrder.paymentMethod === 'credit_card' ? 'Credit Card' : selectedOrder.paymentMethod === 'bank_transfer' ? 'Bank Transfer' : selectedOrder.paymentMethod === 'check' ? 'Check' : 'Cash'}
               </Descriptions.Item>
               {selectedOrderTreasuryAccount && (
-                <Descriptions.Item label="حساب الخزينة">
+                <Descriptions.Item label={t.orders.selectTreasuryAccount}>
                   {selectedOrderTreasuryAccount.name} ({selectedOrderTreasuryAccount.type === 'bank' ? 'Bank' : selectedOrderTreasuryAccount.type === 'cash_box' ? 'Cash' : selectedOrderTreasuryAccount.type})
                 </Descriptions.Item>
               )}
@@ -1473,29 +1465,29 @@ const OrdersPage = () => {
               dataSource={Array.isArray(selectedOrder.items) ? selectedOrder.items : []}
               columns={[
                 { 
-                  title: 'المادة/الوصف', 
+                  title: t.orders.materialDescription, 
                   dataIndex: 'product',
-                  render: (product, record) => product || record?.productName || 'بند غير معروف'
+                  render: (product, record) => product || record?.productName || t.orders.unknownOrder
                 },
                 { 
-                  title: 'الكمية', 
+                  title: t.orders.quantity, 
                   dataIndex: 'quantity',
                   render: (quantity) => quantity || 0
                 },
                 { 
-                  title: 'سعر الوحدة', 
+                  title: t.orders.unitPrice, 
                   dataIndex: 'price',
                   render: (p, record) => {
                     const price = p || record?.unitPrice || 0
-                    return `${price.toLocaleString()} ريال`
+                    return `${price.toLocaleString()} ${t.common.sar}`
                   }
                 },
                 { 
-                  title: 'الإجمالي', 
+                  title: t.orders.itemTotal, 
                   render: (_, item) => {
                     const price = item?.price || item?.unitPrice || 0
                     const quantity = item?.quantity || 0
-                    return `${(price * quantity).toLocaleString()} ريال`
+                    return `${(price * quantity).toLocaleString()} ${t.common.sar}`
                   }
                 },
               ]}
@@ -1506,11 +1498,11 @@ const OrdersPage = () => {
                 return (
                   <Table.Summary.Row>
                     <Table.Summary.Cell colSpan={3} align="right">
-                      <strong>المبلغ الإجمالي:</strong>
+                      <strong>{t.orders.totalAmountValue}</strong>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell>
                       <strong style={{ color: '#1890ff', fontSize: 16 }}>
-                        {total.toLocaleString()} ريال
+                        {total.toLocaleString()} {t.common.sar}
                       </strong>
                     </Table.Summary.Cell>
                   </Table.Summary.Row>
@@ -1521,7 +1513,7 @@ const OrdersPage = () => {
             {selectedOrder.notes && (
               <>
                 <Divider />
-                <p><strong>ملاحظات:</strong> {selectedOrder.notes}</p>
+                <p><strong>{t.orders.notes}:</strong> {selectedOrder.notes}</p>
               </>
             )}
           </div>

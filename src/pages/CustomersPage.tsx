@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import customersService from '../services/customersService'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 import {
   Card,
   Table,
@@ -46,6 +48,9 @@ const { Option } = Select
 // const { TabPane } = Tabs
 
 const CustomersPage = () => {
+  const { language } = useLanguage()
+  const t = getTranslations(language)
+  
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -77,7 +82,7 @@ const CustomersPage = () => {
       setCustomers(customersData)
     } catch (error) {
       console.error('Error loading customers:', error)
-      message.error('فشل في تحميل بيانات العملاء')
+      message.error(t.customers.failedToLoad)
       // Set empty array on error to prevent crashes
       setCustomers([])
     } finally {
@@ -85,21 +90,21 @@ const CustomersPage = () => {
     }
   }
 
-  // إحصائيات
-  const stats = {
+  // Statistics
+  const stats = useMemo(() => ({
     totalCustomers: customers.length,
     activeCustomers: customers.filter(c => c.status === 'active').length,
     corporateCustomers: customers.filter(c => c.type === 'corporate').length,
     totalBalance: customers.reduce((sum, c) => sum + (c.balance || 0), 0)
-  }
+  }), [customers])
 
-  // أعمدة الجدول
-  const columns = [
+  // Table columns with Golden Template
+  const columns = useMemo(() => [
     {
-      title: 'العميل',
+      title: t.customers.customer,
       dataIndex: 'name',
       key: 'name',
-      render: (name, record) => (
+      render: (name: string, record: any) => (
         <Space>
           <Avatar 
             size="large" 
@@ -114,9 +119,9 @@ const CustomersPage = () => {
       )
     },
     {
-      title: 'معلومات الاتصال',
+      title: t.customers.contactInfo,
       key: 'contact',
-      render: (_, record) => (
+      render: (_: any, record: any) => (
         <div>
           <div><PhoneOutlined style={{ marginLeft: 4 }} /> {record.phone}</div>
           {record.company && (
@@ -128,53 +133,53 @@ const CustomersPage = () => {
       )
     },
     {
-      title: 'النوع',
+      title: t.customers.type,
       dataIndex: 'type',
       key: 'type',
-      render: (type) => (
+      render: (type: string) => (
         <Tag color={type === 'corporate' ? 'blue' : 'green'}>
-          {type === 'corporate' ? 'شركة' : 'فردي'}
+          {type === 'corporate' ? t.customers.corporate : t.customers.individual}
         </Tag>
       )
     },
     {
-      title: 'الحالة',
+      title: t.customers.status,
       dataIndex: 'status',
       key: 'status',
-      render: (status) => (
+      render: (status: string) => (
         <Tag color={status === 'active' ? 'green' : 'red'}>
-          {status === 'active' ? 'نشط' : 'غير نشط'}
+          {status === 'active' ? t.customers.active : t.customers.inactive}
         </Tag>
       )
     },
     {
-      title: 'الرصيد',
+      title: t.customers.balance,
       dataIndex: 'balance',
       key: 'balance',
-      render: (balance) => (
+      render: (balance: number) => (
         <span style={{ 
           fontWeight: 'bold', 
           color: balance >= 0 ? '#52c41a' : '#ff4d4f' 
         }}>
-          {balance.toLocaleString()} ريال
+          {balance.toLocaleString(language === 'ar' ? 'ar-SA' : 'en-US')} {t.common.sar}
         </span>
       ),
-      sorter: (a, b) => a.balance - b.balance
+      sorter: (a: any, b: any) => a.balance - b.balance
     },
     {
-      title: 'إجمالي المشتريات',
+      title: t.customers.totalPurchases,
       dataIndex: 'totalSpent',
       key: 'totalSpent',
-      render: (total) => (
+      render: (total: number) => (
         <span style={{ color: '#1890ff', fontWeight: 500 }}>
-          {total.toLocaleString()} ريال
+          {total.toLocaleString(language === 'ar' ? 'ar-SA' : 'en-US')} {t.common.sar}
         </span>
       )
     },
     {
-      title: 'الإجراءات',
+      title: t.common.actions,
       key: 'actions',
-      render: (_, record) => (
+      render: (_: any, record: any) => (
         <Space>
           <Button
             type="link"
@@ -183,35 +188,42 @@ const CustomersPage = () => {
               setSelectedCustomer(record)
               setViewModalVisible(true)
             }}
-            title="عرض التفاصيل"
-          />
+            title={t.customers.viewDetails}
+          >
+            {t.common.view}
+          </Button>
           <Button
             type="link"
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
-            title="تعديل"
-          />
+            title={t.common.edit}
+          >
+            {t.common.edit}
+          </Button>
           <Popconfirm
-            title="حذف العميل"
-            description="هل أنت متأكد من حذف هذا العميل؟"
-            onConfirm={() => handleDelete(record.key)}
-            okText="نعم"
-            cancelText="لا"
+            title={t.customers.deleteCustomer}
+            description={t.customers.deleteCustomerConfirm}
+            onConfirm={() => handleDelete(record.key || record.id)}
+            okText={t.common.yes}
+            cancelText={t.common.no}
           >
             <Button
               type="link"
               danger
               icon={<DeleteOutlined />}
-              title="حذف"
-            />
+              title={t.common.delete}
+            >
+              {t.common.delete}
+            </Button>
           </Popconfirm>
         </Space>
       )
     }
-  ]
+  ], [t, language])
 
-  // فلترة العملاء
-  const filteredCustomers = (Array.isArray(customers) ? customers : []).filter(customer => {
+  // Filtered customers
+  const filteredCustomers = useMemo(() => {
+    return (Array.isArray(customers) ? customers : []).filter(customer => {
     if (!customer) return false
     
     const matchesSearch =
@@ -223,21 +235,28 @@ const CustomersPage = () => {
     const matchesType = typeFilter === 'all' || customer.type === typeFilter
     const matchesTab = activeTab === 'all' || customer.status === activeTab
     
-    return matchesSearch && matchesStatus && matchesType && matchesTab
-  })
+      return matchesSearch && matchesStatus && matchesType && matchesTab
+    })
+  }, [customers, searchText, statusFilter, typeFilter, activeTab])
+
+  // Dynamic rowKey function
+  const getRowKey = (record: any): string => {
+    const timestamp = record.updatedAt || record.updated_at || record.lastUpdated || ''
+    return `${record.id || record.key}-${timestamp}`
+  }
 
   const handleDelete = async (key) => {
     try {
       const result = await customersService.deleteCustomer(key)
       if (result.success) {
-        message.success('تم حذف العميل بنجاح')
+        message.success(t.customers.customerDeleted)
         loadCustomers() // Refresh the list
       } else {
-        message.error(result.error || 'فشل في حذف العميل')
+        message.error(result.error || t.customers.failedToDelete)
       }
     } catch (error) {
       console.error('Error deleting customer:', error)
-      message.error('حدث خطأ أثناء حذف العميل')
+      message.error(t.customers.failedToDelete)
     }
   }
 
@@ -261,79 +280,79 @@ const CustomersPage = () => {
       const values = await form.validateFields()
       
       if (selectedCustomer) {
-        // تعديل عميل موجود
+        // Update existing customer
         const expectedVersion = selectedCustomer._version || null
         const result = await customersService.updateCustomer(selectedCustomer.id, values, expectedVersion)
         
         if (result.success) {
-          message.success('تم تحديث بيانات العميل بنجاح')
+          message.success(t.customers.customerUpdated)
           setIsModalVisible(false)
           setSelectedCustomer(null)
           form.resetFields()
           loadCustomers() // Refresh the list
         } else {
           if (result.errorCode === 'VERSION_MISMATCH') {
-            message.warning(result.error)
+            message.warning(result.error || t.customers.versionMismatch)
             loadCustomers() // Reload to get latest version
           } else {
-            message.error(result.error || 'فشل في تحديث بيانات العميل')
+            message.error(result.error || t.customers.failedToUpdate)
           }
         }
       } else {
-        // إضافة عميل جديد
+        // Add new customer
         const result = await customersService.addCustomer(values)
         
         if (result.success) {
-          message.success('تم إضافة العميل بنجاح')
+          message.success(t.customers.customerAdded)
           setIsModalVisible(false)
           setSelectedCustomer(null)
           form.resetFields()
           loadCustomers() // Refresh the list
         } else {
-          message.error(result.error || 'فشل في إضافة العميل')
+          message.error(result.error || t.customers.failedToAdd)
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Validation failed:', error)
       if (error.errorFields) {
-        message.error('يرجى ملء جميع الحقول المطلوبة بشكل صحيح')
+        message.error(t.customers.fillRequiredFields)
       } else {
-        message.error('حدث خطأ أثناء حفظ العميل')
+        message.error(t.customers.errorSaving)
       }
     }
   }
 
-  // تصدير البيانات
+  // Export data
   const handleExport = () => {
     const dataStr = JSON.stringify(customers, null, 2)
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
-    const exportFileDefaultName = 'customers.json'
+    const exportFileDefaultName = language === 'ar' ? 'العملاء.json' : 'customers.json'
     
     const linkElement = document.createElement('a')
     linkElement.setAttribute('href', dataUri)
     linkElement.setAttribute('download', exportFileDefaultName)
     linkElement.click()
-    message.success('تم تصدير البيانات بنجاح')
+    message.success(t.customers.exportSuccess)
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>إدارة العملاء</h1>
-          <p style={{ color: '#666', margin: '4px 0 0 0' }}>إدارة قاعدة عملاء الشركة</p>
+          <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>{t.customers.title}</h1>
+          <p style={{ color: '#666', margin: '4px 0 0 0' }}>{t.customers.subtitle}</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalVisible(true)}>
-          إضافة عميل
+          {t.customers.addCustomer}
         </Button>
       </div>
 
-      {/* إحصائيات سريعة */}
+      {/* Statistics */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي العملاء"
+              title={t.customers.totalCustomers}
               value={stats.totalCustomers}
               prefix={<UserOutlined />}
             />
@@ -342,7 +361,7 @@ const CustomersPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="العملاء النشطين"
+              title={t.customers.activeCustomers}
               value={stats.activeCustomers}
               prefix={<StarOutlined />}
             />
@@ -351,7 +370,7 @@ const CustomersPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="العملاء الشركات"
+              title={t.customers.corporateCustomers}
               value={stats.corporateCustomers}
               prefix={<ShoppingOutlined />}
             />
@@ -360,20 +379,20 @@ const CustomersPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="إجمالي الرصيد"
+              title={t.customers.totalBalance}
               value={stats.totalBalance}
               prefix={<DollarOutlined />}
-              suffix="ريال"
+              suffix={t.common.sar}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* أدوات البحث والتصفية */}
+      {/* Search and Filter Tools */}
       <Card>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <Input
-            placeholder="ابحث باسم العميل أو البريد أو الهاتف..."
+            placeholder={t.customers.searchPlaceholder}
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -383,24 +402,24 @@ const CustomersPage = () => {
             value={statusFilter}
             onChange={setStatusFilter}
             style={{ width: 150 }}
-            placeholder="حالة العميل"
+            placeholder={t.customers.statusFilter}
           >
-            <Option value="all">الكل</Option>
-            <Option value="active">نشط</Option>
-            <Option value="inactive">غير نشط</Option>
+            <Option value="all">{t.customers.all}</Option>
+            <Option value="active">{t.customers.active}</Option>
+            <Option value="inactive">{t.customers.inactive}</Option>
           </Select>
           <Select
             value={typeFilter}
             onChange={setTypeFilter}
             style={{ width: 150 }}
-            placeholder="نوع العميل"
+            placeholder={t.customers.typeFilter}
           >
-            <Option value="all">الكل</Option>
-            <Option value="individual">فردي</Option>
-            <Option value="corporate">شركة</Option>
+            <Option value="all">{t.customers.all}</Option>
+            <Option value="individual">{t.customers.individual}</Option>
+            <Option value="corporate">{t.customers.corporate}</Option>
           </Select>
           <Button icon={<ExportOutlined />} onClick={handleExport}>
-            تصدير
+            {t.customers.export}
           </Button>
         </div>
 
@@ -408,27 +427,27 @@ const CustomersPage = () => {
           activeKey={activeTab}
           onChange={setActiveTab}
           items={[
-            { key: 'all', label: 'الكل' },
-            { key: 'active', label: 'نشط' },
-            { key: 'inactive', label: 'غير نشط' }
+            { key: 'all', label: t.customers.all },
+            { key: 'active', label: t.customers.active },
+            { key: 'inactive', label: t.customers.inactive }
           ]}
         />
       </Card>
 
-      {/* جدول العملاء */}
+      {/* Customers Table */}
       <Card>
         <Table
           columns={columns}
           dataSource={filteredCustomers}
           loading={loading}
           pagination={{ pageSize: 10 }}
-          rowKey="key"
+          rowKey={getRowKey}
         />
       </Card>
 
-      {/* Modal إضافة/تعديل عميل */}
+      {/* Add/Edit Customer Modal */}
       <Modal
-        title={selectedCustomer ? "تعديل بيانات العميل" : "إضافة عميل جديد"}
+        title={selectedCustomer ? t.customers.editCustomer : t.customers.newCustomer}
         open={isModalVisible}
         onOk={handleSave}
         onCancel={() => {
@@ -436,8 +455,8 @@ const CustomersPage = () => {
           setSelectedCustomer(null)
           form.resetFields()
         }}
-        okText={selectedCustomer ? "تحديث" : "إضافة"}
-        cancelText="إلغاء"
+        okText={selectedCustomer ? t.common.update : t.common.add}
+        cancelText={t.common.cancel}
         width={600}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 24 }}>
@@ -445,22 +464,22 @@ const CustomersPage = () => {
             <Col span={12}>
               <Form.Item
                 name="name"
-                label="اسم العميل"
-                rules={[{ required: true, message: 'يرجى إدخال اسم العميل' }]}
+                label={t.customers.customerName}
+                rules={[{ required: true, message: t.customers.customerNameRequired }]}
               >
-                <Input placeholder="أدخل اسم العميل" prefix={<UserOutlined />} />
+                <Input placeholder={t.customers.customerName} prefix={<UserOutlined />} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
                 name="email"
-                label="البريد الإلكتروني"
+                label={t.customers.email}
                 rules={[
-                  { required: true, message: 'يرجى إدخال البريد الإلكتروني' },
-                  { type: 'email', message: 'يرجى إدخال بريد إلكتروني صحيح' }
+                  { required: true, message: t.customers.emailRequired },
+                  { type: 'email', message: t.customers.emailInvalid }
                 ]}
               >
-                <Input placeholder="أدخل البريد الإلكتروني" prefix={<MailOutlined />} />
+                <Input placeholder={t.customers.email} prefix={<MailOutlined />} />
               </Form.Item>
             </Col>
           </Row>
@@ -469,37 +488,36 @@ const CustomersPage = () => {
             <Col span={12}>
               <Form.Item
                 name="phone"
-                label="رقم الهاتف"
+                label={t.customers.phone}
                 validateTrigger={['onBlur', 'onSubmit']}
                 rules={[
-                  { required: true, message: 'يرجى إدخال رقم الهاتف' },
+                  { required: true, message: t.customers.phoneRequired },
                   {
                     pattern: /^(\+?\d[\d\s-]{7,14})$/,
-                    message: 'يرجى إدخال رقم هاتف صحيح'
+                    message: t.customers.phoneInvalid
                   }
                 ]}
               >
-                <Input placeholder="أدخل رقم الهاتف" prefix={<PhoneOutlined />} />
+                <Input placeholder={t.customers.phone} prefix={<PhoneOutlined />} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
                 name="company"
-                label="اسم الشركة (اختياري)"
+                label={t.customers.companyOptional}
               >
-                <Input placeholder="أدخل اسم الشركة" />
+                <Input placeholder={t.customers.company} />
               </Form.Item>
             </Col>
           </Row>
 
           <Form.Item
             name="address"
-            label="العنوان"
+            label={t.customers.address}
           >
             <Input.TextArea
               rows={2}
-              placeholder="أدخل العنوان"
-              prefix={<EnvironmentOutlined />}
+              placeholder={t.customers.address}
             />
           </Form.Item>
 
@@ -510,12 +528,12 @@ const CustomersPage = () => {
             <Col span={12}>
               <Form.Item
                 name="status"
-                label="الحالة"
+                label={t.customers.status}
                 initialValue="active"
               >
                 <Select>
-                  <Option value="active">نشط</Option>
-                  <Option value="inactive">غير نشط</Option>
+                  <Option value="active">{t.customers.active}</Option>
+                  <Option value="inactive">{t.customers.inactive}</Option>
                 </Select>
               </Form.Item>
             </Col>
@@ -523,21 +541,21 @@ const CustomersPage = () => {
 
           <Form.Item
             name="notes"
-            label="ملاحظات (اختياري)"
+            label={t.customers.notesOptional}
           >
-            <Input.TextArea rows={3} placeholder="ملاحظات إضافية عن العميل..." />
+            <Input.TextArea rows={3} placeholder={t.customers.notesOptional} />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* Modal عرض التفاصيل */}
+      {/* View Customer Details Modal */}
       <Modal
-        title={`تفاصيل العميل - ${selectedCustomer?.name}`}
+        title={`${t.customers.viewDetails} - ${selectedCustomer?.name}`}
         open={viewModalVisible}
         onCancel={() => setViewModalVisible(false)}
         footer={[
           <Button key="close" onClick={() => setViewModalVisible(false)}>
-            إغلاق
+            {t.common.close}
           </Button>,
           <Button
             key="edit"
@@ -547,7 +565,7 @@ const CustomersPage = () => {
               handleEdit(selectedCustomer)
             }}
           >
-            تعديل البيانات
+            {t.customers.edit}
           </Button>
         ]}
         width={700}
@@ -555,27 +573,27 @@ const CustomersPage = () => {
         {selectedCustomer && (
           <div style={{ marginTop: 24 }}>
             <Descriptions column={2} size="small">
-              <Descriptions.Item label="رقم العميل">{selectedCustomer.id}</Descriptions.Item>
-              <Descriptions.Item label="تاريخ التسجيل">{selectedCustomer.registrationDate}</Descriptions.Item>
-              <Descriptions.Item label="الاسم">{selectedCustomer.name}</Descriptions.Item>
-              <Descriptions.Item label="البريد الإلكتروني">{selectedCustomer.email}</Descriptions.Item>
-              <Descriptions.Item label="الهاتف">{selectedCustomer.phone}</Descriptions.Item>
-              <Descriptions.Item label="النوع">
+              <Descriptions.Item label={t.customers.customer}>{selectedCustomer.id}</Descriptions.Item>
+              <Descriptions.Item label={t.customers.registrationDate}>{selectedCustomer.registrationDate || t.customers.noData}</Descriptions.Item>
+              <Descriptions.Item label={t.customers.customerName}>{selectedCustomer.name}</Descriptions.Item>
+              <Descriptions.Item label={t.customers.email}>{selectedCustomer.email}</Descriptions.Item>
+              <Descriptions.Item label={t.customers.phone}>{selectedCustomer.phone}</Descriptions.Item>
+              <Descriptions.Item label={t.customers.type}>
                 <Tag color={selectedCustomer.type === 'corporate' ? 'blue' : 'green'}>
-                  {selectedCustomer.type === 'corporate' ? 'شركة' : 'فردي'}
+                  {selectedCustomer.type === 'corporate' ? t.customers.corporate : t.customers.individual}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="الحالة">
+              <Descriptions.Item label={t.customers.status}>
                 <Tag color={selectedCustomer.status === 'active' ? 'green' : 'red'}>
-                  {selectedCustomer.status === 'active' ? 'نشط' : 'غير نشط'}
+                  {selectedCustomer.status === 'active' ? t.customers.active : t.customers.inactive}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="الرصيد">
+              <Descriptions.Item label={t.customers.balance}>
                 <span style={{
                   fontWeight: 'bold',
                   color: selectedCustomer.balance >= 0 ? '#52c41a' : '#ff4d4f'
                 }}>
-                  {selectedCustomer.balance.toLocaleString()} ريال
+                  {selectedCustomer.balance.toLocaleString(language === 'ar' ? 'ar-SA' : 'en-US')} {t.common.sar}
                 </span>
               </Descriptions.Item>
             </Descriptions>
@@ -583,27 +601,27 @@ const CustomersPage = () => {
             <Divider />
 
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="العنوان">
-                {selectedCustomer.address || 'لا يوجد'}
+              <Descriptions.Item label={t.customers.address}>
+                {selectedCustomer.address || t.customers.noData}
               </Descriptions.Item>
-              <Descriptions.Item label="الشركة">
-                {selectedCustomer.company || 'لا يوجد'}
+              <Descriptions.Item label={t.customers.company}>
+                {selectedCustomer.company || t.customers.noData}
               </Descriptions.Item>
-              <Descriptions.Item label="إجمالي الطلبات">
-                {selectedCustomer.totalOrders} طلب
+              <Descriptions.Item label={t.customers.totalOrders}>
+                {selectedCustomer.totalOrders || 0} {t.orders.order || 'orders'}
               </Descriptions.Item>
-              <Descriptions.Item label="إجمالي المشتريات">
-                {selectedCustomer.totalSpent.toLocaleString()} ريال
+              <Descriptions.Item label={t.customers.totalPurchases}>
+                {selectedCustomer.totalSpent.toLocaleString(language === 'ar' ? 'ar-SA' : 'en-US')} {t.common.sar}
               </Descriptions.Item>
-              <Descriptions.Item label="آخر شراء">
-                {selectedCustomer.lastPurchase || 'لا يوجد'}
+              <Descriptions.Item label={t.customers.lastPurchase}>
+                {selectedCustomer.lastPurchase || t.customers.noData}
               </Descriptions.Item>
             </Descriptions>
 
             {selectedCustomer.notes && (
               <>
                 <Divider />
-                <p><strong>ملاحظات:</strong></p>
+                <p><strong>{t.customers.notes}:</strong></p>
                 <p style={{ color: '#666', lineHeight: 1.6 }}>{selectedCustomer.notes}</p>
               </>
             )}

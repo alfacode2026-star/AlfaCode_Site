@@ -269,12 +269,6 @@ class IncomesService {
         }
       }
 
-      console.log('✅ Income created successfully:', {
-        paymentId: insertedPayment.id,
-        amount,
-        treasuryAccountId: incomeData.treasuryAccountId,
-        treasuryTransactionId: treasuryResult.transaction?.id
-      })
 
       return {
         success: true,

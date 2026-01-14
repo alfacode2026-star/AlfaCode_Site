@@ -12,14 +12,17 @@ class ProjectsService {
         return []
       }
 
-      // First, get all projects (created_by is optional, handle if column doesn't exist)
       const { data: projectsData, error } = await supabase
         .from('projects')
         .select('*')
         .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('[projectsService] Supabase error (getProjects):', error)
+        throw error
+      }
+
 
       // Then, fetch customer data for projects that have client_id
       const projectsWithCustomers = await Promise.all(
@@ -61,7 +64,11 @@ class ProjectsService {
         .eq('status', 'active')
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('[projectsService] Supabase error (getActiveProjects):', error)
+        throw error
+      }
+
 
       // Then, fetch customer data for projects that have client_id
       const projectsWithCustomers = await Promise.all(
