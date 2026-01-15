@@ -146,7 +146,12 @@ class QuotationDraftsService {
         validity_period: draftData.validityPeriod || null,
         status: draftData.status || 'draft',
         notes: draftData.notes || null,
-        created_by: 'user'
+        include_letterhead: draftData.includeLetterhead !== undefined ? draftData.includeLetterhead : true,
+        include_signature: draftData.includeSignature !== undefined ? draftData.includeSignature : true,
+        manager_notes: draftData.managerNotes || null
+        // created_by is handled by database default (auth.uid()) or RLS policy
+        // Do NOT set it to 'user' string as it causes UUID validation errors
+        // Removed created_by field to let database handle it via default value
       }
 
       const { data, error } = await supabase
@@ -223,6 +228,9 @@ class QuotationDraftsService {
       if (draftData.validityPeriod !== undefined) updateData.validity_period = draftData.validityPeriod || null
       if (draftData.status !== undefined) updateData.status = draftData.status
       if (draftData.notes !== undefined) updateData.notes = draftData.notes || null
+      if (draftData.includeLetterhead !== undefined) updateData.include_letterhead = draftData.includeLetterhead
+      if (draftData.includeSignature !== undefined) updateData.include_signature = draftData.includeSignature
+      if (draftData.managerNotes !== undefined) updateData.manager_notes = draftData.managerNotes || null
 
       const { data, error } = await supabase
         .from('quotation_drafts')
@@ -317,6 +325,9 @@ class QuotationDraftsService {
       validityPeriod: draft.validity_period,
       status: draft.status,
       notes: draft.notes,
+      includeLetterhead: draft.include_letterhead !== undefined ? draft.include_letterhead : true,
+      includeSignature: draft.include_signature !== undefined ? draft.include_signature : true,
+      managerNotes: draft.manager_notes || null,
       createdAt: draft.created_at,
       updatedAt: draft.updated_at,
       createdBy: draft.created_by

@@ -11,7 +11,6 @@ import {
   Space,
   Modal,
   Form,
-  DatePicker,
   Row,
   Col,
   Radio,
@@ -114,6 +113,8 @@ const GeneralExpenses = () => {
   const [externalCustodyName, setExternalCustodyName] = useState('')
   const [externalCustodyPhone, setExternalCustodyPhone] = useState('')
   const [externalCustodyAddress, setExternalCustodyAddress] = useState('')
+  const [selectedTreasuryAccount, setSelectedTreasuryAccount] = useState<any>(null)
+  const [baseCurrency] = useState<string>('SAR') // Base currency for exchange rate calculations
 
   const isEngineering = industryType === 'engineering'
 
@@ -3333,13 +3334,100 @@ const GeneralExpenses = () => {
                   placeholder="اختر حساب الخزينة" 
                   disabled={treasuryAccounts.length === 0}
                   notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
+                  onChange={(value) => {
+                    const account = treasuryAccounts.find(acc => acc.id === value)
+                    setSelectedTreasuryAccount(account || null)
+                    // Reset exchange rate when account changes
+                    if (account && account.currency !== baseCurrency) {
+                      form.setFieldsValue({ exchangeRate: 1, convertedAmount: null })
+                    } else {
+                      form.setFieldsValue({ exchangeRate: null, convertedAmount: null })
+                    }
+                  }}
                 >
                   {treasuryAccounts.map(acc => (
                     <Option key={acc.id} value={acc.id}>
                       {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                      {acc.currency && acc.currency !== baseCurrency ? ` - ${acc.currency}` : ''}
                     </Option>
                   ))}
                 </Select>
+              </Form.Item>
+
+              {/* Exchange Rate Fields - Show when treasury currency != base currency */}
+              <Form.Item
+                noStyle
+                shouldUpdate={(prevValues, currentValues) => 
+                  prevValues.treasuryAccountId !== currentValues.treasuryAccountId ||
+                  prevValues.amount !== currentValues.amount ||
+                  prevValues.exchangeRate !== currentValues.exchangeRate
+                }
+              >
+                {({ getFieldValue }) => {
+                  const treasuryAccountId = getFieldValue('treasuryAccountId')
+                  const amount = getFieldValue('amount') || 0
+                  const exchangeRate = getFieldValue('exchangeRate') || 1
+                  const selectedAccount = treasuryAccounts.find(acc => acc.id === treasuryAccountId)
+                  const accountCurrency = selectedAccount?.currency || baseCurrency
+                  const showExchangeRate = selectedAccount && accountCurrency !== baseCurrency
+
+                  if (showExchangeRate) {
+                    const convertedAmount = amount && exchangeRate ? (parseFloat(amount) * parseFloat(exchangeRate)) : 0
+                    
+                    // Auto-update converted amount when amount or exchange rate changes
+                    if (amount && exchangeRate) {
+                      setTimeout(() => {
+                        form.setFieldsValue({ convertedAmount: convertedAmount })
+                      }, 0)
+                    }
+
+                    return (
+                      <>
+                        <Form.Item
+                          name="exchangeRate"
+                          label={`سعر الصرف (${accountCurrency} → ${baseCurrency}) / Exchange Rate`}
+                          rules={[
+                            { required: true, message: 'يرجى إدخال سعر الصرف' },
+                            { type: 'number', min: 0.0001, message: 'يجب أن يكون سعر الصرف أكبر من صفر' }
+                          ]}
+                          tooltip={`سعر تحويل 1 ${accountCurrency} إلى ${baseCurrency}`}
+                        >
+                          <InputNumber
+                            min={0.0001}
+                            step={0.01}
+                            placeholder="1.00"
+                            size="large"
+                            style={{ width: '100%' }}
+                            formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                            parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                            onChange={(value) => {
+                              const amount = form.getFieldValue('amount') || 0
+                              if (value && amount) {
+                                const converted = parseFloat(amount) * parseFloat(value as any)
+                                form.setFieldsValue({ convertedAmount: converted })
+                              }
+                            }}
+                          />
+                        </Form.Item>
+                        <Form.Item
+                          name="convertedAmount"
+                          label={`المبلغ المحول (${baseCurrency}) / Converted Amount`}
+                        >
+                          <InputNumber
+                            min={0}
+                            style={{ width: '100%' }}
+                            placeholder="0.00"
+                            size="large"
+                            disabled
+                            formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                            parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
+                          />
+                        </Form.Item>
+                      </>
+                    )
+                  }
+                  return null
+                }}
               </Form.Item>
 
               {/* Description */}
@@ -3447,11 +3535,16 @@ const GeneralExpenses = () => {
                 label="التاريخ / Date"
                 rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
               >
-                <DatePicker
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                  size="large"
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '6px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '40px', fontSize: '16px' }}
                   placeholder="اختر التاريخ (افتراضي: اليوم)"
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      form.setFieldsValue({ date: e.target.value })
+                    }
+                  }}
                 />
               </Form.Item>
 
@@ -3747,12 +3840,16 @@ const GeneralExpenses = () => {
                 name="date"
                 label="التاريخ"
                 rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
-                initialValue={dayjs()}
+                initialValue={dayjs().format('YYYY-MM-DD')}
+                getValueFromEvent={(e) => e.target.value}
+                getValueProps={(value) => ({
+                  value: value ? (typeof value === 'string' ? value : dayjs(value).format('YYYY-MM-DD')) : dayjs().format('YYYY-MM-DD')
+                })}
               >
-                <DatePicker
-                  style={{ width: '100%' }}
-                  format="YYYY-MM-DD"
-                  size="large"
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '6px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '40px', fontSize: '16px' }}
                   placeholder="اختر التاريخ (افتراضي: اليوم)"
                 />
               </Form.Item>

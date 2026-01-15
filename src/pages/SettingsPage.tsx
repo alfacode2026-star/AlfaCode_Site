@@ -5,6 +5,8 @@ import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getTranslations } from '../utils/translations'
 import companySettingsService from '../services/companySettingsService'
+import userManagementService from '../services/userManagementService'
+import { supabase } from '../services/supabaseClient'
 import {
   Card,
   Form,
@@ -46,7 +48,10 @@ import {
   DatabaseOutlined,
   AppstoreOutlined,
   SettingOutlined,
-  FileImageOutlined
+  FileImageOutlined,
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined
 } from '@ant-design/icons'
 import type { UploadFile, UploadProps } from 'antd/es/upload/interface'
 
@@ -68,6 +73,12 @@ const SettingsPage = () => {
   const [letterheadFile, setLetterheadFile] = useState<UploadFile | null>(null)
   const [stampFile, setStampFile] = useState<UploadFile | null>(null)
   const [logoFile, setLogoFile] = useState<UploadFile | null>(null)
+  const [users, setUsers] = useState<any[]>([])
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [isUserModalVisible, setIsUserModalVisible] = useState(false)
+  const [selectedUser, setSelectedUser] = useState<any>(null)
+  const [userForm] = Form.useForm()
 
   // بيانات الشركة
   const companyData = {
@@ -153,8 +164,113 @@ const SettingsPage = () => {
   useEffect(() => {
     if (activeTab === 'company') {
       loadCompanySettings()
+    } else if (activeTab === 'users') {
+      checkSuperAdminAndLoadUsers()
     }
   }, [activeTab, currentTenantId])
+
+  const checkSuperAdminAndLoadUsers = async () => {
+    try {
+      const isAdmin = await userManagementService.isSuperAdmin()
+      setIsSuperAdmin(isAdmin)
+      if (isAdmin) {
+        await loadUsers()
+      }
+    } catch (error) {
+      console.error('Error checking super admin status:', error)
+      setIsSuperAdmin(false)
+    }
+  }
+
+  const loadUsers = async () => {
+    setUsersLoading(true)
+    try {
+      const usersList = await userManagementService.getUsers()
+      setUsers(usersList || [])
+    } catch (error) {
+      console.error('Error loading users:', error)
+      message.error(language === 'ar' ? 'فشل تحميل المستخدمين' : 'Failed to load users')
+    } finally {
+      setUsersLoading(false)
+    }
+  }
+
+  const handleAddUser = () => {
+    setSelectedUser(null)
+    userForm.resetFields()
+    userForm.setFieldsValue({ role: 'user' })
+    setIsUserModalVisible(true)
+  }
+
+  const handleEditUser = (user: any) => {
+    setSelectedUser(user)
+    userForm.setFieldsValue({
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role
+    })
+    setIsUserModalVisible(true)
+  }
+
+  const handleSaveUser = async () => {
+    try {
+      const values = await userForm.validateFields()
+      
+      if (selectedUser) {
+        // Update existing user role
+        const result = await userManagementService.updateUserRole(selectedUser.id, values.role)
+        if (result.success) {
+          message.success(language === 'ar' ? 'تم تحديث المستخدم بنجاح' : 'User updated successfully')
+          setIsUserModalVisible(false)
+          userForm.resetFields()
+          setSelectedUser(null)
+          await loadUsers()
+        } else {
+          message.error(result.error || (language === 'ar' ? 'فشل تحديث المستخدم' : 'Failed to update user'))
+        }
+      } else {
+        // Create new user
+        const result = await userManagementService.createUser({
+          email: values.email,
+          password: values.password,
+          full_name: values.full_name,
+          role: values.role || 'user',
+          branch_id: null // Can be set later
+        })
+        
+        if (result.success) {
+          message.success(language === 'ar' ? 'تم إنشاء المستخدم بنجاح' : 'User created successfully')
+          setIsUserModalVisible(false)
+          userForm.resetFields()
+          await loadUsers()
+        } else {
+          message.error(result.error || (language === 'ar' ? 'فشل إنشاء المستخدم' : 'Failed to create user'))
+        }
+      }
+    } catch (error: any) {
+      console.error('Error saving user:', error)
+      if (error.errorFields) {
+        message.error(language === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill in all required fields')
+      } else {
+        message.error(error.message || (language === 'ar' ? 'فشل حفظ المستخدم' : 'Failed to save user'))
+      }
+    }
+  }
+
+  const handleDeleteUser = async (userId: string) => {
+    try {
+      const result = await userManagementService.deleteUser(userId)
+      if (result.success) {
+        message.success(language === 'ar' ? 'تم حذف المستخدم بنجاح' : 'User deleted successfully')
+        await loadUsers()
+      } else {
+        message.error(result.error || (language === 'ar' ? 'فشل حذف المستخدم' : 'Failed to delete user'))
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      message.error(language === 'ar' ? 'فشل حذف المستخدم' : 'Failed to delete user')
+    }
+  }
 
   const loadCompanySettings = async () => {
     try {
@@ -167,12 +283,14 @@ const SettingsPage = () => {
           authorizedManagerTitle: settings.authorizedManagerTitle || '',
           companyAddress: settings.companyAddress || '',
           companyPhone: settings.companyPhone || '',
-          companyEmail: settings.companyEmail || '',
-          companyWebsite: settings.companyWebsite || '',
-          taxNumber: settings.taxNumber || '',
-          commercialRegister: settings.commercialRegister || '',
-          topMargin: settings.topMarginCm ?? 4.0,
-          bottomMargin: settings.bottomMarginCm ?? 3.0
+        companyEmail: settings.companyEmail || '',
+        companyWebsite: settings.companyWebsite || '',
+        taxNumber: settings.taxNumber || '',
+        commercialRegister: settings.commercialRegister || '',
+        vatPercentage: settings.vatPercentage ?? 0,
+        vatEnabled: settings.vatEnabled ?? false,
+        topMargin: settings.topMarginCm ?? 4.0,
+        bottomMargin: settings.bottomMarginCm ?? 3.0
         })
       } else {
         // Set defaults if no settings exist
@@ -269,6 +387,8 @@ const SettingsPage = () => {
         companyWebsite: values.companyWebsite,
         taxNumber: values.taxNumber,
         commercialRegister: values.commercialRegister,
+        vatPercentage: values.vatPercentage || 0,
+        vatEnabled: values.vatEnabled ?? false,
         topMarginCm: values.topMargin || 4,
         bottomMarginCm: values.bottomMargin || 3
       }
@@ -915,6 +1035,33 @@ const SettingsPage = () => {
                           <Input placeholder={language === 'ar' ? 'رقم السجل التجاري' : 'Commercial Register Number'} />
                         </Form.Item>
                       </Col>
+                      <Col span={12}>
+                        <Form.Item 
+                          name="vatPercentage" 
+                          label={language === 'ar' ? 'نسبة ضريبة القيمة المضافة (%)' : 'VAT Percentage (%)'}
+                          extra={language === 'ar' ? 'اتركه فارغاً أو 0 لإلغاء ضريبة القيمة المضافة' : 'Leave empty or 0 to disable VAT'}
+                        >
+                          <InputNumber 
+                            min={0} 
+                            max={100} 
+                            step={0.1}
+                            style={{ width: '100%' }} 
+                            placeholder={language === 'ar' ? 'مثال: 15' : 'e.g., 15'} 
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item 
+                          name="vatEnabled" 
+                          label={language === 'ar' ? 'تفعيل ضريبة القيمة المضافة' : 'Enable VAT'}
+                          valuePropName="checked"
+                        >
+                          <Switch 
+                            checkedChildren={language === 'ar' ? 'مفعل' : 'Enabled'} 
+                            unCheckedChildren={language === 'ar' ? 'معطل' : 'Disabled'} 
+                          />
+                        </Form.Item>
+                      </Col>
                     </Row>
                   </Card>
 
@@ -1091,6 +1238,166 @@ const SettingsPage = () => {
                     {language === 'ar' ? 'حفظ إعدادات الشركة' : 'Save Company Settings'}
                   </Button>
                 </div>
+              </>
+            )
+          },
+          {
+            key: 'users',
+            label: language === 'ar' ? 'إدارة المستخدمين' : 'User Management',
+            icon: <TeamOutlined />,
+            children: (
+              <>
+                {!isSuperAdmin ? (
+                  <Alert
+                    message={language === 'ar' ? 'غير مصرح' : 'Unauthorized'}
+                    description={language === 'ar' 
+                      ? 'فقط مدير النظام (Super Admin) يمكنه إدارة المستخدمين'
+                      : 'Only Super Admin can manage users'}
+                    type="warning"
+                    showIcon
+                  />
+                ) : (
+                  <>
+                    <Card 
+                      title={language === 'ar' ? 'المستخدمون' : 'Users'}
+                      extra={
+                        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddUser}>
+                          {language === 'ar' ? 'إضافة مستخدم' : 'Add User'}
+                        </Button>
+                      }
+                    >
+                      <Table
+                        dataSource={users}
+                        loading={usersLoading}
+                        rowKey="id"
+                        columns={[
+                          {
+                            title: language === 'ar' ? 'البريد الإلكتروني' : 'Email',
+                            dataIndex: 'email',
+                            key: 'email'
+                          },
+                          {
+                            title: language === 'ar' ? 'الاسم الكامل' : 'Full Name',
+                            dataIndex: 'full_name',
+                            key: 'full_name'
+                          },
+                          {
+                            title: language === 'ar' ? 'الدور' : 'Role',
+                            dataIndex: 'role',
+                            key: 'role',
+                            render: (role: string) => (
+                              <Tag color={role === 'super_admin' ? 'red' : role === 'admin' ? 'orange' : 'blue'}>
+                                {role === 'super_admin' ? (language === 'ar' ? 'مدير النظام' : 'Super Admin') :
+                                 role === 'admin' ? (language === 'ar' ? 'مدير' : 'Admin') :
+                                 role === 'manager' ? (language === 'ar' ? 'مدير فرع' : 'Manager') :
+                                 role === 'accountant' ? (language === 'ar' ? 'محاسب' : 'Accountant') :
+                                 role === 'engineer' ? (language === 'ar' ? 'مهندس' : 'Engineer') :
+                                 language === 'ar' ? 'مستخدم' : 'User'}
+                              </Tag>
+                            )
+                          },
+                          {
+                            title: language === 'ar' ? 'الإجراءات' : 'Actions',
+                            key: 'actions',
+                            render: (_: any, record: any) => (
+                              <Space>
+                                <Button 
+                                  type="link" 
+                                  size="small"
+                                  icon={<EditOutlined />}
+                                  onClick={() => handleEditUser(record)}
+                                >
+                                  {language === 'ar' ? 'تعديل' : 'Edit'}
+                                </Button>
+                                <Popconfirm
+                                  title={language === 'ar' ? 'حذف المستخدم' : 'Delete User'}
+                                  description={language === 'ar' 
+                                    ? 'هل أنت متأكد من حذف هذا المستخدم؟'
+                                    : 'Are you sure you want to delete this user?'}
+                                  onConfirm={() => handleDeleteUser(record.id)}
+                                  okText={language === 'ar' ? 'نعم' : 'Yes'}
+                                  cancelText={language === 'ar' ? 'لا' : 'No'}
+                                >
+                                  <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+                                    {language === 'ar' ? 'حذف' : 'Delete'}
+                                  </Button>
+                                </Popconfirm>
+                              </Space>
+                            )
+                          }
+                        ]}
+                        pagination={{ pageSize: 10 }}
+                      />
+                    </Card>
+
+                    <Modal
+                      title={selectedUser 
+                        ? (language === 'ar' ? 'تعديل المستخدم' : 'Edit User')
+                        : (language === 'ar' ? 'إضافة مستخدم جديد' : 'Add New User')}
+                      open={isUserModalVisible}
+                      onOk={handleSaveUser}
+                      onCancel={() => {
+                        setIsUserModalVisible(false)
+                        userForm.resetFields()
+                        setSelectedUser(null)
+                      }}
+                      okText={language === 'ar' ? 'حفظ' : 'Save'}
+                      cancelText={language === 'ar' ? 'إلغاء' : 'Cancel'}
+                    >
+                      <Form form={userForm} layout="vertical">
+                        <Form.Item
+                          name="email"
+                          label={language === 'ar' ? 'البريد الإلكتروني' : 'Email'}
+                          rules={[
+                            { required: true, message: language === 'ar' ? 'يرجى إدخال البريد الإلكتروني' : 'Please enter email' },
+                            { type: 'email', message: language === 'ar' ? 'يرجى إدخال بريد إلكتروني صحيح' : 'Please enter a valid email' }
+                          ]}
+                        >
+                          <Input 
+                            disabled={!!selectedUser}
+                            placeholder={language === 'ar' ? 'البريد الإلكتروني' : 'Email Address'} 
+                          />
+                        </Form.Item>
+
+                        {!selectedUser && (
+                          <Form.Item
+                            name="password"
+                            label={language === 'ar' ? 'كلمة المرور' : 'Password'}
+                            rules={[
+                              { required: true, message: language === 'ar' ? 'يرجى إدخال كلمة المرور' : 'Please enter password' },
+                              { min: 8, message: language === 'ar' ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must be at least 8 characters' }
+                            ]}
+                          >
+                            <Input.Password placeholder={language === 'ar' ? 'كلمة المرور (8 أحرف على الأقل)' : 'Password (min 8 characters)'} />
+                          </Form.Item>
+                        )}
+
+                        <Form.Item
+                          name="full_name"
+                          label={language === 'ar' ? 'الاسم الكامل' : 'Full Name'}
+                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال الاسم الكامل' : 'Please enter full name' }]}
+                        >
+                          <Input placeholder={language === 'ar' ? 'الاسم الكامل' : 'Full Name'} />
+                        </Form.Item>
+
+                        <Form.Item
+                          name="role"
+                          label={language === 'ar' ? 'الدور' : 'Role'}
+                          rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار الدور' : 'Please select role' }]}
+                        >
+                          <Select placeholder={language === 'ar' ? 'اختر الدور' : 'Select Role'}>
+                            <Option value="super_admin">{language === 'ar' ? 'مدير النظام' : 'Super Admin'}</Option>
+                            <Option value="admin">{language === 'ar' ? 'مدير' : 'Admin'}</Option>
+                            <Option value="manager">{language === 'ar' ? 'مدير فرع' : 'Manager'}</Option>
+                            <Option value="accountant">{language === 'ar' ? 'محاسب' : 'Accountant'}</Option>
+                            <Option value="engineer">{language === 'ar' ? 'مهندس' : 'Engineer'}</Option>
+                            <Option value="user">{language === 'ar' ? 'مستخدم' : 'User'}</Option>
+                          </Select>
+                        </Form.Item>
+                      </Form>
+                    </Modal>
+                  </>
+                )}
               </>
             )
           }

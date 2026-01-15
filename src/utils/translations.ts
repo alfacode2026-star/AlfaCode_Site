@@ -797,6 +797,11 @@ export interface Translations {
     draftQuotations: string
     sentQuotations: string
     acceptedQuotations: string
+    rejectedQuotations: string
+    totalValue: string
+    pending: string
+    client: string
+    description: string
     totalAmountLabel: string
     customerSearchPlaceholder: string
     customerNameLabel: string
@@ -1012,20 +1017,15 @@ const translations: Record<Language, Translations> = {
       errorApprovingGroup: 'Error occurred while approving group',
       cannotEditInactiveGroup: 'Cannot edit inactive group',
       groupNotActive: 'Group is not active',
-      selectAtLeastOneProject: 'Please select at least one project',
       selectedProjectsNotFound: 'Selected projects not found',
       cannotStartBeforeProjectDate: 'Cannot start labor group before project contract date',
       endDateRequired: 'End date is required',
       closeDateCannotExceed7Days: 'Close date cannot exceed 7 days from current date',
       groupNotPendingApproval: 'Group is not pending approval',
       groupNotApprovedForPayment: 'Group is not approved for payment',
-      selectPaymentMethod: 'Please select payment method',
-      selectTreasuryAccount: 'Please select treasury account',
       defaultEngineer: 'Engineer',
       period: 'Period',
       calculationDetails: 'Calculation Details',
-      normalLabor: 'Normal Labor',
-      skilledLabor: 'Skilled Labor/Professional',
       baseTotal: 'Base Total',
       overtime: 'Overtime/Bonus',
       deductions: 'Deductions',
@@ -1132,20 +1132,12 @@ const translations: Record<Language, Translations> = {
       supplier: 'Supplier',
       orderDate: 'Order Date',
       deliveryDate: 'Delivery Date',
-      totalValue: 'Total Value',
-      status: 'Status',
-      pending: 'Pending',
       processing: 'Processing',
-      completed: 'Completed',
       cancelled: 'Cancelled',
       searchOrders: 'Search Orders',
-      filterByStatus: 'Filter by Status',
       allStatuses: 'All Statuses',
       selectSupplier: 'Select Supplier',
-      selectProject: 'Select Project',
-      selectTreasuryAccount: 'Select Treasury Account',
       orderItems: 'Order Items',
-      addItem: 'Add Item',
       productName: 'Product Name',
       quantity: 'Quantity',
       unitPrice: 'Unit Price',
@@ -1545,7 +1537,6 @@ const translations: Record<Language, Translations> = {
       newExpense: 'New Expense',
       remainingAmount: 'Remaining Amount',
       selectAdvance: 'Select Advance',
-      selectCategory: 'Select Category',
       selectTreasuryAccount: 'Select Treasury Account',
       subtitle: 'Manage general expenses',
       title: 'General Expenses',
@@ -1610,7 +1601,6 @@ const translations: Record<Language, Translations> = {
     quotations: {
       accepted: 'Accepted',
       converted: 'Converted',
-      customerName: 'Customer Name',
       deleteQuotation: 'Delete Quotation',
       draft: 'Draft',
       editQuotation: 'Edit Quotation',
@@ -1662,7 +1652,17 @@ const translations: Record<Language, Translations> = {
       draftSaved: 'Draft saved successfully',
       pdfGenerated: 'PDF generated successfully',
       activities: 'Activities',
-      amount: 'Amount'
+      amount: 'Amount',
+      statistics: 'Statistics',
+      totalQuotations: 'Total Quotations',
+      draftQuotations: 'Draft Quotations',
+      sentQuotations: 'Sent Quotations',
+      acceptedQuotations: 'Approved Quotations',
+      rejectedQuotations: 'Rejected Quotations',
+      totalValue: 'Total Value',
+      pending: 'Pending',
+      client: 'Client',
+      description: 'Description'
     }
   },
   ar: {
@@ -2154,7 +2154,6 @@ const translations: Record<Language, Translations> = {
       newExpense: 'مصروف جديد',
       remainingAmount: 'المبلغ المتبقي',
       selectAdvance: 'اختر العهدة',
-      selectCategory: 'اختر الفئة',
       selectTreasuryAccount: 'اختر حساب الخزينة',
       subtitle: 'إدارة المصاريف العامة',
       title: 'المصاريف العامة',
@@ -2219,7 +2218,6 @@ const translations: Record<Language, Translations> = {
     quotations: {
       accepted: 'مقبول',
       converted: 'محول',
-      customerName: 'اسم العميل',
       deleteQuotation: 'حذف العرض',
       draft: 'مسودة',
       editQuotation: 'تعديل العرض',
@@ -2271,7 +2269,17 @@ const translations: Record<Language, Translations> = {
       draftSaved: 'تم حفظ المسودة بنجاح',
       pdfGenerated: 'تم إنشاء PDF بنجاح',
       activities: 'الأنشطة',
-      amount: 'المبلغ'
+      amount: 'المبلغ',
+      statistics: 'الإحصائيات',
+      totalQuotations: 'إجمالي العروض',
+      draftQuotations: 'العروض المسودة',
+      sentQuotations: 'العروض المرسلة',
+      acceptedQuotations: 'العروض المعتمدة',
+      rejectedQuotations: 'العروض المرفوضة',
+      totalValue: 'إجمالي القيمة',
+      pending: 'قيد الانتظار',
+      client: 'العميل',
+      description: 'الوصف'
     }
   }
 }

@@ -35,6 +35,7 @@ import {
 } from '@ant-design/icons';
 import { useLanguage } from '../contexts/LanguageContext';
 import treasuryService from '../services/treasuryService';
+import userManagementService from '../services/userManagementService';
 
 const { Option } = Select;
 
@@ -46,8 +47,12 @@ export interface TreasuryAccount {
   id: string;
   name: string;
   type: 'bank' | 'cash_box';
+  accountType?: 'public' | 'private';
+  currency?: string;
   initialBalance: number;
   currentBalance: number;
+  branchId?: string;
+  branchName?: string;
   updatedAt?: string;
   lastUpdated?: string;
 }
@@ -97,6 +102,7 @@ const TreasuryPage: FC = () => {
   const { language } = useLanguage();
 
   const [accounts, setAccounts] = useState<TreasuryAccount[]>([]);
+  const [allAccounts, setAllAccounts] = useState<TreasuryAccount[]>([]); // Store all accounts before filtering
   const [transactions, setTransactions] = useState<TreasuryTransaction[]>([]);
   const [filters, setFilters] = useState<FilterState>({
     searchText: '',
@@ -107,6 +113,8 @@ const TreasuryPage: FC = () => {
   const [isAccountModalVisible, setIsAccountModalVisible] = useState<boolean>(false);
   const [selectedAccount, setSelectedAccount] = useState<TreasuryAccount | null>(null);
   const [accountForm] = Form.useForm();
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [currencies, setCurrencies] = useState<any[]>([]);
 
   /* =======================
      Language & Locale Sync
@@ -123,7 +131,42 @@ const TreasuryPage: FC = () => {
 
   useEffect(() => {
     loadData();
+    checkSuperAdmin();
+    loadCurrencies();
   }, []);
+
+  const checkSuperAdmin = async (): Promise<void> => {
+    try {
+      const isAdmin = await userManagementService.isSuperAdmin();
+      setIsSuperAdmin(isAdmin);
+    } catch (error) {
+      console.error('Error checking super admin status:', error);
+      setIsSuperAdmin(false);
+    }
+  };
+
+  const loadCurrencies = async (): Promise<void> => {
+    try {
+      const { supabase } = await import('../services/supabaseClient');
+      const { data, error } = await supabase
+        .from('global_currencies')
+        .select('currency_code, currency_name')
+        .order('currency_code', { ascending: true });
+
+      if (error) throw error;
+      setCurrencies(data || []);
+    } catch (error) {
+      console.error('Error loading currencies:', error);
+      // Fallback to common currencies if table doesn't exist
+      setCurrencies([
+        { currency_code: 'SAR', currency_name: 'Saudi Riyal' },
+        { currency_code: 'USD', currency_name: 'US Dollar' },
+        { currency_code: 'EUR', currency_name: 'Euro' },
+        { currency_code: 'GBP', currency_name: 'British Pound' },
+        { currency_code: 'AED', currency_name: 'UAE Dirham' },
+      ]);
+    }
+  };
 
   const loadData = async (): Promise<void> => {
     setLoading(true);
@@ -140,12 +183,36 @@ const TreasuryPage: FC = () => {
   const loadAccounts = async (): Promise<void> => {
     try {
       const data = await treasuryService.getAccounts();
-      setAccounts(data || []);
+      setAllAccounts(data || []);
+      
+      // Filter out private accounts for non-Super Admins
+      if (!isSuperAdmin) {
+        const filteredData = (data || []).filter(
+          (acc) => acc.accountType !== 'private'
+        );
+        setAccounts(filteredData);
+      } else {
+        setAccounts(data || []);
+      }
     } catch (error) {
       console.error('Error loading accounts:', error);
       message.error('Failed to load accounts.');
     }
   };
+
+  // Update accounts when isSuperAdmin changes
+  useEffect(() => {
+    if (allAccounts.length > 0) {
+      if (!isSuperAdmin) {
+        const filteredData = allAccounts.filter(
+          (acc) => acc.accountType !== 'private'
+        );
+        setAccounts(filteredData);
+      } else {
+        setAccounts(allAccounts);
+      }
+    }
+  }, [isSuperAdmin, allAccounts]);
 
   const loadTransactions = async (accountId: string | null = null): Promise<void> => {
     setTransactionsLoading(true);
@@ -215,7 +282,14 @@ const TreasuryPage: FC = () => {
         render: (name: string, record: TreasuryAccount) => (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {record.type === 'bank' ? <BankOutlined /> : <WalletOutlined />}
-            <span style={{ fontWeight: 500 }}>{name}</span>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontWeight: 500 }}>{name}</span>
+              {record.branchName && (
+                <span style={{ fontSize: 12, color: '#666' }}>
+                  Branch: {record.branchName}
+                </span>
+              )}
+            </div>
           </div>
         ),
       },
@@ -228,6 +302,31 @@ const TreasuryPage: FC = () => {
             {type === 'bank' ? 'Bank' : 'Cash Box'}
           </Tag>
         ),
+      },
+      {
+        title: 'Visibility',
+        dataIndex: 'accountType',
+        key: 'accountType',
+        render: (accountType: string) => {
+          if (!accountType || accountType === 'public') {
+            return <Tag color="blue">Public</Tag>;
+          }
+          return <Tag color="orange">Private</Tag>;
+        },
+      },
+      {
+        title: 'Currency',
+        dataIndex: 'currency',
+        key: 'currency',
+        render: (currency: string) => {
+          if (!currency) return <span>-</span>;
+          const currencyInfo = currencies.find((c) => c.currency_code === currency);
+          return (
+            <span>
+              {currency} {currencyInfo ? `(${currencyInfo.currency_name})` : ''}
+            </span>
+          );
+        },
       },
       {
         title: 'Balance',
@@ -385,7 +484,11 @@ const TreasuryPage: FC = () => {
   const handleAddAccount = (): void => {
     setSelectedAccount(null);
     accountForm.resetFields();
-    accountForm.setFieldsValue({ type: 'bank' });
+    accountForm.setFieldsValue({
+      type: 'bank',
+      accountType: 'public',
+      currency: 'SAR',
+    });
     setIsAccountModalVisible(true);
   };
 
@@ -394,6 +497,8 @@ const TreasuryPage: FC = () => {
     accountForm.setFieldsValue({
       name: account.name,
       type: account.type,
+      accountType: account.accountType || 'public',
+      currency: account.currency || 'SAR',
       initialBalance: account.initialBalance,
     });
     setIsAccountModalVisible(true);
@@ -406,6 +511,8 @@ const TreasuryPage: FC = () => {
       const accountData = {
         name: values.name,
         type: values.type,
+        accountType: values.accountType || 'public',
+        currency: values.currency || 'SAR',
         initialBalance: values.initialBalance || 0,
       };
 
@@ -414,6 +521,8 @@ const TreasuryPage: FC = () => {
         result = await treasuryService.updateAccount(selectedAccount.id, {
           name: accountData.name,
           type: accountData.type,
+          accountType: accountData.accountType,
+          currency: accountData.currency,
         });
       } else {
         result = await treasuryService.addAccount(accountData);
@@ -610,14 +719,48 @@ const TreasuryPage: FC = () => {
               <Input placeholder="Account name" />
             </Form.Item>
 
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="type"
+                  label="Account Type"
+                  rules={[{ required: true, message: 'Please select account type' }]}
+                >
+                  <Select placeholder="Select account type">
+                    <Option value="bank">Bank</Option>
+                    <Option value="cash_box">Cash Box</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="accountType"
+                  label="Visibility"
+                  rules={[{ required: true, message: 'Please select visibility' }]}
+                  initialValue="public"
+                >
+                  <Select placeholder="Select visibility">
+                    <Option value="public">Public</Option>
+                    <Option value="private">Private (Super Admin Only)</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
             <Form.Item
-              name="type"
-              label="Account Type"
-              rules={[{ required: true, message: 'Please select account type' }]}
+              name="currency"
+              label="Currency"
+              rules={[{ required: true, message: 'Please select currency' }]}
+              initialValue="SAR"
             >
-              <Select>
-                <Option value="bank">Bank</Option>
-                <Option value="cash_box">Cash Box</Option>
+              <Select placeholder="Select currency" showSearch filterOption={(input, option) =>
+                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+              }>
+                {currencies.map((curr) => (
+                  <Option key={curr.currency_code} value={curr.currency_code}>
+                    {curr.currency_code} - {curr.currency_name}
+                  </Option>
+                ))}
               </Select>
             </Form.Item>
 

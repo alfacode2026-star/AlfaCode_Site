@@ -29,7 +29,6 @@ import {
   Space,
   Modal,
   Form,
-  DatePicker,
   Row,
   Col,
   Statistic,
@@ -1406,20 +1405,36 @@ const ContractsPage = () => {
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="startDate" label={t.contracts.startDate}>
-                <DatePicker 
-                  style={{ width: '100%' }} 
-                  format="YYYY-MM-DD" 
+              <Form.Item 
+                name="startDate" 
+                label={t.contracts.startDate}
+                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                getValueProps={(value) => ({
+                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                })}
+              >
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   disabled
                   readOnly
                 />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="endDate" label={t.contracts.endDate}>
-                <DatePicker 
-                  style={{ width: '100%' }} 
-                  format="YYYY-MM-DD" 
+              <Form.Item 
+                name="endDate" 
+                label={t.contracts.endDate}
+                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                getValueProps={(value) => ({
+                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                })}
+              >
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   disabled
                   readOnly
                 />
@@ -1779,8 +1794,16 @@ const ContractsPage = () => {
                 name="dueDate"
                 label={t.contracts.dueDate}
                 rules={[{ required: true, message: 'Please select due date' }]}
+                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                getValueProps={(value) => ({
+                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                })}
               >
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -1807,8 +1830,16 @@ const ContractsPage = () => {
                   name="paidDate"
                   label={t.contracts.paidDate}
                   rules={[{ required: true, message: 'Please select payment date' }]}
+                  getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                  getValueProps={(value) => ({
+                    value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                  })}
                 >
-                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                  <input
+                    type="date"
+                    className="ant-input"
+                    style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+                  />
                 </Form.Item>
               ) : null
             }
@@ -1875,10 +1906,15 @@ const ContractsPage = () => {
               <Form.Item
                 name="startDate"
                 label={t.contracts.startDate}
+                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                getValueProps={(value) => ({
+                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                })}
               >
-                <DatePicker 
-                  style={{ width: '100%' }} 
-                  format="YYYY-MM-DD"
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   placeholder="Select start date"
                   disabled
                   readOnly
@@ -1889,10 +1925,15 @@ const ContractsPage = () => {
               <Form.Item
                 name="endDate"
                 label={t.contracts.endDate}
+                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                getValueProps={(value) => ({
+                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                })}
               >
-                <DatePicker 
-                  style={{ width: '100%' }} 
-                  format="YYYY-MM-DD"
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   placeholder="Select end date"
                   disabled
                   readOnly

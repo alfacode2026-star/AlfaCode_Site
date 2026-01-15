@@ -3,7 +3,33 @@ import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
 class TreasuryService {
-  // Get all treasury accounts (filtered by current tenant)
+  // Get current user profile with branch_id
+  async getCurrentUserProfile() {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError || !user) {
+        return null
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, tenant_id, branch_id')
+        .eq('id', user.id)
+        .single()
+
+      if (profileError) {
+        console.warn('Error fetching user profile:', profileError)
+        return null
+      }
+
+      return profile
+    } catch (error) {
+      console.warn('Error getting current user profile:', error)
+      return null
+    }
+  }
+
+  // Get all treasury accounts (filtered by current tenant and branch)
   async getAccounts() {
     try {
       const tenantId = tenantStore.getTenantId()
@@ -12,11 +38,28 @@ class TreasuryService {
         return []
       }
 
-      const { data, error } = await supabase
+      // Get current user's branch_id
+      const userProfile = await this.getCurrentUserProfile()
+      const branchId = userProfile?.branch_id
+
+      // Build query with tenant filter
+      let query = supabase
         .from('treasury_accounts')
-        .select('*')
+        .select(`
+          *,
+          branches:branch_id (
+            id,
+            name
+          )
+        `)
         .eq('tenant_id', tenantId)
-        .order('created_at', { ascending: false })
+
+      // Filter by branch_id if user has one
+      if (branchId) {
+        query = query.eq('branch_id', branchId)
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
       return (data || []).map(acc => this.mapAccountToCamelCase(acc))
@@ -26,7 +69,7 @@ class TreasuryService {
     }
   }
 
-  // Get account by ID (with tenant check)
+  // Get account by ID (with tenant and branch check)
   async getAccount(id) {
     try {
       if (!id) return null
@@ -37,12 +80,29 @@ class TreasuryService {
         return null
       }
 
-      const { data, error } = await supabase
+      // Get current user's branch_id
+      const userProfile = await this.getCurrentUserProfile()
+      const branchId = userProfile?.branch_id
+
+      // Build query with tenant filter
+      let query = supabase
         .from('treasury_accounts')
-        .select('*')
+        .select(`
+          *,
+          branches:branch_id (
+            id,
+            name
+          )
+        `)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+
+      // Filter by branch_id if user has one
+      if (branchId) {
+        query = query.eq('branch_id', branchId)
+      }
+
+      const { data, error } = await query.single()
 
       if (error) throw error
       return this.mapAccountToCamelCase(data)
@@ -65,23 +125,43 @@ class TreasuryService {
         }
       }
 
+      // Get current user's branch_id from profile
+      const userProfile = await this.getCurrentUserProfile()
+      const branchId = userProfile?.branch_id
+
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'User branch not found. Please ensure your profile has a branch assigned.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
       const accountId = accountData.id || crypto.randomUUID()
       const initialBalance = parseFloat(accountData.initialBalance) || 0
 
+      // Clean payload - let Supabase generate id and timestamps
       const newAccount = {
-        id: accountId,
         tenant_id: tenantId,
+        branch_id: branchId, // Inherit from user profile
         name: accountData.name,
         type: accountData.type || 'bank', // 'bank' or 'cash_box'
+        account_type: accountData.accountType || 'public', // 'public' or 'private'
+        currency: accountData.currency || 'SAR',
         initial_balance: initialBalance,
-        current_balance: initialBalance, // Initialize current_balance to match initial_balance
-        created_at: new Date().toISOString()
+        current_balance: initialBalance // Initialize current_balance to match initial_balance
       }
 
       const { data, error } = await supabase
         .from('treasury_accounts')
         .insert([newAccount])
-        .select()
+        .select(`
+          *,
+          branches:branch_id (
+            id,
+            name
+          )
+        `)
         .single()
 
       if (error) throw error
@@ -118,6 +198,8 @@ class TreasuryService {
 
       if (updates.name !== undefined) updateData.name = updates.name
       if (updates.type !== undefined) updateData.type = updates.type
+      if (updates.accountType !== undefined) updateData.account_type = updates.accountType
+      if (updates.currency !== undefined) updateData.currency = updates.currency
 
       const { data, error } = await supabase
         .from('treasury_accounts')
@@ -458,12 +540,20 @@ class TreasuryService {
   mapAccountToCamelCase(data) {
     if (!data) return null
 
+    // Extract branch name from joined data
+    const branchName = data.branches?.name || null
+    const branchId = data.branch_id || null
+
     return {
       id: data.id,
       name: data.name,
       type: data.type,
+      accountType: data.account_type || 'public',
+      currency: data.currency || 'SAR',
       currentBalance: parseFloat(data.current_balance) || 0,
       initialBalance: parseFloat(data.initial_balance) || 0,
+      branchId: branchId,
+      branchName: branchName,
       createdAt: data.created_at,
       updatedAt: data.updated_at
     }

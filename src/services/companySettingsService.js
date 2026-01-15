@@ -65,6 +65,8 @@ class CompanySettingsService {
         company_website: settingsData.companyWebsite || null,
         tax_number: settingsData.taxNumber || null,
         commercial_register: settingsData.commercialRegister || null,
+        vat_percentage: settingsData.vatPercentage !== undefined ? parseFloat(settingsData.vatPercentage) : null,
+        vat_enabled: settingsData.vatEnabled !== undefined ? Boolean(settingsData.vatEnabled) : false,
         letterhead_height_px: settingsData.letterheadHeightPx || 150,
         top_margin_cm: settingsData.topMarginCm || 4,
         bottom_margin_cm: settingsData.bottomMarginCm || 3
@@ -129,6 +131,8 @@ class CompanySettingsService {
       companyWebsite: settings.company_website,
       taxNumber: settings.tax_number,
       commercialRegister: settings.commercial_register,
+      vatPercentage: settings.vat_percentage !== null && settings.vat_percentage !== undefined ? parseFloat(settings.vat_percentage) : 0,
+      vatEnabled: settings.vat_enabled !== null && settings.vat_enabled !== undefined ? Boolean(settings.vat_enabled) : false,
       letterheadHeightPx: settings.letterhead_height_px || 150,
       topMarginCm: settings.top_margin_cm || 4,
       bottomMarginCm: settings.bottom_margin_cm || 3,

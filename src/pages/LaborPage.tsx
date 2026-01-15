@@ -8,6 +8,8 @@ import laborGroupsService from '../services/laborGroupsService'
 import projectsService from '../services/projectsService'
 import treasuryService from '../services/treasuryService'
 import paymentsService from '../services/paymentsService'
+import { supabase } from '../services/supabaseClient'
+import tenantStore from '../services/tenantStore'
 import {
   Card,
   Table,
@@ -22,7 +24,6 @@ import {
   Col,
   Popconfirm,
   message,
-  DatePicker,
   InputNumber,
   Typography,
   Divider,
@@ -77,6 +78,7 @@ const LaborPage = () => {
   const [projects, setProjects] = useState([])
   const [treasuryAccounts, setTreasuryAccounts] = useState([])
   const [engineerAdvances, setEngineerAdvances] = useState([])
+  const [profiles, setProfiles] = useState<any[]>([])
   
   // Modals
   const [isGroupModalVisible, setIsGroupModalVisible] = useState(false)
@@ -114,8 +116,31 @@ const LaborPage = () => {
       loadLaborGroups()
       loadProjects()
       loadTreasuryAccounts()
+      loadProfiles()
     }
   }, [activeTab])
+
+  const loadProfiles = async () => {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      if (!tenantId) {
+        setProfiles([])
+        return
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .eq('tenant_id', tenantId)
+        .order('full_name', { ascending: true })
+
+      if (error) throw error
+      setProfiles(data || [])
+    } catch (error) {
+      console.error('Error loading profiles:', error)
+      setProfiles([])
+    }
+  }
 
   const loadData = async () => {
     if (activeTab === 'internal-staff') {
@@ -258,8 +283,9 @@ const LaborPage = () => {
       return
     }
     setSelectedGroup(group)
-    // Refresh projects to ensure we have latest start dates (in case they were backdated via Contracts)
+    // Refresh projects and profiles to ensure we have latest data
     await loadProjects()
+    await loadProfiles()
     // Handle both single projectId and multiple projectIds
     const projectIds = group.projectIds || (group.projectId ? [group.projectId] : [])
     groupForm.setFieldsValue({
@@ -1142,6 +1168,12 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
     { label: language === 'ar' ? 'السبت' : 'Saturday', value: 'Saturday' }
   ], [language])
 
+  // Memoized labor groups data for table
+  const laborGroupsData = useMemo(() => 
+    laborGroups.map(g => ({ ...g, key: g.id || g.updatedAt || `group-${Date.now()}` })), 
+    [laborGroups]
+  )
+
   return (
     <div style={{ padding: 24 }}>
       <Title level={2} style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1181,7 +1213,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 }
               >
                 {employeesLoading ? (
-                  <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: '300px', flexDirection: 'column' }}>
                     <Spin size="large" tip={t.common.loading} />
                   </div>
                 ) : employees.length === 0 ? (
@@ -1238,7 +1270,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 }
               >
                 {laborGroupsLoading ? (
-                  <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: '300px', flexDirection: 'column' }}>
                     <Spin size="large" tip={t.common.loading} />
                   </div>
                 ) : laborGroups.length === 0 ? (
@@ -1253,7 +1285,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 ) : (
                   <Table
                     columns={laborGroupColumns}
-                    dataSource={useMemo(() => laborGroups.map(g => ({ ...g, key: g.id || g.updatedAt || `group-${Date.now()}` })), [laborGroups])}
+                    dataSource={laborGroupsData}
                     rowKey={(record) => record.id || record.updatedAt || `group-${Date.now()}`}
                     pagination={{
                       pageSize: 10,
@@ -1373,7 +1405,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                   return
                 }
                 
-                // If no projects selected, reset date (DatePicker will be disabled anyway)
+                // If no projects selected, reset date (date input will be disabled anyway)
                 if (!selectedProjectIds || selectedProjectIds.length === 0) {
                   groupForm.setFieldsValue({ startDate: null })
                   return
@@ -1427,8 +1459,21 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
           <Form.Item
             name="engineerName"
             label={t.labor.engineer}
+            rules={[{ required: true, message: t.labor.engineer + ' ' + t.common.required }]}
           >
-            <Input placeholder={t.labor.engineer} />
+            <Select
+              placeholder={t.labor.selectEngineer || 'Select Engineer/Leader'}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {profiles.map((profile) => (
+                <Option key={profile.id} value={profile.full_name || profile.email}>
+                  {profile.full_name || profile.email} {profile.role ? `(${profile.role})` : ''}
+                </Option>
+              ))}
+            </Select>
           </Form.Item>
 
           <Form.Item noStyle shouldUpdate={(prev, curr) => prev.projectIds !== curr.projectIds}>
@@ -1460,6 +1505,10 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <Form.Item
                   name="startDate"
                   label={t.labor.startDate}
+                  getValueFromEvent={(e) => e.target.value ? dayjs(e.target.value) : null}
+                  getValueProps={(value) => ({
+                    value: value ? (moment.isMoment(value) || dayjs.isDayjs(value) ? dayjs(value).format('YYYY-MM-DD') : dayjs(value).format('YYYY-MM-DD')) : ''
+                  })}
                   rules={[
                     { required: true, message: t.labor.startDate + ' ' + t.common.required },
                     ({ getFieldValue }) => ({
@@ -1499,58 +1548,24 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                     })
                   ]}
                 >
-                  <DatePicker
-                    style={{ width: '100%' }}
-                    format="YYYY-MM-DD"
-                    // THE LOCK: Completely disable DatePicker if no projects selected
+                  <input
+                    type="date"
+                    className="ant-input"
+                    style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                     disabled={!hasSelectedProjects}
-                    disabledDate={(current) => {
-                      // THE SHIELD: Fail-safe disabledDate function
-                      if (!current) {
-                        return false // Allow null/undefined
-                      }
-                      
-                      // Lock check: If no projects selected, disable all dates (DatePicker is already disabled, but this is extra safety)
-                      if (!hasSelectedProjects) {
-                        return true // Disable all dates when no project selected
-                      }
-                      
-                      // CRITICAL FIX: Recalculate minDate dynamically on each call to ensure we use latest project data
-                      // This prevents stale closure values when project start dates are updated
+                    min={(() => {
                       const selectedProjectIds = getFieldValue('projectIds') || []
                       const selectedProjects = projects.filter(p => selectedProjectIds.includes(p.id))
-                      
-                      // Extract and validate project start dates with explicit project lookup
                       const projectStartDates = selectedProjects
                         .map(project => {
-                          // Fail-safe: Only use valid projects with startDate
-                          if (!project || !project.startDate) {
-                            return null
-                          }
-                          const projectDate = dayjs(project.startDate)
-                          return projectDate
+                          if (!project || !project.startDate) return null
+                          return dayjs(project.startDate)
                         })
-                        .filter(d => d !== null && d.isValid()) // Filter out nulls and invalid dates
-                        .sort((a, b) => a.valueOf() - b.valueOf()) // Sort ascending (earliest first)
-                      
-                      // Get the earliest (oldest) project start date (recalculated dynamically)
+                        .filter(d => d !== null && d.isValid())
+                        .sort((a, b) => a.valueOf() - b.valueOf())
                       const dynamicMinDate = projectStartDates.length > 0 ? projectStartDates[0] : null
-                      
-                      // FIX: If no valid minDate found, allow ALL dates (don't block)
-                      // Previously this was blocking all dates, which was too restrictive
-                      // If project has no startDate, we shouldn't block date selection
-                      if (!dynamicMinDate || !dynamicMinDate.isValid()) {
-                        return false // Allow all dates if no valid project start date
-                      }
-                      
-                      // CRITICAL: Use dayjs for all date comparisons to prevent timezone errors
-                      const currentDate = dayjs(current).startOf('day')
-                      const minAllowedDate = dynamicMinDate.startOf('day')
-                      
-                      // THE SHIELD: Disable dates before the earliest project start date
-                      // startDate must be >= earliest project start date (strict chronological validation)
-                      return currentDate.isBefore(minAllowedDate, 'day') // Disable dates before project start date
-                    }}
+                      return dynamicMinDate && dynamicMinDate.isValid() ? dynamicMinDate.format('YYYY-MM-DD') : undefined
+                    })()}
                   />
                 </Form.Item>
               )
@@ -1773,6 +1788,10 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
           <Form.Item
             name="endDate"
             label={t.labor.endDate}
+            getValueFromEvent={(e) => e.target.value ? dayjs(e.target.value) : null}
+            getValueProps={(value) => ({
+              value: value ? (moment.isMoment(value) || dayjs.isDayjs(value) ? dayjs(value).format('YYYY-MM-DD') : dayjs(value).format('YYYY-MM-DD')) : ''
+            })}
             rules={[
               { required: true, message: t.labor.endDate + ' ' + t.common.required },
               ({ getFieldValue }) => ({
@@ -1804,32 +1823,12 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
               })
             ]}
           >
-            <DatePicker
-              style={{ width: '100%' }}
-              format="YYYY-MM-DD"
-              disabledDate={(current) => {
-                if (!current) return false
-                
-                // Use dayjs for date calculations to ensure consistency
-                const today = dayjs().startOf('day')
-                const maxAllowedDate = today.add(7, 'day') // 7 days from today (current date)
-                const currentDate = dayjs(current).startOf('day')
-                
-                // Disable dates before start date (if startDate exists)
-                if (selectedGroup?.startDate) {
-                  const manualStartDate = dayjs(selectedGroup.startDate).startOf('day')
-                  if (currentDate.isBefore(manualStartDate, 'day')) {
-                    return true
-                  }
-                }
-                
-                // Disable dates more than 7 days from today (current date)
-                if (currentDate.isAfter(maxAllowedDate, 'day')) {
-                  return true
-                }
-                
-                return false
-              }}
+            <input
+              type="date"
+              className="ant-input"
+              style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+              min={selectedGroup?.startDate ? dayjs(selectedGroup.startDate).format('YYYY-MM-DD') : undefined}
+              max={dayjs().add(7, 'day').format('YYYY-MM-DD')}
             />
           </Form.Item>
 

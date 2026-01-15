@@ -23,11 +23,22 @@ class QuotationTemplatesService {
 
       const { data, error } = await query.order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error fetching templates from database:', error)
+        console.error('Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        })
+        throw error
+      }
 
+      console.log(`Successfully fetched ${data?.length || 0} templates (type: ${templateType || 'all'})`)
       return (data || []).map(template => this.mapToCamelCase(template))
     } catch (error) {
       console.error('Error fetching templates:', error.message)
+      console.error('Full error object:', error)
       return []
     }
   }
@@ -102,11 +113,27 @@ class QuotationTemplatesService {
         await this.unsetOtherDefaults(templateData.templateType)
       }
 
+      // Content should be an object for JSONB column: { scopeOfWork: [...], exclusions: [...] }
+      // If content is a string (legacy), try to parse it; otherwise use as-is
+      let contentValue = templateData.content
+      if (!contentValue) {
+        contentValue = {}
+      } else if (typeof contentValue === 'string') {
+        // Try to parse string as JSON (legacy format)
+        try {
+          contentValue = JSON.parse(contentValue)
+        } catch (e) {
+          // If parsing fails, use empty object
+          contentValue = {}
+        }
+      }
+      // If it's already an object, Supabase will handle JSONB serialization
+
       const newTemplate = {
         tenant_id: tenantId,
         template_name: templateData.templateName || '',
         template_type: templateData.templateType,
-        content: templateData.content || '',
+        content: contentValue, // Pass as object for JSONB column
         is_default: templateData.isDefault || false
       }
 

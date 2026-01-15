@@ -11,7 +11,6 @@ import {
   Tag,
   Modal,
   Form,
-  DatePicker,
   Row,
   Col,
   Popconfirm,
@@ -611,9 +610,18 @@ const IncomesPage: FC = () => {
                 name="date"
                 label="Date"
                 rules={[{ required: true, message: 'Please select a date' }]}
-                initialValue={moment()}
+                initialValue={moment().format('YYYY-MM-DD')}
               >
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      form.setFieldsValue({ date: e.target.value })
+                    }
+                  }}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>

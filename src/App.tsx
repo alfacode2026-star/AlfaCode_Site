@@ -18,6 +18,7 @@ import SettingsPage from './pages/SettingsPage';
 import ProjectsPage from './pages/Projects';
 import ProjectDetails from './pages/ProjectDetails';
 import SetupPage from './pages/SetupPage';
+import SetupWizard from './pages/SetupWizard';
 import QuotationsPage from './pages/QuotationsPage';
 import QuotationBuilder from './pages/QuotationBuilder';
 import ContractsPage from './pages/ContractsPage';
@@ -26,6 +27,7 @@ import GeneralExpenses from './pages/GeneralExpenses';
 import AdminApprovals from './pages/AdminApprovals';
 import TreasuryPage from './pages/TreasuryPage';
 import IncomesPage from './pages/IncomesPage';
+import RequireSetup from './components/RequireSetup';
 
 // Import Navigation component
 import Navigation from './components/Navigation';
@@ -43,7 +45,64 @@ import { TenantProvider, useTenant } from './contexts/TenantContext';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
 import LanguageSelection from './components/LanguageSelection';
 
+// Import company settings service
+import companySettingsService from './services/companySettingsService';
+
 const { Sider, Content } = Layout;
+
+// App Header Component - displays company name and logo
+function AppHeader() {
+  const { currentTenantId } = useTenant();
+  const [companySettings, setCompanySettings] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    const loadCompanySettings = async () => {
+      if (currentTenantId) {
+        try {
+          const settings = await companySettingsService.getCompanySettings();
+          setCompanySettings(settings);
+        } catch (error) {
+          console.error('Error loading company settings for header:', error);
+        }
+      }
+    };
+    loadCompanySettings();
+  }, [currentTenantId]);
+
+  const companyName = companySettings?.companyName || 'ERP System';
+  const logoUrl = companySettings?.logoUrl;
+
+  return (
+    <div style={{ 
+      padding: '24px 16px', 
+      textAlign: 'center',
+      borderBottom: '1px solid #f0f0f0',
+      minHeight: '80px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
+      {logoUrl ? (
+        <img 
+          src={logoUrl} 
+          alt={companyName}
+          style={{ 
+            maxWidth: '100%', 
+            maxHeight: '50px', 
+            marginBottom: '8px',
+            objectFit: 'contain'
+          }} 
+        />
+      ) : (
+        <div style={{ fontSize: '32px', marginBottom: '8px' }}>🚀</div>
+      )}
+      <h2 style={{ margin: 0, color: '#1890ff', fontSize: '18px', fontWeight: 'bold' }}>
+        {companyName}
+      </h2>
+    </div>
+  );
+}
 
 // Error Boundary Component
 class ErrorBoundary extends Component<
@@ -126,7 +185,12 @@ function AppContent() {
 
   // Show full layout only if not on setup page and industry is set
   const isSetupPage = location.pathname === '/setup';
-  const shouldShowLayout = !isSetupPage && industryType && industryType !== 'default';
+  const isSetupWizard = location.pathname === '/setup-wizard';
+  const shouldShowLayout = !isSetupPage && !isSetupWizard && industryType && industryType !== 'default';
+
+  if (isSetupWizard) {
+    return <SetupWizard />;
+  }
 
   if (isSetupPage) {
     return <SetupPage />;
@@ -158,13 +222,7 @@ function AppContent() {
           zIndex: 1000
         }}
       >
-        <div style={{ 
-          padding: '24px 16px', 
-          textAlign: 'center',
-          borderBottom: '1px solid #f0f0f0'
-        }}>
-          <h2 style={{ margin: 0, color: '#1890ff' }}>🚀 ERP System</h2>
-        </div>
+        <AppHeader />
         <Navigation />
       </Sider>
       
@@ -191,6 +249,7 @@ function AppContent() {
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/setup" element={<SetupPage />} />
+              <Route path="/setup-wizard" element={<SetupWizard />} />
             </Routes>
           </ErrorBoundary>
         </Content>
@@ -239,9 +298,11 @@ function AppWrapper() {
     <ConfigProvider direction={direction} locale={locale}>
       <TenantProvider>
         <Router>
-          <OnboardingGuard>
-            <AppContent />
-          </OnboardingGuard>
+          <RequireSetup>
+            <OnboardingGuard>
+              <AppContent />
+            </OnboardingGuard>
+          </RequireSetup>
         </Router>
       </TenantProvider>
     </ConfigProvider>

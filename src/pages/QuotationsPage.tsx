@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import moment from 'moment'
+import projectsService from '../services/projectsService'
 import quotationsService from '../services/quotationsService'
 import customersService from '../services/customersService'
 import contractsService from '../services/contractsService'
+import userManagementService from '../services/userManagementService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getTranslations } from '../utils/translations'
@@ -19,7 +21,6 @@ import {
   Space,
   Modal,
   Form,
-  DatePicker,
   Row,
   Col,
   Statistic,
@@ -30,7 +31,8 @@ import {
   InputNumber,
   AutoComplete,
   Checkbox,
-  Collapse
+  Collapse,
+  Alert
 } from 'antd'
 import {
   SearchOutlined,
@@ -108,82 +110,88 @@ const QuotationsPage = () => {
   }
 
   // Comprehensive work scope categories for all work types
-  const allWorkScopeCategories = {
-    civil_works: {
-      label: 'مقاولات عامة',
-      items: [
-        { label: 'هيكل خرساني (Reinforced Concrete)', value: 'هيكل خرساني' },
-        { label: 'هيكل معدني (Steel Structure)', value: 'هيكل معدني' },
-        { label: 'أساسات (Foundations)', value: 'أساسات' },
-        { label: 'أعمال حفر (Excavation)', value: 'أعمال حفر' },
-        { label: 'ردم ودفان (Backfilling)', value: 'ردم ودفان' },
-        { label: 'أعمال كونكريت (Concrete Works)', value: 'أعمال كونكريت' },
-        { label: 'تسليح (Reinforcement)', value: 'تسليح' },
-        { label: 'قوالب (Formwork)', value: 'قوالب' }
-      ]
-    },
-    finishing: {
-      label: 'إنهاءات',
-      items: [
-        { label: 'تشطيب داخلي (Interior Finishing)', value: 'تشطيب داخلي' },
-        { label: 'تشطيب خارجي (Exterior Finishing)', value: 'تشطيب خارجي' },
-        { label: 'أرضيات (Flooring)', value: 'أرضيات' },
-        { label: 'دهان (Painting)', value: 'دهان' },
-        { label: 'بلاط وسيراميك (Tiles)', value: 'بلاط وسيراميك' },
-        { label: 'جبس بورد (Gypsum Board)', value: 'جبس بورد' },
-        { label: 'ديكور (Decorations)', value: 'ديكور' },
-        { label: 'أبواب ونوافذ (Doors & Windows)', value: 'أبواب ونوافذ' }
-      ]
-    },
-    mep: {
-      label: 'MEP',
-      items: [
-        { label: 'HVAC (التكييف والتهوية)', value: 'HVAC' },
-        { label: 'سباكة (Plumbing)', value: 'سباكة' },
-        { label: 'كهرباء (Electrical)', value: 'كهرباء' },
-        { label: 'مكافحة حريق (Firefighting)', value: 'مكافحة حريق' },
-        { label: 'صرف صحي (Sanitary)', value: 'صرف صحي' },
-        { label: 'غاز طبيعي (Natural Gas)', value: 'غاز طبيعي' },
-        { label: 'تهوية طبيعية (Natural Ventilation)', value: 'تهوية طبيعية' }
-      ]
-    },
-    low_current: {
-      label: 'تيار منخفض',
-      items: [
-        { label: 'كاميرات مراقبة (CCTV)', value: 'كاميرات مراقبة' },
-        { label: 'شبكات (Networks)', value: 'شبكات' },
-        { label: 'BMS (Building Management System)', value: 'BMS' },
-        { label: 'إنذار حريق (Fire Alarm)', value: 'إنذار حريق' },
-        { label: 'كارت دخول (Access Control)', value: 'كارت دخول' },
-        { label: 'صوتيات (Audio Systems)', value: 'صوتيات' },
-        { label: 'هاتف داخلي (Intercom)', value: 'هاتف داخلي' }
-      ]
-    },
-    infrastructure: {
-      label: 'بنية تحتية',
-      items: [
-        { label: 'طرق (Roads)', value: 'طرق' },
-        { label: 'مياه (Water Supply)', value: 'مياه' },
-        { label: 'مجاري (Sewerage)', value: 'مجاري' },
-        { label: 'إنارة عامة (Public Lighting)', value: 'إنارة عامة' },
-        { label: 'أرصفة (Pavements)', value: 'أرصفة' },
-        { label: 'جسور (Bridges)', value: 'جسور' },
-        { label: 'استراحات (Rest Areas)', value: 'استراحات' }
-      ]
-    },
-    special: {
-      label: 'خاص',
-      items: [
-        { label: 'مصاعد (Elevators)', value: 'مصاعد' },
-        { label: 'طاقة شمسية (Solar Energy)', value: 'طاقة شمسية' },
-        { label: 'عزل (Insulation)', value: 'عزل' },
-        { label: 'عزل مائي (Waterproofing)', value: 'عزل مائي' },
-        { label: 'عزل حراري (Thermal Insulation)', value: 'عزل حراري' },
-        { label: 'سقف متحرك (Retractable Roof)', value: 'سقف متحرك' },
-        { label: 'واجهات (Facades)', value: 'واجهات' }
-      ]
+  // Use language context to display correct labels
+  const allWorkScopeCategories = useMemo(() => {
+    const getLabel = (ar: string, en: string) => language === 'ar' ? ar : en
+    const getItemLabel = (ar: string, en: string) => language === 'ar' ? ar : `${en} (${ar})`
+    
+    return {
+      civil_works: {
+        label: getLabel('مقاولات عامة', 'General Contracting'),
+        items: [
+          { label: getItemLabel('هيكل خرساني', 'Reinforced Concrete'), value: 'هيكل خرساني' },
+          { label: getItemLabel('هيكل معدني', 'Steel Structure'), value: 'هيكل معدني' },
+          { label: getItemLabel('أساسات', 'Foundations'), value: 'أساسات' },
+          { label: getItemLabel('أعمال حفر', 'Excavation'), value: 'أعمال حفر' },
+          { label: getItemLabel('ردم ودفان', 'Backfilling'), value: 'ردم ودفان' },
+          { label: getItemLabel('أعمال كونكريت', 'Concrete Works'), value: 'أعمال كونكريت' },
+          { label: getItemLabel('تسليح', 'Reinforcement'), value: 'تسليح' },
+          { label: getItemLabel('قوالب', 'Formwork'), value: 'قوالب' }
+        ]
+      },
+      finishing: {
+        label: getLabel('إنهاءات', 'Finishing'),
+        items: [
+          { label: getItemLabel('تشطيب داخلي', 'Interior Finishing'), value: 'تشطيب داخلي' },
+          { label: getItemLabel('تشطيب خارجي', 'Exterior Finishing'), value: 'تشطيب خارجي' },
+          { label: getItemLabel('أرضيات', 'Flooring'), value: 'أرضيات' },
+          { label: getItemLabel('دهان', 'Painting'), value: 'دهان' },
+          { label: getItemLabel('بلاط وسيراميك', 'Tiles'), value: 'بلاط وسيراميك' },
+          { label: getItemLabel('جبس بورد', 'Gypsum Board'), value: 'جبس بورد' },
+          { label: getItemLabel('ديكور', 'Decorations'), value: 'ديكور' },
+          { label: getItemLabel('أبواب ونوافذ', 'Doors & Windows'), value: 'أبواب ونوافذ' }
+        ]
+      },
+      mep: {
+        label: 'MEP',
+        items: [
+          { label: getItemLabel('التكييف والتهوية', 'HVAC'), value: 'HVAC' },
+          { label: getItemLabel('سباكة', 'Plumbing'), value: 'سباكة' },
+          { label: getItemLabel('كهرباء', 'Electrical'), value: 'كهرباء' },
+          { label: getItemLabel('مكافحة حريق', 'Firefighting'), value: 'مكافحة حريق' },
+          { label: getItemLabel('صرف صحي', 'Sanitary'), value: 'صرف صحي' },
+          { label: getItemLabel('غاز طبيعي', 'Natural Gas'), value: 'غاز طبيعي' },
+          { label: getItemLabel('تهوية طبيعية', 'Natural Ventilation'), value: 'تهوية طبيعية' }
+        ]
+      },
+      low_current: {
+        label: getLabel('تيار منخفض', 'Low Current'),
+        items: [
+          { label: getItemLabel('كاميرات مراقبة', 'CCTV'), value: 'كاميرات مراقبة' },
+          { label: getItemLabel('شبكات', 'Networks'), value: 'شبكات' },
+          { label: getItemLabel('BMS', 'Building Management System'), value: 'BMS' },
+          { label: getItemLabel('إنذار حريق', 'Fire Alarm'), value: 'إنذار حريق' },
+          { label: getItemLabel('كارت دخول', 'Access Control'), value: 'كارت دخول' },
+          { label: getItemLabel('صوتيات', 'Audio Systems'), value: 'صوتيات' },
+          { label: getItemLabel('هاتف داخلي', 'Intercom'), value: 'هاتف داخلي' }
+        ]
+      },
+      infrastructure: {
+        label: getLabel('بنية تحتية', 'Infrastructure'),
+        items: [
+          { label: getItemLabel('طرق', 'Roads'), value: 'طرق' },
+          { label: getItemLabel('مياه', 'Water Supply'), value: 'مياه' },
+          { label: getItemLabel('مجاري', 'Sewerage'), value: 'مجاري' },
+          { label: getItemLabel('إنارة عامة', 'Public Lighting'), value: 'إنارة عامة' },
+          { label: getItemLabel('أرصفة', 'Pavements'), value: 'أرصفة' },
+          { label: getItemLabel('جسور', 'Bridges'), value: 'جسور' },
+          { label: getItemLabel('استراحات', 'Rest Areas'), value: 'استراحات' }
+        ]
+      },
+      special: {
+        label: getLabel('خاص', 'Special'),
+        items: [
+          { label: getItemLabel('مصاعد', 'Elevators'), value: 'مصاعد' },
+          { label: getItemLabel('طاقة شمسية', 'Solar Energy'), value: 'طاقة شمسية' },
+          { label: getItemLabel('عزل', 'Insulation'), value: 'عزل' },
+          { label: getItemLabel('عزل مائي', 'Waterproofing'), value: 'عزل مائي' },
+          { label: getItemLabel('عزل حراري', 'Thermal Insulation'), value: 'عزل حراري' },
+          { label: getItemLabel('سقف متحرك', 'Retractable Roof'), value: 'سقف متحرك' },
+          { label: getItemLabel('واجهات', 'Facades'), value: 'واجهات' }
+        ]
+      }
     }
-  }
+  }, [language])
 
   // Available categories to choose from
   const availableCategories = Object.keys(allWorkScopeCategories).map(key => ({
@@ -739,7 +747,7 @@ const QuotationsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title={t.quotations.totalQuotations}
+              title={t.quotations?.totalQuotations || 'Total Quotations'}
               value={stats.totalQuotations}
               prefix={<FileTextOutlined />}
             />
@@ -748,7 +756,7 @@ const QuotationsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title={t.quotations.acceptedQuotations}
+              title={t.quotations?.acceptedQuotations || 'Approved Quotations'}
               value={stats.acceptedQuotations}
               prefix={<CheckCircleOutlined />}
             />
@@ -757,18 +765,18 @@ const QuotationsPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title={t.quotations.totalAmountLabel}
+              title={t.quotations?.totalValue || t.quotations?.totalAmountLabel || 'Total Value'}
               value={stats.totalAmount}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix={t.common.sar}
+              suffix={t.common?.sar || 'SAR'}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title={t.quotations.draftQuotations}
+              title={t.quotations?.draftQuotations || 'Draft Quotations'}
               value={stats.draftQuotations}
               prefix={<FileTextOutlined />}
             />
@@ -832,8 +840,8 @@ const QuotationsPage = () => {
         <Form form={form} layout="vertical" style={{ marginTop: 24 }}>
           <Form.Item
             name="customerSearch"
-            label={t.quotations.customerNameLabel}
-            rules={[{ required: true, message: t.quotations.customerNameRequired }]}
+            label={t.quotations?.customerNameLabel || 'Customer Name'}
+            rules={[{ required: true, message: t.quotations?.customerNameRequired || 'Please enter customer name' }]}
           >
             <AutoComplete
               options={customerSearchOptions}
@@ -851,8 +859,8 @@ const QuotationsPage = () => {
             <Col span={12}>
               <Form.Item
                 name="customerName"
-                label={t.quotations.customerNameAutoCreate}
-                rules={[{ required: true, message: t.quotations.customerNameRequired }]}
+                label={t.quotations?.customerNameAutoCreate || t.quotations?.customerNameLabel || 'Customer Name'}
+                rules={[{ required: true, message: t.quotations?.customerNameRequired || 'Please enter customer name' }]}
               >
                 <Input placeholder={t.quotations.customerNameLabel} />
               </Form.Item>
@@ -860,24 +868,24 @@ const QuotationsPage = () => {
             <Col span={12}>
               <Form.Item
                 name="customerPhone"
-                label={t.quotations.customerPhoneLabel}
-                rules={[{ required: true, message: t.quotations.customerPhoneRequired }]}
+                label={t.quotations?.customerPhoneLabel || 'Phone'}
+                rules={[{ required: true, message: t.quotations?.customerPhoneRequired || 'Please enter phone number' }]}
               >
                 <Input placeholder={t.quotations.customerPhoneLabel} />
               </Form.Item>
             </Col>
           </Row>
 
-          <Form.Item name="customerEmail" label={t.quotations.customerEmailLabel + ' ' + t.common.optional}>
-            <Input placeholder={t.quotations.customerEmailLabel} />
+          <Form.Item name="customerEmail" label={(t.quotations?.customerEmailLabel || 'Email') + ' ' + (t.common?.optional || '(Optional)')}>
+            <Input placeholder={t.quotations?.customerEmailLabel || 'Email'} />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="projectName"
-                label={t.quotations.projectNameLabel}
-                rules={[{ required: true, message: t.quotations.projectNameRequired }]}
+                label={t.quotations?.projectNameLabel || t.quotations?.projectName || 'Project Name'}
+                rules={[{ required: true, message: t.quotations?.projectNameRequired || 'Please enter project name' }]}
               >
                 <Input placeholder={t.quotations.projectNameLabel} />
               </Form.Item>
@@ -885,8 +893,8 @@ const QuotationsPage = () => {
             <Col span={12}>
               <Form.Item
                 name="documentType"
-                label={t.quotations.documentType}
-                rules={[{ required: true, message: t.quotations.documentTypeRequired }]}
+                label={t.quotations?.documentType || 'Document Type'}
+                rules={[{ required: true, message: t.quotations?.documentTypeRequired || 'Please select document type' }]}
                 initialValue="original"
               >
                 <Select placeholder={t.quotations.selectDocumentType}>
@@ -1024,8 +1032,8 @@ const QuotationsPage = () => {
             <Col span={12}>
               <Form.Item
                 name="totalAmount"
-                label={t.quotations.totalAmountLabelForm}
-                rules={[{ required: true, message: t.quotations.totalAmountRequired }]}
+                label={t.quotations?.totalAmountLabelForm || t.quotations?.totalAmount || 'Total Amount'}
+                rules={[{ required: true, message: t.quotations?.totalAmountRequired || 'Please enter total amount' }]}
               >
                 <InputNumber
                   min={0}
@@ -1036,7 +1044,7 @@ const QuotationsPage = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="status" label={t.quotations.statusLabel} initialValue="draft">
+              <Form.Item name="status" label={t.quotations?.statusLabel || t.quotations?.status || 'Status'} initialValue="draft">
                 <Select>
                   <Option value="draft">{t.quotations.draft}</Option>
                   <Option value="sent">{t.quotations.sent}</Option>
@@ -1048,12 +1056,23 @@ const QuotationsPage = () => {
             </Col>
           </Row>
 
-          <Form.Item name="validUntil" label={t.quotations.validUntilLabel}>
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+          <Form.Item 
+            name="validUntil" 
+            label={t.quotations?.validUntilLabel || t.quotations?.validUntil || 'Valid Until'}
+            getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+            getValueProps={(value) => ({
+              value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+            })}
+          >
+            <input
+              type="date"
+              className="ant-input"
+              style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+            />
           </Form.Item>
 
-          <Form.Item name="notes" label={t.quotations.notesLabel}>
-            <Input.TextArea rows={3} placeholder={t.quotations.notesPlaceholder} />
+          <Form.Item name="notes" label={t.quotations?.notesLabel || t.common?.notes || 'Notes'}>
+            <Input.TextArea rows={3} placeholder={t.quotations?.notesPlaceholder || 'Additional notes...'} />
           </Form.Item>
         </Form>
       </Modal>
@@ -1063,14 +1082,22 @@ const QuotationsPage = () => {
         open={viewModalVisible}
         onCancel={() => setViewModalVisible(false)}
         footer={[
-          <Button 
-            key="convert" 
+          <Button
+            key="convert"
             type="primary"
             icon={<FileProtectOutlined />}
             onClick={() => {
               if (selectedQuotation?.status === 'approved' || selectedQuotation?.status === 'accepted') {
-                convertForm.setFieldsValue({ contractType: 'original' })
-                setConvertModalVisible(true)
+                Modal.confirm({
+                  title: t.quotations.confirmConversionTitle || 'Confirm Conversion',
+                  content: t.quotations.confirmConversionContent || 'Do you want to convert this to a project? Please ensure you have the Work Start Date ready.',
+                  okText: t.common.yes || 'Yes',
+                  cancelText: t.common.no || 'No',
+                  onOk: () => {
+                    convertForm.setFieldsValue({ contractType: 'original' })
+                    setConvertModalVisible(true)
+                  },
+                })
               } else {
                 message.warning(t.quotations.cannotConvertNonApproved)
               }
@@ -1091,7 +1118,7 @@ const QuotationsPage = () => {
               <Descriptions.Item label={t.quotations.quoteNumber}>
                 {selectedQuotation.quoteNumber}
               </Descriptions.Item>
-              <Descriptions.Item label={t.common.date}>
+              <Descriptions.Item label={t.common?.date || t.quotations?.date || 'Date'}>
                 {selectedQuotation.createdAt ? moment(selectedQuotation.createdAt).format('DD-MMM-YYYY') : '-'}
               </Descriptions.Item>
               <Descriptions.Item label={t.quotations.documentType}>
@@ -1105,8 +1132,8 @@ const QuotationsPage = () => {
               <Descriptions.Item label={t.quotations.customerPhoneLabel}>
                 {selectedQuotation.customerPhone}
               </Descriptions.Item>
-              <Descriptions.Item label={t.quotations.projectName}>
-                {selectedQuotation.projectName || t.common.notSpecified}
+              <Descriptions.Item label={t.quotations?.projectNameLabel || t.quotations?.projectName || 'Project Name'}>
+                {selectedQuotation.projectName || t.common?.notSpecified || 'Not Specified'}
               </Descriptions.Item>
               {selectedQuotation.workScopes && selectedQuotation.workScopes.length > 0 && (
                 <Descriptions.Item label={t.quotations.workScope} span={2}>
@@ -1124,7 +1151,7 @@ const QuotationsPage = () => {
                 </Tag>
               </Descriptions.Item>
               {selectedQuotation.validUntil && (
-                <Descriptions.Item label={t.quotations.validUntil}>
+                <Descriptions.Item label={t.quotations?.validUntil || 'Valid Until'}>
                   {moment(selectedQuotation.validUntil, 'YYYY-MM-DD', true).isValid()
                     ? moment(selectedQuotation.validUntil, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
                     : '-'}
@@ -1144,29 +1171,120 @@ const QuotationsPage = () => {
 
       {/* Convert to Contract Modal */}
       <Modal
-        title={`${t.quotations.convertToContractTitle} ${selectedQuotation?.quoteNumber}`}
+        title={`${t.quotations.convertToContractTitle || 'Convert to Contract'} ${selectedQuotation?.quoteNumber}`}
         open={convertModalVisible}
         onOk={async () => {
           try {
             const values = await convertForm.validateFields()
-            const result = await contractsService.convertQuotationToContract(
-              selectedQuotation.id,
-              values.contractType
+            
+            // Validate work start date is provided
+            if (!values.workStartDate) {
+              message.error(t.quotations?.workStartDateRequired || 'Please select work start date')
+              return
+            }
+            
+            // Auto-create customer if doesn't exist
+            let customerIdToUse = selectedQuotation?.customerId
+            if (!customerIdToUse && selectedQuotation?.customerName) {
+              try {
+                // Check if customer exists by name
+                const existingCustomers = await customersService.getCustomers()
+                const existingCustomer = existingCustomers.find(
+                  (c: any) => c.name.toLowerCase() === selectedQuotation.customerName.toLowerCase()
+                )
+                
+                if (existingCustomer) {
+                  customerIdToUse = existingCustomer.id
+                } else {
+                  // Auto-create customer
+                  const newCustomer = await customersService.addCustomer({
+                    name: selectedQuotation.customerName,
+                    phone: selectedQuotation.customerPhone || '',
+                    email: selectedQuotation.customerEmail || '',
+                    status: 'active'
+                  })
+                  
+                  if (newCustomer.success) {
+                    customerIdToUse = newCustomer.customer.id
+                    message.success(t.quotations?.customerAutoCreated || 'Customer created automatically')
+                  }
+                }
+              } catch (customerError) {
+                console.error('Error auto-creating customer:', customerError)
+                // Continue with conversion even if customer creation fails
+              }
+            }
+            
+            // Check if user is Branch Manager or Super Admin
+            const isManagerOrAdmin = await userManagementService.isBranchManagerOrSuperAdmin()
+            const projectStatus = isManagerOrAdmin ? 'active' : 'pending_approval'
+            
+            // Update quotation status to 'converted' first
+            const quotationUpdateResult = await quotationsService.updateQuotation(selectedQuotation.id, {
+              status: 'converted',
+              customerId: customerIdToUse || selectedQuotation.customerId
+            })
+            
+            if (!quotationUpdateResult.success) {
+              message.error(quotationUpdateResult.error || t.quotations.failedToSave)
+              return
+            }
+            
+            // Get updated quotation data
+            const updatedQuotation = quotationUpdateResult.quotation || selectedQuotation
+            
+            // Format work start date
+            const workStartDate = values.workStartDate ? moment(values.workStartDate).format('YYYY-MM-DD') : null
+            
+            // Create project with work start date and appropriate status
+            const projectData = {
+              name: updatedQuotation.projectName || `Project from ${updatedQuotation.quoteNumber}`,
+              clientId: customerIdToUse || updatedQuotation.customerId,
+              budget: updatedQuotation.totalAmount || 0,
+              workScopes: updatedQuotation.workScopes || [],
+              quotationId: updatedQuotation.id,
+              status: projectStatus,
+              completionPercentage: 0,
+              workStartDate: workStartDate
+            }
+            
+            const projectResult = await projectsService.addProject(projectData)
+            
+            if (!projectResult.success) {
+              message.error(projectResult.error || 'Failed to create project')
+              return
+            }
+            
+            // Create contract with work_start_date and client_id
+            const contractType = values.contractType || 'original'
+            const contractResult = await contractsService.convertQuotationToContract(
+              updatedQuotation.id,
+              contractType,
+              workStartDate,
+              customerIdToUse || updatedQuotation.customerId
             )
-            if (result.success) {
-              message.success(t.contracts.contractCreated)
+            
+            if (contractResult.success || projectResult.success) {
+              if (projectStatus === 'pending_approval') {
+                message.success(t.quotations?.quotationConvertedPendingApproval || 'Successfully converted to project and pending manager approval.')
+              } else {
+                message.success(t.quotations?.quotationConvertedToProject || 'Successfully converted to project')
+              }
               setConvertModalVisible(false)
               setViewModalVisible(false)
               setSelectedQuotation(null)
               convertForm.resetFields()
               loadQuotations()
             } else {
-              message.error(result.error || t.quotations.failedToSave)
+              // If contract creation fails, still show success for project creation
+              message.warning(projectResult.success ? 
+                (t.quotations?.projectCreatedButContractFailed || 'Project created but contract creation failed') :
+                (contractResult.error || t.quotations.failedToSave))
             }
           } catch (error) {
             console.error('Error converting quotation:', error)
             if (error.errorFields) {
-              message.error(t.quotations.selectContractType)
+              message.error(t.quotations?.fillRequiredFields || 'Please fill all required fields')
             } else {
               message.error(t.quotations.failedToSave)
             }
@@ -1176,24 +1294,48 @@ const QuotationsPage = () => {
           setConvertModalVisible(false)
           convertForm.resetFields()
         }}
-        okText={t.quotations.convert}
+        okText={t.quotations?.convert || 'Convert'}
         cancelText={t.quotations.cancel}
-        width={500}
+        width={600}
       >
+        <Alert
+          message={t.quotations?.convertToProjectConfirmation || 'Do you want to convert this to a project? Please select Work Start Date before proceeding.'}
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
         <Form form={convertForm} layout="vertical" style={{ marginTop: 24 }}>
           <Form.Item
             name="contractType"
-            label={t.quotations.contractTypeLabel}
-            rules={[{ required: true, message: t.quotations.selectContractType }]}
+            label={t.quotations?.contractTypeLabel || 'Contract Type'}
+            rules={[{ required: true, message: t.quotations?.selectContractType || 'Please select contract type' }]}
             initialValue="original"
           >
-            <Select>
+            <Select placeholder={t.quotations?.selectContractType || 'Select contract type'}>
               <Option value="original">{t.contracts.originalContract}</Option>
               <Option value="amendment">{t.contracts.amendment}</Option>
             </Select>
           </Form.Item>
+          
+          <Form.Item
+            name="workStartDate"
+            label={t.quotations?.workStartDateLabel || 'Work Start Date'}
+            rules={[{ required: true, message: t.quotations?.workStartDateRequired || 'Please select work start date' }]}
+          >
+            <input
+              type="date"
+              className="ant-input"
+              style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+              onChange={(e) => {
+                if (e.target.value) {
+                  convertForm.setFieldsValue({ workStartDate: e.target.value })
+                }
+              }}
+            />
+          </Form.Item>
+          
           <div style={{ marginTop: 16, padding: 12, backgroundColor: '#f0f0f0', borderRadius: 4 }}>
-            <p style={{ margin: 0, fontWeight: 'bold' }}>{t.contracts.contractDetails}:</p>
+            <p style={{ margin: 0, fontWeight: 'bold' }}>{t.contracts?.contractDetails || 'Contract Details'}:</p>
             <p style={{ margin: '4px 0 0 0' }}>{t.quotations.customerName}: {selectedQuotation?.customerName}</p>
             {selectedQuotation?.workScopes && selectedQuotation.workScopes.length > 0 && (
               <p style={{ margin: '4px 0 0 0' }}>{t.quotations.workScope}: {translateWorkScopes(selectedQuotation.workScopes.slice(0, 3), language).join(', ')}{selectedQuotation.workScopes.length > 3 ? ` ${t.common.and || 'and'} ${selectedQuotation.workScopes.length - 3} ${t.common.more || 'more'}...` : ''}</p>

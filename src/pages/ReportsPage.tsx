@@ -9,7 +9,6 @@ import {
   Row,
   Col,
   Statistic,
-  DatePicker,
   Select,
   Button,
   Table,
@@ -42,12 +41,11 @@ import {
   PrinterOutlined
 } from '@ant-design/icons'
 
-const { RangePicker } = DatePicker
 const { Option } = Select
 // const { TabPane } = Tabs
 
 const ReportsPage = () => {
-  const [dateRange, setDateRange] = useState(null)
+  const [dateRange, setDateRange] = useState<[string | null, string | null]>([null, null])
   const [timeFrame, setTimeFrame] = useState('monthly')
   const [loading, setLoading] = useState(true)
   const [mainStats, setMainStats] = useState([])
@@ -250,11 +248,25 @@ const ReportsPage = () => {
             <p style={{ color: '#666', margin: '4px 0 0 0' }}>تحليل أداء الأعمال واتخاذ القرارات</p>
           </div>
           <Space>
-            <RangePicker
-              onChange={setDateRange}
-              style={{ width: 250 }}
-              placeholder={['تاريخ البداية', 'تاريخ النهاية']}
-            />
+            <Space.Compact>
+              <input
+                type="date"
+                className="ant-input"
+                style={{ padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px 0 0 2px', height: '32px' }}
+                placeholder="تاريخ البداية"
+                value={dateRange[0] || ''}
+                onChange={(e) => setDateRange([e.target.value || null, dateRange[1]])}
+              />
+              <input
+                type="date"
+                className="ant-input"
+                style={{ padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '0 2px 2px 0', height: '32px', borderLeft: 'none' }}
+                placeholder="تاريخ النهاية"
+                value={dateRange[1] || ''}
+                onChange={(e) => setDateRange([dateRange[0], e.target.value || null])}
+                min={dateRange[0] || undefined}
+              />
+            </Space.Compact>
             <Dropdown overlay={menu}>
               <Button icon={<DownloadOutlined />}>
                 تصدير التقرير

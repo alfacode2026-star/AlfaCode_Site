@@ -32,7 +32,6 @@ import {
   Modal,
   Input,
   InputNumber,
-  DatePicker,
   Select,
   Tabs,
   Alert,
@@ -748,13 +747,209 @@ const ProjectDetails = () => {
     },
   ], [t, language])
 
+  // Table columns for transactions/incomes - Extracted from inline JSX
+  const transactionsColumns = useMemo(() => [
+    {
+      title: t.projectDetails.transactionType || 'Transaction Type',
+      dataIndex: 'transactionType',
+      key: 'transactionType',
+      width: 150,
+      render: (transactionType: string, record: any) => {
+        // Check if it's an employee advance
+        const isEmployeeAdvance = transactionType === 'advance' && record.managerName
+        const isInvestorInflow = record.paymentType === 'income' || (record.paymentType === undefined && record.contractId)
+        
+        if (isEmployeeAdvance) {
+          return <Tag color="orange">{t.projectDetails.engineerAdvance || 'Engineer Advance'}</Tag>
+        } else if (isInvestorInflow) {
+          return <Tag color="green">{t.projectDetails.investorInflow || 'Investor Inflow'}</Tag>
+        } else {
+          return <Tag color="blue">{t.projectDetails.milestone || 'Milestone'}</Tag>
+        }
+      },
+    },
+    {
+      title: t.projectDetails.milestoneNumber || 'Milestone Number',
+      dataIndex: 'paymentNumber',
+      key: 'paymentNumber',
+      width: 150,
+    },
+    {
+      title: t.projectDetails.descriptionMilestone || 'Description/Milestone',
+      dataIndex: 'notes',
+      key: 'notes',
+      render: (notes: string, record: any) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{notes || (t.projectDetails.milestone || 'Milestone')}</div>
+          {record.managerName && (
+            <Tag color="orange" style={{ marginTop: 4 }}>{t.projectDetails.engineer || 'Engineer'}: {record.managerName}</Tag>
+          )}
+          {record.workScope && (
+            <Tag color="cyan" style={{ marginTop: 4 }}>{record.workScope}</Tag>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: t.common.amount,
+      dataIndex: 'amount',
+      key: 'amount',
+      render: (amount: number) => (
+        <span style={{ fontWeight: 'bold', color: '#52c41a', fontSize: '16px' }}>
+          {formatCurrency(amount || 0)}
+        </span>
+      ),
+      align: 'right' as const,
+      width: 150,
+    },
+    {
+      title: t.common.dueDate || 'Due Date',
+      dataIndex: 'dueDate',
+      key: 'dueDate',
+      render: (date: string) => moment(date).format('YYYY-MM-DD'),
+      width: 120,
+    },
+    {
+      title: t.common.paidDate || 'Paid Date',
+      dataIndex: 'paidDate',
+      key: 'paidDate',
+      render: (date: string | null) => date ? moment(date).format('YYYY-MM-DD') : '-',
+      width: 120,
+    },
+    {
+      title: t.projectDetails.treasuryAccount || 'Treasury/Account',
+      dataIndex: 'treasuryAccountName',
+      key: 'treasuryAccountName',
+      render: (accountName: string | null) => (
+        <span style={{ fontWeight: 500 }}>
+          {accountName || '-'}
+        </span>
+      ),
+      width: 150,
+    },
+    {
+      title: t.common.status,
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string) => {
+        const statusConfig: Record<string, { color: string; text: string }> = {
+          paid: { color: 'green', text: t.common.paid || 'Paid' },
+          pending: { color: 'orange', text: t.common.pending || 'Pending' },
+          overdue: { color: 'red', text: t.common.overdue || 'Overdue' },
+          cancelled: { color: 'default', text: t.common.cancelled || 'Cancelled' },
+        }
+        const config = statusConfig[status] || { color: 'default', text: status || t.common.notSpecified }
+        return <Tag color={config.color}>{config.text}</Tag>
+      },
+      width: 100,
+    },
+  ], [t, language])
+
+  // Data source for transactions/incomes - Extracted from inline JSX
+  const transactionsDataSource = useMemo(() => (paymentsWithTreasuryAccounts.length > 0 ? paymentsWithTreasuryAccounts : payments)
+    ?.filter((p: any) => {
+      // Exclude general expenses
+      const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
+      if (isGeneralExpense) return false
+      
+      // Include investor inflows (income payments)
+      const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
+      
+      // Include employee advances (transaction_type = 'advance' with manager_name and project_id)
+      const isEmployeeAdvance = p.transactionType === 'advance' && p.managerName && p.projectId
+      
+      return isIncome || isEmployeeAdvance
+    })
+    ?.map((p: any) => ({ ...p, key: p.id || p.updatedAt || `income-${Date.now()}` })) || [], [paymentsWithTreasuryAccounts, payments])
+
+  // Table columns for expenses - Extracted from inline JSX
+  const expensesColumns = useMemo(() => [
+    {
+      title: t.common.date,
+      dataIndex: 'date',
+      key: 'date',
+      render: (date: string) => moment(date).format('YYYY-MM-DD'),
+      width: 120,
+    },
+    {
+      title: t.projectDetails.expenseType || 'Expense Type',
+      dataIndex: 'expenseType',
+      key: 'expenseType',
+      render: (type: string) => {
+        const typeMap: Record<string, { color: string; text: string }> = {
+          'purchase_order': { color: 'blue', text: t.orders.purchaseOrder || 'Purchase Order' },
+          'custody_deduction': { color: 'orange', text: t.projectDetails.custodyDeduction || 'Custody Deduction' },
+          'general_expense': { color: 'purple', text: t.projectDetails.generalExpense || 'General Expense' },
+        }
+        const config = typeMap[type] || { color: 'default', text: type }
+        return <Tag color={config.color}>{config.text}</Tag>
+      },
+      width: 150,
+    },
+    {
+      title: t.projectDetails.itemType || 'Item Type',
+      dataIndex: 'itemType',
+      key: 'itemType',
+      render: (itemType: string) => itemType || '-',
+    },
+    {
+      title: t.common.amount,
+      dataIndex: 'amount',
+      key: 'amount',
+      render: (amount: number) => (
+        <span style={{ fontWeight: 'bold', color: '#ff4d4f', fontSize: '16px' }}>
+          {formatCurrency(amount || 0)}
+        </span>
+      ),
+      align: 'right' as const,
+      width: 150,
+    },
+    {
+      title: t.projectDetails.engineer || 'Engineer',
+      dataIndex: 'engineerName',
+      key: 'engineerName',
+      render: (name: string) => name || '-',
+      width: 150,
+    },
+    {
+      title: t.common.description,
+      dataIndex: 'description',
+      key: 'description',
+    },
+  ], [t, language])
+
+  // Data source for expenses - Extracted from inline JSX
+  const expensesDataSource = useMemo(() => payments
+    .filter((p: any) => {
+      // Only show project expenses (not general expenses, not income)
+      const isExpense = p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)
+      const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
+      const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
+      return isExpense && !isGeneralExpense && !isIncome && p.projectId === id
+    })
+    .map((p: any) => ({
+      key: p.id || p.updatedAt || `expense-${Date.now()}`,
+      date: p.paidDate || p.dueDate,
+      expenseType: p.transactionType === 'advance' ? 'custody_deduction' : 
+                  p.expenseCategory ? 'general_expense' : 'purchase_order',
+      itemType: p.expenseCategory || (t.projectDetails.projectExpense || 'Project Expense'),
+      amount: parseFloat(p.amount) || 0,
+      engineerName: p.managerName || null,
+      description: p.notes || '-',
+    })), [payments, id, t])
+
+  // Data source for unified ledger - Extracted from inline JSX
+  const ledgerDataSource = useMemo(() => unifiedLedger.map(item => ({ ...item, key: item.id || item.updatedAt || `ledger-${Date.now()}` })), [unifiedLedger])
+
   if (loading) {
     return (
       <div style={{ 
         display: 'flex', 
         justifyContent: 'center', 
         alignItems: 'center', 
-        minHeight: '400px' 
+        height: '100%', 
+        minHeight: '300px', 
+        flexDirection: 'column' 
       }}>
         <Spin size="large" tip={t.common.loading} />
       </div>
@@ -1101,117 +1296,8 @@ const ProjectDetails = () => {
         }
       >
         <Table
-          columns={useMemo(() => [
-            {
-              title: t.projectDetails.transactionType || 'Transaction Type',
-              dataIndex: 'transactionType',
-              key: 'transactionType',
-              width: 150,
-              render: (transactionType: string, record: any) => {
-                // Check if it's an employee advance
-                const isEmployeeAdvance = transactionType === 'advance' && record.managerName
-                const isInvestorInflow = record.paymentType === 'income' || (record.paymentType === undefined && record.contractId)
-                
-                if (isEmployeeAdvance) {
-                  return <Tag color="orange">{t.projectDetails.engineerAdvance || 'Engineer Advance'}</Tag>
-                } else if (isInvestorInflow) {
-                  return <Tag color="green">{t.projectDetails.investorInflow || 'Investor Inflow'}</Tag>
-                } else {
-                  return <Tag color="blue">{t.projectDetails.milestone || 'Milestone'}</Tag>
-                }
-              },
-            },
-            {
-              title: t.projectDetails.milestoneNumber || 'Milestone Number',
-              dataIndex: 'paymentNumber',
-              key: 'paymentNumber',
-              width: 150,
-            },
-            {
-              title: t.projectDetails.descriptionMilestone || 'Description/Milestone',
-              dataIndex: 'notes',
-              key: 'notes',
-              render: (notes: string, record: any) => (
-                <div>
-                  <div style={{ fontWeight: 500 }}>{notes || (t.projectDetails.milestone || 'Milestone')}</div>
-                  {record.managerName && (
-                    <Tag color="orange" style={{ marginTop: 4 }}>{t.projectDetails.engineer || 'Engineer'}: {record.managerName}</Tag>
-                  )}
-                  {record.workScope && (
-                    <Tag color="cyan" style={{ marginTop: 4 }}>{record.workScope}</Tag>
-                  )}
-                </div>
-              ),
-            },
-            {
-              title: t.common.amount,
-              dataIndex: 'amount',
-              key: 'amount',
-              render: (amount: number) => (
-                <span style={{ fontWeight: 'bold', color: '#52c41a', fontSize: '16px' }}>
-                  {formatCurrency(amount || 0)}
-                </span>
-              ),
-              align: 'right' as const,
-              width: 150,
-            },
-            {
-              title: t.common.dueDate || 'Due Date',
-              dataIndex: 'dueDate',
-              key: 'dueDate',
-              render: (date: string) => moment(date).format('YYYY-MM-DD'),
-              width: 120,
-            },
-            {
-              title: t.common.paidDate || 'Paid Date',
-              dataIndex: 'paidDate',
-              key: 'paidDate',
-              render: (date: string | null) => date ? moment(date).format('YYYY-MM-DD') : '-',
-              width: 120,
-            },
-            {
-              title: t.projectDetails.treasuryAccount || 'Treasury/Account',
-              dataIndex: 'treasuryAccountName',
-              key: 'treasuryAccountName',
-              render: (accountName: string | null) => (
-                <span style={{ fontWeight: 500 }}>
-                  {accountName || '-'}
-                </span>
-              ),
-              width: 150,
-            },
-            {
-              title: t.common.status,
-              dataIndex: 'status',
-              key: 'status',
-              render: (status: string) => {
-                const statusConfig: Record<string, { color: string; text: string }> = {
-                  paid: { color: 'green', text: t.common.paid || 'Paid' },
-                  pending: { color: 'orange', text: t.common.pending || 'Pending' },
-                  overdue: { color: 'red', text: t.common.overdue || 'Overdue' },
-                  cancelled: { color: 'default', text: t.common.cancelled || 'Cancelled' },
-                }
-                const config = statusConfig[status] || { color: 'default', text: status || t.common.notSpecified }
-                return <Tag color={config.color}>{config.text}</Tag>
-              },
-              width: 100,
-            },
-          ], [t, language])}
-          dataSource={useMemo(() => (paymentsWithTreasuryAccounts.length > 0 ? paymentsWithTreasuryAccounts : payments)
-            ?.filter((p: any) => {
-              // Exclude general expenses
-              const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
-              if (isGeneralExpense) return false
-              
-              // Include investor inflows (income payments)
-              const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
-              
-              // Include employee advances (transaction_type = 'advance' with manager_name and project_id)
-              const isEmployeeAdvance = p.transactionType === 'advance' && p.managerName && p.projectId
-              
-              return isIncome || isEmployeeAdvance
-            })
-            ?.map((p: any) => ({ ...p, key: p.id || p.updatedAt || `income-${Date.now()}` })) || [], [paymentsWithTreasuryAccounts, payments])}
+          columns={transactionsColumns}
+          dataSource={transactionsDataSource}
           rowKey={(record) => record.id || record.updatedAt || `income-${Date.now()}`}
           pagination={{ 
             pageSize: 5, 
@@ -1251,78 +1337,8 @@ const ProjectDetails = () => {
           style={{ marginBottom: 16 }}
         />
         <Table
-          columns={useMemo(() => [
-            {
-              title: t.common.date,
-              dataIndex: 'date',
-              key: 'date',
-              render: (date: string) => moment(date).format('YYYY-MM-DD'),
-              width: 120,
-            },
-            {
-              title: t.projectDetails.expenseType || 'Expense Type',
-              dataIndex: 'expenseType',
-              key: 'expenseType',
-              render: (type: string) => {
-                const typeMap: Record<string, { color: string; text: string }> = {
-                  'purchase_order': { color: 'blue', text: t.orders.purchaseOrder || 'Purchase Order' },
-                  'custody_deduction': { color: 'orange', text: t.projectDetails.custodyDeduction || 'Custody Deduction' },
-                  'general_expense': { color: 'purple', text: t.projectDetails.generalExpense || 'General Expense' },
-                }
-                const config = typeMap[type] || { color: 'default', text: type }
-                return <Tag color={config.color}>{config.text}</Tag>
-              },
-              width: 150,
-            },
-            {
-              title: t.projectDetails.itemType || 'Item Type',
-              dataIndex: 'itemType',
-              key: 'itemType',
-              render: (itemType: string) => itemType || '-',
-            },
-            {
-              title: t.common.amount,
-              dataIndex: 'amount',
-              key: 'amount',
-              render: (amount: number) => (
-                <span style={{ fontWeight: 'bold', color: '#ff4d4f', fontSize: '16px' }}>
-                  {formatCurrency(amount || 0)}
-                </span>
-              ),
-              align: 'right' as const,
-              width: 150,
-            },
-            {
-              title: t.projectDetails.engineer || 'Engineer',
-              dataIndex: 'engineerName',
-              key: 'engineerName',
-              render: (name: string) => name || '-',
-              width: 150,
-            },
-            {
-              title: t.common.description,
-              dataIndex: 'description',
-              key: 'description',
-            },
-          ], [t, language])}
-          dataSource={useMemo(() => payments
-            .filter((p: any) => {
-              // Only show project expenses (not general expenses, not income)
-              const isExpense = p.paymentType === 'expense' || (p.paymentType === undefined && !p.contractId)
-              const isGeneralExpense = p.isGeneralExpense || (!p.projectId && p.expenseCategory)
-              const isIncome = p.paymentType === 'income' || (p.paymentType === undefined && p.contractId)
-              return isExpense && !isGeneralExpense && !isIncome && p.projectId === id
-            })
-            .map((p: any) => ({
-              key: p.id || p.updatedAt || `expense-${Date.now()}`,
-              date: p.paidDate || p.dueDate,
-              expenseType: p.transactionType === 'advance' ? 'custody_deduction' : 
-                          p.expenseCategory ? 'general_expense' : 'purchase_order',
-              itemType: p.expenseCategory || (t.projectDetails.projectExpense || 'Project Expense'),
-              amount: parseFloat(p.amount) || 0,
-              engineerName: p.managerName || null,
-              description: p.notes || '-',
-            })), [payments, id, t])}
+          columns={expensesColumns}
+          dataSource={expensesDataSource}
           rowKey={(record) => record.key || `expense-${Date.now()}`}
           pagination={{ 
             pageSize: 10, 
@@ -1353,7 +1369,7 @@ const ProjectDetails = () => {
         ) : (
           <Table
             columns={ledgerColumns}
-            dataSource={useMemo(() => unifiedLedger.map(item => ({ ...item, key: item.id || item.updatedAt || `ledger-${Date.now()}` })), [unifiedLedger])}
+            dataSource={ledgerDataSource}
             rowKey={(record) => record.id || record.updatedAt || `ledger-${Date.now()}`}
             pagination={{ 
               pageSize: 10, 
@@ -1655,7 +1671,16 @@ const ProjectDetails = () => {
                 label="تاريخ الاستحقاق"
                 rules={[{ required: true, message: 'يرجى اختيار تاريخ الاستحقاق' }]}
               >
-                <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" disabled={true} />
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      form.setFieldsValue({ dueDate: e.target.value })
+                    }
+                  }}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -1683,7 +1708,16 @@ const ProjectDetails = () => {
                   label={t.common.paidDate || 'Paid Date'}
                   rules={[{ required: true, message: t.common.selectPaidDate || 'Please select paid date' }]}
                 >
-                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" disabled={true} />
+                  <input
+                    type="date"
+                    className="ant-input"
+                    style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        form.setFieldsValue({ paidDate: e.target.value })
+                      }
+                    }}
+                  />
                 </Form.Item>
               ) : null
             }
@@ -1804,63 +1838,6 @@ const ProjectDetails = () => {
                 } else {
                   message.error(result.error || t.projectDetails.failedToCreateExpense)
                 }
-              } else if (values.expenseType === 'custody_deduction') {
-                // Deduct from custody
-                if (!values.linkedAdvanceId) {
-                  message.error(t.projectDetails.selectCustody)
-                  return
-                }
-                if (!values.engineerName) {
-                  message.error(t.projectDetails.enterEngineerName)
-                  return
-                }
-
-                const selectedAdvance = engineerAdvances.find(a => a.id === values.linkedAdvanceId)
-                if (!selectedAdvance) {
-                  message.error(t.projectDetails.custodyNotFound)
-                  return
-                }
-
-                const remaining = selectedAdvance.remainingAmount !== null && selectedAdvance.remainingAmount !== undefined
-                  ? parseFloat(selectedAdvance.remainingAmount)
-                  : parseFloat(selectedAdvance.amount || 0)
-
-                if (values.amount > remaining) {
-                  message.error(`${t.projectDetails.custodyInsufficient}: ${remaining.toFixed(2)} ${t.common.sar}`)
-                  return
-                }
-
-                const expenseData = {
-                  projectId: id,
-                  amount: values.amount,
-                  dueDate: moment(values.date).format('YYYY-MM-DD'),
-                  paidDate: moment(values.date).format('YYYY-MM-DD'),
-                  status: 'paid',
-                  transactionType: 'expense',
-                  managerName: values.engineerName,
-                  linkedAdvanceId: values.linkedAdvanceId,
-                  notes: values.description || `خصم من عهدة: ${selectedAdvance.referenceNumber || selectedAdvance.paymentNumber}`,
-                  isGeneralExpense: false,
-                  paymentType: 'expense'
-                }
-
-                const result = await paymentsService.createPayment(expenseData)
-                
-                if (result.success) {
-                  // Update advance remaining amount
-                  const newRemaining = remaining - values.amount
-                  await paymentsService.updatePayment(values.linkedAdvanceId, {
-                    remainingAmount: Math.max(0, newRemaining)
-                  })
-
-                  message.success(t.projectDetails.expenseDeductedFromCustody)
-                  setExpenseModalVisible(false)
-                  expenseForm.resetFields()
-                  setEngineerAdvances([])
-                  await loadProjectDetails()
-                } else {
-                  message.error(result.error || t.projectDetails.failedToDeductExpense)
-                }
               }
             } catch (error) {
               console.error('Error creating expense:', error)
@@ -1873,9 +1850,18 @@ const ProjectDetails = () => {
             name="date"
             label="التاريخ"
             rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
-            initialValue={moment()}
+            initialValue={moment().format('YYYY-MM-DD')}
           >
-            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" disabled={true} />
+            <input
+              type="date"
+              className="ant-input"
+              style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+              onChange={(e) => {
+                if (e.target.value) {
+                  expenseForm.setFieldsValue({ date: e.target.value })
+                }
+              }}
+            />
           </Form.Item>
 
           <Form.Item
@@ -1896,67 +1882,8 @@ const ProjectDetails = () => {
               }}
             >
               <Option value="purchase_order">أمر شراء</Option>
-              <Option value="custody_deduction">خصم من عهدة</Option>
               <Option value="general_expense">مصروف عام</Option>
             </Select>
-          </Form.Item>
-
-          {/* Conditional: Show custody selection for custody deduction */}
-          <Form.Item
-            noStyle
-            shouldUpdate={(prevValues, currentValues) => prevValues.expenseType !== currentValues.expenseType}
-          >
-            {({ getFieldValue }) => {
-              const expenseType = getFieldValue('expenseType')
-              
-              if (expenseType === 'custody_deduction') {
-                return (
-                  <>
-                    <Form.Item
-                      name="engineerName"
-                      label="اسم المهندس"
-                      rules={[{ required: true, message: 'يرجى إدخال اسم المهندس' }]}
-                    >
-                      <Input
-                        placeholder="اسم المهندس"
-                        onChange={async (e) => {
-                          const name = e.target.value
-                          if (name && name.trim()) {
-                            await loadEngineerAdvances(name.trim())
-                          } else {
-                            setEngineerAdvances([])
-                          }
-                        }}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name="linkedAdvanceId"
-                      label="اختر العهدة"
-                      rules={[{ required: true, message: 'يرجى اختيار العهدة' }]}
-                    >
-                      <Select
-                        placeholder="اختر العهدة"
-                        disabled={engineerAdvances.length === 0}
-                        notFoundContent={engineerAdvances.length === 0 ? "لا توجد عهد متاحة" : null}
-                      >
-                        {engineerAdvances.map(advance => {
-                          const remaining = advance.remainingAmount !== null && advance.remainingAmount !== undefined
-                            ? parseFloat(advance.remainingAmount)
-                            : parseFloat(advance.amount || 0)
-                          const refNumber = advance.referenceNumber || advance.paymentNumber || 'ADV-XXX'
-                          return (
-                            <Option key={advance.id} value={advance.id}>
-                              {refNumber} - متاح: {remaining.toFixed(2)} ريال
-                            </Option>
-                          )
-                        })}
-                      </Select>
-                    </Form.Item>
-                  </>
-                )
-              }
-              return null
-            }}
           </Form.Item>
 
           {/* Conditional: Show treasury account for general expense */}

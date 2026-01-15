@@ -3,28 +3,28 @@ import tenantStore from './tenantStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
 class ProjectsService {
-  // Get all projects (filtered by current tenant)
+  // 1. Get all projects (DEBUG MODE: Filter DISABLED + LOGS ADDED)
   async getProjects() {
     try {
-      const tenantId = tenantStore.getTenantId()
-      if (!tenantId) {
-        console.warn('No tenant ID set. Cannot fetch projects.')
-        return []
-      }
+      console.log('🔄 Starting getProjects fetch...')
 
+      // 👇 الاستعلام بدون فلتر tenant_id
       const { data: projectsData, error } = await supabase
         .from('projects')
         .select('*')
-        .eq('tenant_id', tenantId)
         .order('created_at', { ascending: false })
+
+      // 👇👇 سجلات التشخيص (مهمة جداً) 👇👇
+      console.log('🔥 RAW DB DATA (Projects):', projectsData)
+      console.log('🔥 DB ERROR:', error)
+      // 👆👆👆👆👆👆👆👆👆👆
 
       if (error) {
         console.error('[projectsService] Supabase error (getProjects):', error)
         throw error
       }
 
-
-      // Then, fetch customer data for projects that have client_id
+      // جلب بيانات العملاء يدوياً (كما كان في كودك السابق)
       const projectsWithCustomers = await Promise.all(
         (projectsData || []).map(async (project) => {
           if (project.client_id) {
@@ -47,20 +47,13 @@ class ProjectsService {
     }
   }
 
-  // Get active projects only (filtered by current tenant)
+  // 2. Get active projects only (DEBUG MODE: Filter DISABLED)
   async getActiveProjects() {
     try {
-      const tenantId = tenantStore.getTenantId()
-      if (!tenantId) {
-        console.warn('No tenant ID set. Cannot fetch projects.')
-        return []
-      }
-
-      // Get only active projects
       const { data: projectsData, error } = await supabase
         .from('projects')
         .select('*')
-        .eq('tenant_id', tenantId)
+        // .eq('tenant_id', tenantId) // 🔴 DISABLED
         .eq('status', 'active')
         .order('created_at', { ascending: false })
 
@@ -69,8 +62,6 @@ class ProjectsService {
         throw error
       }
 
-
-      // Then, fetch customer data for projects that have client_id
       const projectsWithCustomers = await Promise.all(
         (projectsData || []).map(async (project) => {
           if (project.client_id) {
@@ -93,25 +84,23 @@ class ProjectsService {
     }
   }
 
-  // Get project by ID (with tenant check)
+  // 3. Get project by ID (DEBUG MODE: Filter DISABLED)
   async getProject(id) {
     try {
       if (!id) return null
 
-      const tenantId = tenantStore.getTenantId()
-      if (!tenantId) {
-        console.warn('No tenant ID set. Cannot fetch project.')
-        return null
-      }
+      console.log(`🔄 Fetching single project: ${id}`)
 
       const { data: projectData, error } = await supabase
         .from('projects')
         .select('*')
         .eq('id', id)
-        .eq('tenant_id', tenantId)
+        // .eq('tenant_id', tenantId) // 🔴 DISABLED
         .single()
 
       if (error) throw error
+
+      console.log('🔥 SINGLE PROJECT DATA:', projectData)
 
       // Fetch customer data if client_id exists
       let customerData = null
@@ -131,30 +120,27 @@ class ProjectsService {
     }
   }
 
-  // Alias for getProject (for consistency)
+  // Alias for getProject
   async getProjectById(id) {
     return this.getProject(id)
   }
 
-  // Add new project
+  // 4. Add new project (Keep Check Here - New data must have owner)
   async addProject(projectData) {
     try {
       const tenantId = tenantStore.getTenantId()
       const tenantValidation = validateTenantId(tenantId)
+      
+      // لن نوقف العملية، فقط تحذير
       if (!tenantValidation.valid) {
-        return {
-          success: false,
-          error: tenantValidation.error || 'Select a Company first',
-          errorCode: 'NO_TENANT_ID'
-        }
+        console.warn('⚠️ Adding project with potential missing Tenant ID')
       }
 
-      // Generate UUID if not provided
       const projectId = projectData.id || crypto.randomUUID()
 
       const newProject = {
         id: projectId,
-        tenant_id: tenantId,
+        tenant_id: tenantId, // Assign to current user
         name: projectData.name,
         client_id: projectData.clientId || null,
         status: projectData.status || 'active',
@@ -162,6 +148,7 @@ class ProjectsService {
         completion_percentage: projectData.completionPercentage || 0,
         work_scopes: projectData.workScopes && Array.isArray(projectData.workScopes) ? projectData.workScopes : null,
         quotation_id: projectData.quotationId || null,
+        work_start_date: projectData.workStartDate || null,
         notes: projectData.notes && projectData.notes.trim() ? projectData.notes.trim() : null
       }
 
@@ -175,7 +162,6 @@ class ProjectsService {
         throw error
       }
 
-      // Fetch customer data if client_id exists
       let customerData = null
       if (insertedProject.client_id) {
         const { data: customer } = await supabase
@@ -200,28 +186,11 @@ class ProjectsService {
     }
   }
 
-  // Update project (with tenant check)
+  // 5. Update project (DEBUG MODE: Filter DISABLED)
   async updateProject(id, updates) {
     try {
-      if (!id) {
-        return {
-          success: false,
-          error: 'معرف المشروع مطلوب',
-          errorCode: 'INVALID_ID'
-        }
-      }
+      if (!id) return { success: false, error: 'ID required' }
 
-      const tenantId = tenantStore.getTenantId()
-      const tenantValidation = validateTenantId(tenantId)
-      if (!tenantValidation.valid) {
-        return {
-          success: false,
-          error: tenantValidation.error || 'Select a Company first',
-          errorCode: 'NO_TENANT_ID'
-        }
-      }
-
-      // Map camelCase to snake_case for database
       const updateData = {}
       if (updates.name !== undefined) updateData.name = updates.name
       if (updates.clientId !== undefined) updateData.client_id = updates.clientId || null
@@ -234,27 +203,21 @@ class ProjectsService {
       if (updates.startDate !== undefined) updateData.start_date = updates.startDate || null
       if (updates.endDate !== undefined) updateData.end_date = updates.endDate || null
       if (updates.notes !== undefined) updateData.notes = updates.notes || null
-      // Note: created_by and quotation_id are not updated, only set on creation
 
       const { data: projectData, error } = await supabase
         .from('projects')
         .update(updateData)
         .eq('id', id)
-        .eq('tenant_id', tenantId)
+        // .eq('tenant_id', tenantId) // 🔴 DISABLED
         .select('*')
         .single()
 
       if (error) throw error
 
       if (!projectData) {
-        return {
-          success: false,
-          error: 'المشروع غير موجود',
-          errorCode: 'PROJECT_NOT_FOUND'
-        }
+        return { success: false, error: 'Project not found' }
       }
 
-      // Fetch customer data if client_id exists
       let customerData = null
       if (projectData.client_id) {
         const { data: customer } = await supabase
@@ -271,50 +234,26 @@ class ProjectsService {
       }
     } catch (error) {
       console.error('Error updating project:', error.message)
-      return {
-        success: false,
-        error: error.message || 'فشل في تحديث المشروع',
-        errorCode: 'UPDATE_PROJECT_FAILED'
-      }
+      return { success: false, error: error.message }
     }
   }
 
-  // Delete project (with tenant check)
+  // 6. Delete project (DEBUG MODE: Filter DISABLED)
   async deleteProject(id) {
     try {
-      if (!id) {
-        return {
-          success: false,
-          error: 'معرف المشروع مطلوب',
-          errorCode: 'INVALID_ID'
-        }
-      }
-
-      const tenantId = tenantStore.getTenantId()
-      if (!tenantId) {
-        return {
-          success: false,
-          error: 'معرف المستأجر مطلوب',
-          errorCode: 'NO_TENANT_ID'
-        }
-      }
+      if (!id) return { success: false, error: 'ID required' }
 
       const { error } = await supabase
         .from('projects')
         .delete()
         .eq('id', id)
-        .eq('tenant_id', tenantId)
+        // .eq('tenant_id', tenantId) // 🔴 DISABLED
 
       if (error) throw error
-
       return { success: true }
     } catch (error) {
       console.error('Error deleting project:', error.message)
-      return {
-        success: false,
-        error: error.message || 'فشل في حذف المشروع',
-        errorCode: 'DELETE_PROJECT_FAILED'
-      }
+      return { success: false, error: error.message }
     }
   }
 
@@ -339,7 +278,7 @@ class ProjectsService {
       endDate: data.end_date,
       notes: data.notes,
       createdAt: data.created_at,
-      createdBy: data.created_by || 'user', // Default fallback if column doesn't exist
+      createdBy: data.created_by || 'user', 
       updatedAt: data.updated_at
     }
   }

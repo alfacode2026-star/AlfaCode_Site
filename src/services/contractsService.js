@@ -59,7 +59,7 @@ class ContractsService {
   }
 
   // Convert Quotation to Contract
-  async convertQuotationToContract(quotationId, contractType = 'original') {
+  async convertQuotationToContract(quotationId, contractType = 'original', workStartDate = null, clientId = null) {
     try {
       if (!quotationId) {
         return {
@@ -130,13 +130,14 @@ class ContractsService {
         tenant_id: tenantId,
         contract_number: contractNumber,
         quotation_id: quotationId,
-        customer_id: quotation.customerId || null,
+        customer_id: clientId || quotation.customerId || null, // Use provided clientId first
         customer_name: quotation.customerName,
         customer_phone: quotation.customerPhone,
         contract_type: contractType,
         work_type: quotation.workType,
         total_amount: quotation.totalAmount,
         project_name: quotation.projectName || null,
+        work_start_date: workStartDate || null, // Include work_start_date from project
         status: 'in_progress',
         notes: `تم إنشاء هذا العقد من العرض ${quotation.quoteNumber}`,
         created_by: 'user'

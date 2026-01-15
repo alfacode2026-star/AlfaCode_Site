@@ -23,7 +23,6 @@ import {
   message,
   Progress,
   InputNumber,
-  DatePicker,
   Alert
 } from 'antd'
 import {
@@ -631,11 +630,15 @@ const ProjectsPage = () => {
               <Form.Item
                 name="startDate"
                 label="تاريخ البدء"
+                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                getValueProps={(value) => ({
+                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                })}
               >
-                <DatePicker 
-                  style={{ width: '100%' }} 
-                  format="YYYY-MM-DD"
-                  placeholder={t.projects.startDatePlaceholder}
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   disabled
                   readOnly
                 />
@@ -645,11 +648,15 @@ const ProjectsPage = () => {
               <Form.Item
                 name="endDate"
                 label="تاريخ الانتهاء"
+                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
+                getValueProps={(value) => ({
+                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
+                })}
               >
-                <DatePicker 
-                  style={{ width: '100%' }} 
-                  format="YYYY-MM-DD"
-                  placeholder={t.projects.endDatePlaceholder}
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   disabled
                   readOnly
                 />

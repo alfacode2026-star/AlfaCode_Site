@@ -21,7 +21,6 @@ import {
   Space, 
   Modal, 
   Form,
-  DatePicker,
   Row,
   Col,
   Statistic,
@@ -55,7 +54,6 @@ import {
 } from '@ant-design/icons'
 
 const { Option } = Select
-const { RangePicker } = DatePicker
 const { Step } = Steps
 // const { TabPane } = Tabs
 
@@ -716,9 +714,9 @@ const OrdersPage = () => {
                 { 
                   title: t.orders.itemTotal, 
                   dataIndex: 'total', 
-                  render: t => (
+                  render: (value) => (
                     <span style={{ fontWeight: 500, color: '#1890ff' }}>
-                      {t.toLocaleString()} {t.common.sar}
+                      {value.toLocaleString()} {t.common?.sar || 'ر.س'}
                     </span>
                   )
                 },
@@ -1210,7 +1208,7 @@ const OrdersPage = () => {
                   <Col span={12}>
                     <Form.Item
                       name="projectId"
-                      label={<span style={{ fontWeight: 'bold' }}>{t.orders.projectRequired}</span>}
+                      label="المشروع"
                       rules={[{ required: true, message: t.orders.projectRequired }]}
                     >
                       <Select
@@ -1234,7 +1232,7 @@ const OrdersPage = () => {
                     {selectedProject && availableWorkScopes.length > 0 && (
                       <Form.Item
                         name="workScope"
-                        label={<span style={{ fontWeight: 'bold' }}>{t.orders.workScopeOptional}</span>}
+                        label="نطاق العمل / الوصف"
                       >
                         <Select
                           placeholder={t.orders.selectWorkScope}
@@ -1260,7 +1258,7 @@ const OrdersPage = () => {
 
           <Form.Item
             name="customerSearch"
-            label={t.orders.supplierCustomer}
+            label="المورد / العميل"
             rules={[
               {
                 validator: (_, value) => {
@@ -1360,7 +1358,7 @@ const OrdersPage = () => {
           
           <Form.Item
             name="status"
-            label={t.orders.orderStatus}
+            label="حالة الطلب"
             initialValue="pending"
           >
             <Select>
@@ -1373,7 +1371,7 @@ const OrdersPage = () => {
           {/* Treasury Account Selection */}
           <Form.Item
             name="treasuryAccountId"
-            label={t.orders.treasuryAccountRequired}
+            label="حساب الخزينة / الدفع"
             rules={[{ required: true, message: t.orders.selectTreasuryAccount }]}
             tooltip={t.orders.selectTreasuryAccount}
           >
@@ -1392,14 +1390,14 @@ const OrdersPage = () => {
 
           <Form.Item
             name="shippingAddress"
-            label={t.orders.shippingAddress || 'Shipping Address (Optional)'}
+            label="عنوان الشحن"
           >
             <Input.TextArea rows={2} placeholder={t.orders.shippingAddressPlaceholder || 'Enter shipping address'} />
           </Form.Item>
 
           <Form.Item
             name="notes"
-            label={t.orders.notesOptional}
+            label="ملاحظات إضافية"
           >
             <Input.TextArea rows={2} placeholder={t.orders.notesPlaceholder} />
           </Form.Item>
