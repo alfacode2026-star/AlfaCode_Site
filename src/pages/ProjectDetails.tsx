@@ -3,7 +3,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
+import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils'
 import projectsService from '../services/projectsService'
 import ordersService from '../services/ordersService'
 import contractsService from '../services/contractsService'
@@ -82,6 +84,8 @@ const ProjectDetails = () => {
   const [engineerAdvances, setEngineerAdvances] = useState<any[]>([])
   const [previousCompletionPercentage, setPreviousCompletionPercentage] = useState<number | null>(null)
   const [isCorrectionMode, setIsCorrectionMode] = useState(false)
+  // Use branch currency as the single source of truth
+  const displayCurrency = branchCurrency || 'SAR'
 
   useEffect(() => {
     if (id) {
@@ -1054,7 +1058,7 @@ const ProjectDetails = () => {
               title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalBudget || 'Total Budget'}</span>}
               value={totalBudget}
               prefix={<WalletOutlined style={{ color: 'white' }} />}
-              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
+              suffix={<span style={{ color: 'white' }}>{displayCurrency}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
@@ -1079,7 +1083,7 @@ const ProjectDetails = () => {
               title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalCollected || 'Total Collected'}</span>}
               value={totalCollected}
               prefix={<InboxOutlined style={{ color: 'white' }} />}
-              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
+              suffix={<span style={{ color: 'white' }}>{displayCurrency}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
@@ -1100,7 +1104,7 @@ const ProjectDetails = () => {
               title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalExpenses || 'Total Expenses'}</span>}
               value={totalExpenses}
               prefix={<ShoppingOutlined style={{ color: 'white' }} />}
-              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
+              suffix={<span style={{ color: 'white' }}>{displayCurrency}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
@@ -1123,7 +1127,7 @@ const ProjectDetails = () => {
               title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.cashFlow || 'Cash Flow'}</span>}
               value={cashFlow}
               prefix={cashFlow >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <RiseOutlined style={{ color: 'white', transform: 'rotate(180deg)' }} />}
-              suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
+              suffix={<span style={{ color: 'white' }}>{displayCurrency}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
@@ -1150,7 +1154,7 @@ const ProjectDetails = () => {
                 title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalLaborCost || 'Total Labor Cost'}</span>}
                 value={calculateTotalLaborCost()}
                 prefix={<UserOutlined style={{ color: 'white' }} />}
-                suffix={<span style={{ color: 'white' }}>{t.common.sar}</span>}
+                suffix={<span style={{ color: 'white' }}>{displayCurrency}</span>}
                 styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
               />
               <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
@@ -1589,7 +1593,7 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="amount"
-            label="المبلغ (ريال)"
+            label={formatCurrencyLabel('المبلغ', displayCurrency)}
             rules={[{ required: true, message: 'يرجى إدخال المبلغ' }]}
           >
             <InputNumber
@@ -1805,6 +1809,9 @@ const ProjectDetails = () => {
                   return
                 }
 
+                // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
+                const currency = branchCurrency || 'SAR';
+
                 const expenseData = {
                   projectId: id,
                   amount: values.amount,
@@ -1815,8 +1822,11 @@ const ProjectDetails = () => {
                   notes: values.description || null,
                   isGeneralExpense: false, // Linked to project, not general
                   paymentType: 'expense',
-                  treasuryAccountId: values.treasuryAccountId
+                  treasuryAccountId: values.treasuryAccountId,
+                  currency: currency // Include currency from treasury account
                 }
+
+                console.log('💾 Saving project expense with currency:', currency);
 
                 const result = await paymentsService.createPayment(expenseData)
                 
@@ -1896,19 +1906,43 @@ const ProjectDetails = () => {
               
               if (expenseType === 'general_expense') {
                 return (
-                  <Form.Item
-                    name="treasuryAccountId"
-                    label="الخزينة/الصندوق"
-                    rules={[{ required: true, message: 'يرجى اختيار الخزينة/الصندوق' }]}
-                  >
-                    <Select placeholder="اختر الخزينة/الصندوق">
-                      {treasuryAccounts.map(acc => (
-                        <Option key={acc.id} value={acc.id}>
-                          {acc.name} ({acc.type === 'bank' ? 'بنك' : acc.type === 'cash_box' ? 'صندوق' : acc.type})
-                        </Option>
-                      ))}
-                    </Select>
-                  </Form.Item>
+                  <>
+                    <Form.Item
+                      name="treasuryAccountId"
+                      label="الخزينة/الصندوق"
+                      rules={[{ required: true, message: 'يرجى اختيار الخزينة/الصندوق' }]}
+                    >
+                      <Select 
+                        placeholder="اختر الخزينة/الصندوق"
+                        onChange={(accountId) => {
+                          // Note: Currency is now fixed to branch currency, no syncing needed
+                          console.log('✅ Treasury account selected:', { accountId, branchCurrency: displayCurrency });
+                        }}
+                      >
+                        {treasuryAccounts.map(acc => (
+                          <Option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.type === 'bank' ? 'بنك' : acc.type === 'cash_box' ? 'صندوق' : acc.type})
+                            {acc.currency && acc.currency !== 'SAR' ? ` - ${acc.currency}` : ''}
+                          </Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+
+                    {/* Currency Display - Static label showing branch currency */}
+                    <Form.Item
+                      label={`العملة / Currency (${displayCurrency})`}
+                      tooltip="العملة مضبوطة على مستوى الفرع ولا يمكن تغييرها لكل معاملة / Currency is set at the branch level and cannot be changed per transaction"
+                    >
+                      <Input
+                        readOnly
+                        value={displayCurrency}
+                        style={{
+                          backgroundColor: '#fafafa',
+                          cursor: 'default',
+                        }}
+                      />
+                    </Form.Item>
+                  </>
                 )
               }
               return null
@@ -1917,7 +1951,7 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="amount"
-            label="المبلغ (ريال)"
+            label={formatCurrencyLabel('المبلغ', displayCurrency)}
             rules={[{ required: true, message: 'يرجى إدخال المبلغ' }]}
           >
             <InputNumber

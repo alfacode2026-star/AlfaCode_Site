@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
 import employeesService from '../services/employeesService'
 import laborGroupsService from '../services/laborGroupsService'
@@ -60,6 +61,7 @@ const { TextArea } = Input
 
 const LaborPage = () => {
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language)
   
   // Tab state
@@ -847,32 +849,32 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
           
           <div class="calculation-row">
             <span class="calculation-formula">${language === 'ar' ? 'العمالة العادية:' : (t.labor.normalLabor + ':')}</span>
-            <span class="calculation-result">${group.normalCount} × ${group.normalRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(normalTotal)}</span>
+            <span class="calculation-result">${group.normalCount} × ${group.normalRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: branchCurrency || 'SAR', minimumFractionDigits: 2 }).format(normalTotal)}</span>
           </div>
 
           ${skilledCount > 0 && skilledRate > 0 ? `
           <div class="calculation-row">
             <span class="calculation-formula">${language === 'ar' ? 'العمالة المهنية/الخلفة:' : (t.labor.skilledLabor + ':')}</span>
-            <span class="calculation-result">${skilledCount} × ${skilledRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(skilledTotal)}</span>
+            <span class="calculation-result">${skilledCount} × ${skilledRate.toFixed(2)} × ${group.netDays || 0} = ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: branchCurrency || 'SAR', minimumFractionDigits: 2 }).format(skilledTotal)}</span>
           </div>
           ` : ''}
 
           <div class="calculation-row total-row">
             <span>${language === 'ar' ? 'المجموع الأساسي:' : (t.labor.baseTotal || 'Base Total') + ':'}</span>
-            <span>${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(baseTotal)}</span>
+            <span>${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: branchCurrency || 'SAR', minimumFractionDigits: 2 }).format(baseTotal)}</span>
           </div>
 
           ${group.overtime > 0 ? `
           <div class="calculation-row">
             <span class="calculation-formula">${language === 'ar' ? 'إضافي/مكافأة:' : (t.labor.overtime || 'Overtime/Bonus') + ':'}</span>
-            <span class="calculation-result">+ ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.overtime)}</span>
+            <span class="calculation-result">+ ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: branchCurrency || 'SAR', minimumFractionDigits: 2 }).format(group.overtime)}</span>
           </div>
           ` : ''}
 
           ${group.deductions > 0 ? `
           <div class="calculation-row">
             <span class="calculation-formula">${language === 'ar' ? 'خصومات:' : (t.labor.deductions || 'Deductions') + ':'}</span>
-            <span class="calculation-result">- ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.deductions)}</span>
+            <span class="calculation-result">- ${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: branchCurrency || 'SAR', minimumFractionDigits: 2 }).format(group.deductions)}</span>
           </div>
           ${group.deductionReason ? `
           <div class="calculation-row">
@@ -884,7 +886,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
 
           <div class="calculation-row total-row" style="margin-top: 20px;">
             <span>${language === 'ar' ? 'المبلغ الإجمالي النهائي:' : (t.labor.finalTotalAmount || 'Final Total Amount') + ':'}</span>
-            <span>${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: 'SAR', minimumFractionDigits: 2 }).format(group.totalAmount || 0)}</span>
+            <span>${new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', { style: 'currency', currency: branchCurrency || 'SAR', minimumFractionDigits: 2 }).format(group.totalAmount || 0)}</span>
           </div>
           <div class="calculation-row" style="margin-top: 8px; font-size: 12px; color: #999;">
             <span>${language === 'ar' ? '(المجموع الأساسي + الإضافي - الخصومات)' : '(Base Total + Overtime - Deductions)'}</span>
@@ -945,7 +947,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
         <span style={{ fontWeight: 'bold', color: '#52c41a' }}>
           {new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', {
             style: 'currency',
-            currency: 'SAR',
+            currency: branchCurrency || 'SAR',
             minimumFractionDigits: 0
           }).format(salary || 0)}
         </span>
@@ -1046,7 +1048,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
           {new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', {
             style: 'currency',
-            currency: 'SAR',
+            currency: branchCurrency || 'SAR',
             minimumFractionDigits: 0
           }).format(amount || 0)}
         </span>
@@ -1734,7 +1736,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                             <Text strong style={{ color: '#1890ff' }}>
                               {new Intl.NumberFormat('ar-SA', {
                                 style: 'currency',
-                                currency: 'SAR',
+                                currency: branchCurrency || 'SAR',
                                 minimumFractionDigits: 2
                               }).format(baseTotal)}
                             </Text>
@@ -1745,7 +1747,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                               <Text strong style={{ color: '#52c41a' }}>
                                 + {new Intl.NumberFormat('ar-SA', {
                                   style: 'currency',
-                                  currency: 'SAR',
+                                  currency: branchCurrency || 'SAR',
                                   minimumFractionDigits: 2
                                 }).format(overtime)}
                               </Text>
@@ -1757,7 +1759,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                               <Text strong style={{ color: '#ff4d4f' }}>
                                 - {new Intl.NumberFormat('ar-SA', {
                                   style: 'currency',
-                                  currency: 'SAR',
+                                  currency: branchCurrency || 'SAR',
                                   minimumFractionDigits: 2
                                 }).format(deductions)}
                               </Text>
@@ -1768,7 +1770,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                             <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
                               المبلغ الإجمالي النهائي: {new Intl.NumberFormat('ar-SA', {
                                 style: 'currency',
-                                currency: 'SAR',
+                                currency: branchCurrency || 'SAR',
                                 minimumFractionDigits: 2
                               }).format(finalTotal)}
                             </Text>
@@ -1932,7 +1934,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                   <Text strong style={{ color: '#1890ff' }}>
                     {new Intl.NumberFormat('ar-SA', {
                       style: 'currency',
-                      currency: 'SAR',
+                      currency: branchCurrency || 'SAR',
                       minimumFractionDigits: 2
                     }).format(summaryCalculations.normalTotal)}
                   </Text>
@@ -1944,7 +1946,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                     <Text strong style={{ color: '#1890ff' }}>
                       {new Intl.NumberFormat('ar-SA', {
                         style: 'currency',
-                        currency: 'SAR',
+                        currency: branchCurrency || 'SAR',
                         minimumFractionDigits: 2
                       }).format(summaryCalculations.skilledTotal)}
                     </Text>
@@ -1956,7 +1958,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                   <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
                     {new Intl.NumberFormat('ar-SA', {
                       style: 'currency',
-                      currency: 'SAR',
+                      currency: branchCurrency || 'SAR',
                       minimumFractionDigits: 2
                     }).format(summaryCalculations.baseTotal)}
                   </Text>
@@ -1970,7 +1972,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                     <Text strong style={{ color: '#52c41a' }}>
                       + {new Intl.NumberFormat('ar-SA', {
                         style: 'currency',
-                        currency: 'SAR',
+                        currency: branchCurrency || 'SAR',
                         minimumFractionDigits: 2
                       }).format(summaryCalculations.overtime)}
                     </Text>
@@ -1982,7 +1984,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                     <Text strong style={{ color: '#ff4d4f' }}>
                       - {new Intl.NumberFormat('ar-SA', {
                         style: 'currency',
-                        currency: 'SAR',
+                        currency: branchCurrency || 'SAR',
                         minimumFractionDigits: 2
                       }).format(summaryCalculations.deductions)}
                     </Text>
@@ -1993,7 +1995,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                   <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
                     المبلغ الإجمالي النهائي: {new Intl.NumberFormat('ar-SA', {
                       style: 'currency',
-                      currency: 'SAR',
+                      currency: branchCurrency || 'SAR',
                       minimumFractionDigits: 2
                     }).format(summaryCalculations.finalTotal)}
                   </Text>
@@ -2052,7 +2054,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
                   {new Intl.NumberFormat('ar-SA', {
                     style: 'currency',
-                    currency: 'SAR',
+                    currency: branchCurrency || 'SAR',
                     minimumFractionDigits: 2
                   }).format(selectedGroupForApproval.totalAmount)}
                 </Text>
@@ -2085,7 +2087,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <Text strong style={{ fontSize: 16, color: '#1890ff' }}>
                   {new Intl.NumberFormat('ar-SA', {
                     style: 'currency',
-                    currency: 'SAR',
+                    currency: branchCurrency || 'SAR',
                     minimumFractionDigits: 2
                   }).format(selectedGroupForPayment.totalAmount)}
                 </Text>
@@ -2263,7 +2265,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
               <Text strong style={{ fontSize: 18, color: '#1890ff' }}>
                 {new Intl.NumberFormat('ar-SA', {
                   style: 'currency',
-                  currency: 'SAR',
+                  currency: branchCurrency || 'SAR',
                   minimumFractionDigits: 2
                 }).format(selectedGroupForReceipt.totalAmount)}
               </Text>

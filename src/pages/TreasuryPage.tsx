@@ -17,6 +17,7 @@ import {
   InputNumber,
   Statistic,
   Badge,
+  Alert,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import moment from 'moment';
@@ -34,6 +35,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useBranch } from '../contexts/BranchContext';
 import treasuryService from '../services/treasuryService';
 import userManagementService from '../services/userManagementService';
 
@@ -100,6 +102,7 @@ const formatNumber = (value: number): string => {
 
 const TreasuryPage: FC = () => {
   const { language } = useLanguage();
+  const { branchCurrency } = useBranch();
 
   const [accounts, setAccounts] = useState<TreasuryAccount[]>([]);
   const [allAccounts, setAllAccounts] = useState<TreasuryAccount[]>([]); // Store all accounts before filtering
@@ -114,7 +117,14 @@ const TreasuryPage: FC = () => {
   const [selectedAccount, setSelectedAccount] = useState<TreasuryAccount | null>(null);
   const [accountForm] = Form.useForm();
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [isManager, setIsManager] = useState<boolean>(false);
   const [currencies, setCurrencies] = useState<any[]>([]);
+  
+  // Manager Tools Modals
+  const [isAddFundsModalVisible, setIsAddFundsModalVisible] = useState<boolean>(false);
+  const [isTransferFundsModalVisible, setIsTransferFundsModalVisible] = useState<boolean>(false);
+  const [addFundsForm] = Form.useForm();
+  const [transferFundsForm] = Form.useForm();
 
   /* =======================
      Language & Locale Sync
@@ -132,6 +142,7 @@ const TreasuryPage: FC = () => {
   useEffect(() => {
     loadData();
     checkSuperAdmin();
+    checkManager();
     loadCurrencies();
   }, []);
 
@@ -145,25 +156,89 @@ const TreasuryPage: FC = () => {
     }
   };
 
+  const checkManager = async (): Promise<void> => {
+    try {
+      const profile = await userManagementService.getCurrentUserProfile();
+      const userRole = profile?.role || '';
+      // Strict role check: only 'manager' or 'super_admin'
+      const isManagerOrAdmin = userRole === 'manager' || userRole === 'super_admin';
+      setIsManager(isManagerOrAdmin);
+    } catch (error) {
+      console.error('Error checking manager status:', error);
+      setIsManager(false);
+    }
+  };
+
   const loadCurrencies = async (): Promise<void> => {
     try {
       const { supabase } = await import('../services/supabaseClient');
+      
+      // CRITICAL: Use EXACT column names from verified schema: id, code, name, symbol, is_common
+      // Remove any references to currency_code, currency_name, or 'common' as they don't exist
       const { data, error } = await supabase
         .from('global_currencies')
-        .select('currency_code, currency_name')
-        .order('currency_code', { ascending: true });
+        .select('id, code, name, symbol, is_common')
+        .order('is_common', { ascending: false, nullsFirst: false }) // TRUE first
+        .order('name', { ascending: true }); // Then by name
 
-      if (error) throw error;
-      setCurrencies(data || []);
-    } catch (error) {
-      console.error('Error loading currencies:', error);
-      // Fallback to common currencies if table doesn't exist
+      if (error) {
+        console.error('❌ Error loading currencies:', error);
+        throw error;
+      }
+
+      if (!data || data.length === 0) {
+        console.warn('⚠️ No currencies found in database, using fallback');
+        // Fallback to common currencies if table is empty
+        setCurrencies([
+          { id: null, code: 'SAR', name: 'Saudi Riyal', symbol: 'ر.س', is_common: true },
+          { id: null, code: 'USD', name: 'US Dollar', symbol: '$', is_common: true },
+          { id: null, code: 'EUR', name: 'Euro', symbol: '€', is_common: true },
+          { id: null, code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', is_common: true },
+          { id: null, code: 'IQD', name: 'Iraqi Dinar', symbol: 'ع.د', is_common: true },
+        ]);
+        return;
+      }
+
+      // Map data to consistent structure using EXACT column names
+      const mappedData = (data || []).map((curr: any) => {
+        // Ensure is_common is a boolean
+        const isCommon = curr.is_common === true || curr.is_common === 'true' || curr.is_common === 1;
+        
+        return {
+          id: curr.id || null,
+          code: curr.code || '', // REQUIRED: code column
+          name: curr.name || '', // REQUIRED: name column
+          symbol: curr.symbol || null,
+          is_common: isCommon // REQUIRED: is_common boolean column
+        };
+      });
+
+      // Sort: is_common (TRUE first), then by name
+      mappedData.sort((a, b) => {
+        // First sort by is_common (true first)
+        if (a.is_common && !b.is_common) return -1;
+        if (!a.is_common && b.is_common) return 1;
+        // Then sort by name
+        return (a.name || '').localeCompare(b.name || '');
+      });
+
+      setCurrencies(mappedData);
+      console.log('✅ Loaded currencies:', mappedData.length, 'total');
+      console.log('✅ Currency columns verified: id, code, name, symbol, is_common');
+    } catch (error: any) {
+      console.error('❌ Error loading currencies:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
+      });
+      // Fallback to common currencies if table doesn't exist or query fails
       setCurrencies([
-        { currency_code: 'SAR', currency_name: 'Saudi Riyal' },
-        { currency_code: 'USD', currency_name: 'US Dollar' },
-        { currency_code: 'EUR', currency_name: 'Euro' },
-        { currency_code: 'GBP', currency_name: 'British Pound' },
-        { currency_code: 'AED', currency_name: 'UAE Dirham' },
+        { id: null, code: 'SAR', name: 'Saudi Riyal', symbol: 'ر.س', is_common: true },
+        { id: null, code: 'USD', name: 'US Dollar', symbol: '$', is_common: true },
+        { id: null, code: 'EUR', name: 'Euro', symbol: '€', is_common: true },
+        { id: null, code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', is_common: true },
+        { id: null, code: 'IQD', name: 'Iraqi Dinar', symbol: 'ع.د', is_common: true },
       ]);
     }
   };
@@ -320,10 +395,13 @@ const TreasuryPage: FC = () => {
         key: 'currency',
         render: (currency: string) => {
           if (!currency) return <span>-</span>;
-          const currencyInfo = currencies.find((c) => c.currency_code === currency);
+          // Use EXACT column name: code (not currency_code)
+          const currencyInfo = currencies.find((c) => c.code === currency);
+          const code = currencyInfo?.code || currency;
+          const name = currencyInfo?.name || '';
           return (
             <span>
-              {currency} {currencyInfo ? `(${currencyInfo.currency_name})` : ''}
+              {code} {name ? `(${name})` : ''}
             </span>
           );
         },
@@ -332,11 +410,11 @@ const TreasuryPage: FC = () => {
         title: 'Balance',
         dataIndex: 'currentBalance',
         key: 'currentBalance',
-        render: (balance: number) => (
+        render: (balance: number, record: TreasuryAccount) => (
           <span
             style={{ fontWeight: 'bold', color: balance >= 0 ? '#52c41a' : '#ff4d4f' }}
           >
-            {formatCurrency(balance)}
+            {formatCurrency(balance, record.currency || 'SAR')}
           </span>
         ),
         sorter: (a: TreasuryAccount, b: TreasuryAccount) =>
@@ -346,7 +424,9 @@ const TreasuryPage: FC = () => {
         title: 'Initial Balance',
         dataIndex: 'initialBalance',
         key: 'initialBalance',
-        render: (balance: number) => <span>{formatCurrency(balance)}</span>,
+        render: (balance: number, record: TreasuryAccount) => (
+          <span>{formatCurrency(balance, record.currency || 'SAR')}</span>
+        ),
       },
       {
         title: 'Actions',
@@ -433,17 +513,22 @@ const TreasuryPage: FC = () => {
         title: 'Amount',
         dataIndex: 'amount',
         key: 'amount',
-        render: (amount: number, record: TreasuryTransaction) => (
-          <span
-            style={{
-              fontWeight: 'bold',
-              color: record.transactionType === 'inflow' ? '#52c41a' : '#ff4d4f',
-            }}
-          >
-            {record.transactionType === 'inflow' ? '+' : '-'}
-            {formatCurrency(amount)}
-          </span>
-        ),
+        render: (amount: number, record: TreasuryTransaction) => {
+          // Get currency from the account
+          const account = accounts.find((acc) => acc.id === record.accountId);
+          const currency = account?.currency || 'SAR';
+          return (
+            <span
+              style={{
+                fontWeight: 'bold',
+                color: record.transactionType === 'inflow' ? '#52c41a' : '#ff4d4f',
+              }}
+            >
+              {record.transactionType === 'inflow' ? '+' : '-'}
+              {formatCurrency(amount, currency)}
+            </span>
+          );
+        },
         sorter: (a: TreasuryTransaction, b: TreasuryTransaction) =>
           (a.amount || 0) - (b.amount || 0),
       },
@@ -508,13 +593,34 @@ const TreasuryPage: FC = () => {
     try {
       const values = await accountForm.validateFields();
 
+      // Ensure currency is the code (string), not an object
+      // The form value should already be a string (currency code like 'SAR', 'USD', 'IQD')
+      const currencyCode = typeof values.currency === 'string' 
+        ? values.currency.trim() // Trim whitespace
+        : (values.currency?.code || 'SAR');
+
+      // Validate currency code exists in our currencies list
+      const currencyExists = currencies.some(c => c.code === currencyCode);
+      if (!currencyExists && currencies.length > 0) {
+        console.warn('⚠️ Currency code not found in list:', currencyCode);
+        message.warning(`Currency ${currencyCode} not found. Using SAR as fallback.`);
+      }
+
       const accountData = {
         name: values.name,
         type: values.type,
         accountType: values.accountType || 'public',
-        currency: values.currency || 'SAR',
+        currency: currencyCode, // Use currency code as string (e.g., 'SAR', 'USD', 'IQD')
         initialBalance: values.initialBalance || 0,
       };
+      
+      console.log('💾 Saving account with data:', {
+        name: accountData.name,
+        type: accountData.type,
+        accountType: accountData.accountType,
+        currency: accountData.currency, // Should be string like 'SAR', 'USD', etc.
+        initialBalance: accountData.initialBalance
+      });
 
       let result;
       if (selectedAccount) {
@@ -575,6 +681,90 @@ const TreasuryPage: FC = () => {
   };
 
   /* =======================
+     Manager Tools Handlers
+  ======================= */
+
+  const handleAddFunds = (): void => {
+    addFundsForm.resetFields();
+    addFundsForm.setFieldsValue({
+      date: moment().format('YYYY-MM-DD'),
+    });
+    setIsAddFundsModalVisible(true);
+  };
+
+  const handleSaveAddFunds = async (): Promise<void> => {
+    try {
+      const values = await addFundsForm.validateFields();
+      const result = await treasuryService.addFunds({
+        accountId: values.accountId,
+        amount: values.amount,
+        date: values.date ? moment(values.date).toISOString() : new Date().toISOString(),
+        description: values.description || values.note || 'Funds added by manager',
+      });
+
+      if (result.success) {
+        message.success('Funds added successfully.');
+        setIsAddFundsModalVisible(false);
+        addFundsForm.resetFields();
+        await loadAccounts();
+        await loadTransactions();
+      } else {
+        message.error(result.error || 'Failed to add funds.');
+      }
+    } catch (error) {
+      console.error('Error adding funds:', error);
+      message.error('Failed to add funds.');
+    }
+  };
+
+  const handleTransferFunds = (): void => {
+    transferFundsForm.resetFields();
+    transferFundsForm.setFieldsValue({
+      exchangeRate: 1.0,
+    });
+    setIsTransferFundsModalVisible(true);
+  };
+
+  const handleSaveTransferFunds = async (): Promise<void> => {
+    try {
+      const values = await transferFundsForm.validateFields();
+      const sourceAmount = values.sourceAmount;
+      const exchangeRate = values.exchangeRate || 1.0;
+      const destinationAmount = sourceAmount * exchangeRate;
+
+      const result = await treasuryService.transferFunds({
+        sourceAccountId: values.sourceAccountId,
+        destinationAccountId: values.destinationAccountId,
+        sourceAmount: sourceAmount,
+        exchangeRate: exchangeRate,
+        destinationAmount: destinationAmount,
+        description: values.description || 'Funds transfer between accounts',
+      });
+
+      if (result.success) {
+        message.success(
+          `Transfer successful: ${sourceAmount} from ${result.sourceAccount.name} to ${result.destinationAccount.name}`
+        );
+        setIsTransferFundsModalVisible(false);
+        transferFundsForm.resetFields();
+        await loadAccounts();
+        await loadTransactions();
+      } else {
+        message.error(result.error || 'Failed to transfer funds.');
+      }
+    } catch (error) {
+      console.error('Error transferring funds:', error);
+      message.error('Failed to transfer funds.');
+    }
+  };
+
+  // Calculate destination amount when source amount or exchange rate changes
+  const calculateDestinationAmount = (sourceAmount: number, exchangeRate: number): number => {
+    if (!sourceAmount || !exchangeRate || exchangeRate <= 0) return 0;
+    return sourceAmount * exchangeRate;
+  };
+
+  /* =======================
      Render
   ======================= */
 
@@ -590,9 +780,31 @@ const TreasuryPage: FC = () => {
               Manage accounts and transactions
             </p>
           </div>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAddAccount}>
-            New Account
-          </Button>
+          <Space>
+            {isManager && (
+              <>
+                <Button 
+                  type="default" 
+                  icon={<ArrowUpOutlined />} 
+                  onClick={handleAddFunds}
+                  style={{ backgroundColor: '#52c41a', color: 'white', borderColor: '#52c41a' }}
+                >
+                  Add Funds (تغذية)
+                </Button>
+                <Button 
+                  type="default" 
+                  icon={<ArrowDownOutlined />} 
+                  onClick={handleTransferFunds}
+                  style={{ backgroundColor: '#1890ff', color: 'white', borderColor: '#1890ff' }}
+                >
+                  Transfer Funds (تحويل)
+                </Button>
+              </>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddAccount}>
+              New Account
+            </Button>
+          </Space>
         </div>
 
         {/* Statistics */}
@@ -604,7 +816,7 @@ const TreasuryPage: FC = () => {
                 value={totalCash}
                 precision={0}
                 prefix={<WalletOutlined />}
-                suffix="SAR"
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: totalCash >= 0 ? '#52c41a' : '#ff4d4f' } }}
               />
             </Card>
@@ -616,7 +828,7 @@ const TreasuryPage: FC = () => {
                 value={totalBank}
                 precision={0}
                 prefix={<BankOutlined />}
-                suffix="SAR"
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: totalBank >= 0 ? '#1890ff' : '#ff4d4f' } }}
               />
             </Card>
@@ -628,7 +840,7 @@ const TreasuryPage: FC = () => {
                 value={grandTotal}
                 precision={0}
                 prefix={<DollarOutlined />}
-                suffix="SAR"
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: grandTotal >= 0 ? '#722ed1' : '#ff4d4f' } }}
               />
             </Card>
@@ -753,14 +965,91 @@ const TreasuryPage: FC = () => {
               rules={[{ required: true, message: 'Please select currency' }]}
               initialValue="SAR"
             >
-              <Select placeholder="Select currency" showSearch filterOption={(input, option) =>
-                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
-              }>
-                {currencies.map((curr) => (
-                  <Option key={curr.currency_code} value={curr.currency_code}>
-                    {curr.currency_code} - {curr.currency_name}
-                  </Option>
-                ))}
+              <Select 
+                placeholder="Select currency" 
+                showSearch 
+                filterOption={(input, option) => {
+                  const label = option?.label as string;
+                  return label?.toLowerCase().includes(input.toLowerCase()) || false;
+                }}
+              >
+                {/* First Group: Common Currencies (العملات الأساسية) */}
+                <Select.OptGroup label="العملات الأساسية">
+                  {(() => {
+                    // Define the 5 main currencies in the desired order
+                    const mainCurrencies = ['IQD', 'AED', 'USD', 'SAR', 'EUR'];
+                    const mainCurrenciesSet = new Set(mainCurrencies);
+                    
+                    // Filter currencies using EXACT column name: is_common (boolean)
+                    // Also include the 5 main currencies even if is_common is not set
+                    const commonCurrencies = currencies.filter((curr) => {
+                      const code = curr.code; // Use EXACT column name: code
+                      const isCommon = curr.is_common === true; // Use EXACT column name: is_common
+                      return isCommon || (code && mainCurrenciesSet.has(code));
+                    });
+                    
+                    // Sort: main currencies first in specific order, then others by name
+                    commonCurrencies.sort((a, b) => {
+                      const codeA = a.code || '';
+                      const codeB = b.code || '';
+                      const indexA = mainCurrencies.indexOf(codeA);
+                      const indexB = mainCurrencies.indexOf(codeB);
+                      
+                      // If both are in main list, sort by their position
+                      if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                      // If only A is in main list, A comes first
+                      if (indexA !== -1) return -1;
+                      // If only B is in main list, B comes first
+                      if (indexB !== -1) return 1;
+                      // Otherwise, sort by name
+                      return (a.name || '').localeCompare(b.name || '');
+                    });
+                    
+                    return commonCurrencies.map((curr) => {
+                      const code = curr.code; // Use EXACT column name: code
+                      const name = curr.name; // Use EXACT column name: name
+                      const symbol = curr.symbol || '';
+                      return (
+                        <Option key={code} value={code} label={`${code} - ${name}`}>
+                          {code} - {name} {symbol ? `(${symbol})` : ''}
+                        </Option>
+                      );
+                    });
+                  })()}
+                </Select.OptGroup>
+                
+                {/* Second Group: Other Global Currencies (باقي العملات العالمية) */}
+                <Select.OptGroup label="باقي العملات العالمية">
+                  {(() => {
+                    // Define the 5 main currencies to exclude
+                    const mainCurrencies = ['IQD', 'AED', 'USD', 'SAR', 'EUR'];
+                    const mainCurrenciesSet = new Set(mainCurrencies);
+                    
+                    // Filter currencies using EXACT column name: is_common (boolean)
+                    // Exclude currencies that are common OR in main list
+                    const otherCurrencies = currencies.filter((curr) => {
+                      const code = curr.code; // Use EXACT column name: code
+                      const isCommon = curr.is_common === true; // Use EXACT column name: is_common
+                      return !isCommon && (!code || !mainCurrenciesSet.has(code));
+                    });
+                    
+                    // Sort by name
+                    otherCurrencies.sort((a, b) => {
+                      return (a.name || '').localeCompare(b.name || '');
+                    });
+                    
+                    return otherCurrencies.map((curr) => {
+                      const code = curr.code; // Use EXACT column name: code
+                      const name = curr.name; // Use EXACT column name: name
+                      const symbol = curr.symbol || '';
+                      return (
+                        <Option key={code} value={code} label={`${code} - ${name}`}>
+                          {code} - {name} {symbol ? `(${symbol})` : ''}
+                        </Option>
+                      );
+                    });
+                  })()}
+                </Select.OptGroup>
               </Select>
             </Form.Item>
 
@@ -790,7 +1079,7 @@ const TreasuryPage: FC = () => {
                 }}
               >
                 <div>
-                  <strong>Balance:</strong> {formatCurrency(selectedAccount.currentBalance)}
+                  <strong>Balance:</strong> {formatCurrency(selectedAccount.currentBalance, selectedAccount.currency || 'SAR')}
                 </div>
                 <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
                   Balance is calculated from transactions and cannot be edited directly.

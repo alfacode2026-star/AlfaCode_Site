@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import moment from 'moment'
+import { useBranch } from '../contexts/BranchContext'
 import customersService from '../services/customersService'
 import ordersService from '../services/ordersService'
 import paymentsService from '../services/paymentsService'
@@ -46,6 +47,7 @@ import {
 const { Option } = Select
 
 const SuppliersPage = () => {
+  const { branchCurrency } = useBranch()
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchText, setSearchText] = useState('')
@@ -462,7 +464,7 @@ const SuppliersPage = () => {
               title="إجمالي الرصيد"
               value={stats.totalBalance}
               prefix={<DollarOutlined />}
-              suffix="ريال"
+              suffix={branchCurrency || 'SAR'}
             />
           </Card>
         </Col>
@@ -472,7 +474,7 @@ const SuppliersPage = () => {
               title="إجمالي المشتريات"
               value={stats.totalPurchases}
               prefix={<ShoppingOutlined />}
-              suffix="ريال"
+              suffix={branchCurrency || 'SAR'}
             />
           </Card>
         </Col>

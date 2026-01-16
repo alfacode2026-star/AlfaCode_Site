@@ -48,8 +48,10 @@ import workersService from '../services/workersService'
 import employeesService from '../services/employeesService'
 import tenantStore from '../services/tenantStore'
 import { useTenant } from '../contexts/TenantContext'
+import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getTranslations } from '../utils/translations'
+import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils'
 import dayjs from 'dayjs'
 
 const { Option } = Select
@@ -60,6 +62,7 @@ type TransactionType = 'regular' | 'advance' | 'settlement'
 
 const GeneralExpenses = () => {
   const { industryType } = useTenant()
+  const { branchCurrency } = useBranch() // Get branch currency from context
   const { language } = useLanguage()
   const t = getTranslations(language)
   const [expenses, setExpenses] = useState<any[]>([])
@@ -115,6 +118,9 @@ const GeneralExpenses = () => {
   const [externalCustodyAddress, setExternalCustodyAddress] = useState('')
   const [selectedTreasuryAccount, setSelectedTreasuryAccount] = useState<any>(null)
   const [baseCurrency] = useState<string>('SAR') // Base currency for exchange rate calculations
+  
+  // Use branch currency as the single source of truth
+  const displayCurrency = branchCurrency || 'SAR'
 
   const isEngineering = industryType === 'engineering'
 
@@ -1143,6 +1149,9 @@ const GeneralExpenses = () => {
             // The money already left the bank when the advance was first issued
             // No treasury transaction should be created for expense-type settlements
 
+            // CRITICAL: Use branch currency as the single source of truth
+            const currencyForSettlement = branchCurrency || 'SAR'
+
             const result = await paymentsService.createSettlementWithPO({
               linkedAdvanceId: values.linkedAdvanceId,
               amount: amountValue,
@@ -1155,6 +1164,7 @@ const GeneralExpenses = () => {
               projectId: selectedLinkedAdvance.projectId,
               workScope: values.workScope || null,
               treasuryAccountId: null, // Expense-type settlements don't use treasury account
+              currency: currencyForSettlement, // Currency from linked advance
               // PO data
               vendorId: finalVendorId,
               vendorName: finalVendorName,
@@ -1289,6 +1299,9 @@ const GeneralExpenses = () => {
           }
         }
 
+        // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
+        const currencyForAdvance = branchCurrency || 'SAR'
+
         const paymentData = {
           isGeneralExpense: true, // Manager advances are general expenses
           projectId: values.projectId || null, // Optional project_id
@@ -1305,7 +1318,9 @@ const GeneralExpenses = () => {
           transactionType: transactionType,
           managerName: managerName,
           linkedAdvanceId: transactionType === 'settlement' ? (values.linkedAdvanceId || null) : null,
-          settlementType: transactionType === 'settlement' ? (settlementType || 'expense') : null
+          settlementType: transactionType === 'settlement' ? (settlementType || 'expense') : null,
+          currency: currencyForAdvance, // Currency from treasury account or linked advance
+          treasuryAccountId: treasuryAccountIdForAdvance // Include treasury account ID for advances
         }
 
         let result
@@ -1446,6 +1461,9 @@ const GeneralExpenses = () => {
         // The 'employeeId' field maps to 'employee_id' in the database (for relational linking)
         // CRITICAL: Use values.status if provided, otherwise default to 'pending'
         const expenseStatus = values.status || (editingExpense ? editingExpense.status : 'pending')
+        // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
+        const currencyForAdmin = branchCurrency || 'SAR'
+
         const paymentData = {
           isGeneralExpense: true,
           projectId: null,
@@ -1463,7 +1481,9 @@ const GeneralExpenses = () => {
           paymentFrequency: values.paymentFrequency || 'one-time',
           transactionType: 'regular',
           managerName: null,
-          linkedAdvanceId: null
+          linkedAdvanceId: null,
+          currency: currencyForAdmin, // Currency from treasury account
+          treasuryAccountId: treasuryAccountId // Include treasury account ID
         }
 
         let result
@@ -1652,7 +1672,7 @@ const GeneralExpenses = () => {
           </div>
           <div class="detail-row">
             <span class="label">${language === 'ar' ? 'المبلغ:' : 'Amount:'}</span>
-            <span>${parseFloat(expense.amount || 0).toLocaleString()} ${language === 'ar' ? 'ريال' : 'SAR'}</span>
+            <span>${parseFloat(expense.amount || 0).toLocaleString()} ${displayCurrency}</span>
           </div>
           <div class="detail-row">
             <span class="label">${language === 'ar' ? 'المستلم:' : 'Recipient:'}</span>
@@ -2243,7 +2263,7 @@ const GeneralExpenses = () => {
                 title={t.generalExpenses.totalExpensesLabel || t.generalExpenses.totalExpenses}
                 value={totalExpenses}
                 precision={0}
-                suffix={t.common.sar}
+                suffix={displayCurrency}
                 prefix={<BankOutlined />}
               />
             </Card>
@@ -2254,7 +2274,7 @@ const GeneralExpenses = () => {
                 title={t.generalExpenses.paidExpenses || 'Paid Expenses'}
                 value={paidExpenses}
                 precision={0}
-                suffix={t.common.sar}
+                suffix={displayCurrency}
                 styles={{ value: { color: '#3f8600' } }}
               />
             </Card>
@@ -2265,7 +2285,7 @@ const GeneralExpenses = () => {
                 title={t.generalExpenses.pendingExpenses || 'Pending Expenses'}
                 value={pendingExpenses}
                 precision={0}
-                suffix={t.common.sar}
+                suffix={displayCurrency}
                 styles={{ value: { color: '#cf1322' } }}
               />
             </Card>
@@ -2287,7 +2307,7 @@ const GeneralExpenses = () => {
                       title={`${balance.managerName || t.common.notSpecified}`}
                       value={balance.outstandingBalance}
                       precision={0}
-                      suffix={t.common.sar}
+                      suffix={displayCurrency}
                       styles={{ value: { color: balance.outstandingBalance > 0 ? '#cf1322' : '#3f8600' } }}
                       prefix={<UserOutlined />}
                     />
@@ -3067,7 +3087,9 @@ const GeneralExpenses = () => {
 
               <Form.Item
                 name="amount"
-                label={transactionType === 'settlement' && settlementType === 'expense' ? "مبلغ التسوية (يُحسب تلقائياً من البنود)" : "المبلغ (ريال)"}
+                label={transactionType === 'settlement' && settlementType === 'expense' 
+                  ? `مبلغ التسوية (يُحسب تلقائياً من البنود)` 
+                  : formatCurrencyLabel('المبلغ', displayCurrency)}
                 rules={[
                   { required: true, message: 'يرجى إدخال المبلغ' },
                   {
@@ -3291,10 +3313,26 @@ const GeneralExpenses = () => {
                 </Select>
               </Form.Item>
 
+              {/* Currency Display - Static label showing branch currency */}
+              <Form.Item
+                label={`العملة / Currency (${displayCurrency})`}
+                tooltip="العملة مضبوطة على مستوى الفرع ولا يمكن تغييرها لكل معاملة / Currency is set at the branch level and cannot be changed per transaction"
+              >
+                <Input
+                  readOnly
+                  value={displayCurrency}
+                  style={{
+                    backgroundColor: '#fafafa',
+                    cursor: 'default',
+                  }}
+                  size="large"
+                />
+              </Form.Item>
+
               {/* Amount */}
               <Form.Item
                 name="amount"
-                label="المبلغ (ريال) / Amount"
+                label={`المبلغ (${displayCurrency}) / Amount (${displayCurrency})`}
                 rules={[
                   { required: true, message: 'يرجى إدخال المبلغ' },
                   {
@@ -3337,12 +3375,8 @@ const GeneralExpenses = () => {
                   onChange={(value) => {
                     const account = treasuryAccounts.find(acc => acc.id === value)
                     setSelectedTreasuryAccount(account || null)
-                    // Reset exchange rate when account changes
-                    if (account && account.currency !== baseCurrency) {
-                      form.setFieldsValue({ exchangeRate: 1, convertedAmount: null })
-                    } else {
-                      form.setFieldsValue({ exchangeRate: null, convertedAmount: null })
-                    }
+                    // Note: Currency is now fixed to branch currency, no syncing needed
+                    console.log('✅ Treasury account selected:', { accountId: value, branchCurrency: displayCurrency });
                   }}
                 >
                   {treasuryAccounts.map(acc => (

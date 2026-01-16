@@ -282,6 +282,9 @@ class PaymentsService {
         remainingAmount = paymentData.amount || 0
       }
 
+      // Get currency from treasury account if provided, otherwise default to SAR
+      const currency = paymentData.currency || 'SAR'
+
       const newPayment = {
         tenant_id: tenantId,
         contract_id: isGeneralExpense ? null : (paymentData.contractId || null),
@@ -311,7 +314,8 @@ class PaymentsService {
         linked_advance_id: paymentData.linkedAdvanceId || null,
         // settlement_type: only for settlements, 'expense' or 'return'
         settlement_type: paymentData.settlementType || null,
-        is_general_expense: isGeneralExpense
+        is_general_expense: isGeneralExpense,
+        currency: currency // Currency from treasury account
       }
 
       // Only add created_by if we have a valid UUID (optional)
@@ -1231,6 +1235,9 @@ class PaymentsService {
       // Generate payment number for settlement
       const settlementPaymentNumber = `SETT-${Date.now()}`
 
+      // Get currency from settlement data or linked advance, default to SAR
+      const currency = settlementData.currency || linkedAdvance?.currency || 'SAR'
+
       const settlementPayment = {
         tenant_id: tenantId,
         contract_id: null,
@@ -1252,7 +1259,8 @@ class PaymentsService {
         manager_name: settlementData.managerName || null,
         linked_advance_id: settlementData.linkedAdvanceId,
         settlement_type: settlementData.settlementType || 'expense',
-        is_general_expense: true
+        is_general_expense: true,
+        currency: currency // Currency from settlement data or linked advance
       }
 
       // Only add created_by if we have a valid UUID (optional)
@@ -1305,7 +1313,8 @@ class PaymentsService {
         notes: `تسوية عهدة رقم ${linkedAdvance.referenceNumber || linkedAdvance.paymentNumber} - ${settlementData.notes || ''}`,
         createdBy: 'user',
         isSettlementPO: true, // Flag to skip tax/discounts
-        exactTotal: settlementAmount // Use exact settlement amount, not calculated from items
+        exactTotal: settlementAmount, // Use exact settlement amount, not calculated from items
+        currency: currency // Currency from settlement data or linked advance
       }
 
       const poResult = await ordersService.createOrder(orderData)

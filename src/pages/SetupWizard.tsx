@@ -14,7 +14,9 @@ import {
   Typography,
   Row,
   Col,
-  message
+  message,
+  Radio,
+  Divider
 } from 'antd'
 import {
   BuildOutlined,
@@ -41,6 +43,12 @@ interface IndustryCard {
   color: string
 }
 
+interface BranchConfig {
+  name: string
+  currency: string
+  isMain: boolean
+}
+
 const SetupWizard = () => {
   const navigate = useNavigate()
   const [currentStep, setCurrentStep] = useState(0)
@@ -48,6 +56,7 @@ const SetupWizard = () => {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [branches, setBranches] = useState<BranchConfig[]>([{ name: '', currency: 'SAR', isMain: true }])
 
   const industries: IndustryCard[] = [
     {
@@ -87,10 +96,6 @@ const SetupWizard = () => {
     {
       title: 'Organization',
       description: 'Company & Branches'
-    },
-    {
-      title: 'Financial Setup',
-      description: 'Currencies & Treasuries'
     },
     {
       title: 'Admin Accounts',
@@ -166,10 +171,64 @@ const SetupWizard = () => {
     )
   }
 
+  // Handle number of branches change
+  const handleNumberOfBranchesChange = (value: number | null) => {
+    if (value === null || value < 1) return
+    
+    const newBranches: BranchConfig[] = []
+    for (let i = 0; i < value; i++) {
+      if (i < branches.length) {
+        // Keep existing branch data
+        newBranches.push(branches[i])
+      } else {
+        // Create new branch with default values
+        newBranches.push({
+          name: '',
+          currency: 'SAR',
+          isMain: i === 0 // First branch is main by default
+        })
+      }
+    }
+    
+    // Ensure exactly one main branch
+    const mainCount = newBranches.filter(b => b.isMain).length
+    if (mainCount === 0 && newBranches.length > 0) {
+      newBranches[0].isMain = true
+    } else if (mainCount > 1) {
+      // If multiple are main, keep only the first one
+      let foundFirst = false
+      newBranches.forEach(b => {
+        if (b.isMain && !foundFirst) {
+          foundFirst = true
+        } else if (b.isMain) {
+          b.isMain = false
+        }
+      })
+    }
+    
+    setBranches(newBranches)
+  }
+
+  // Handle branch field changes
+  const handleBranchChange = (index: number, field: keyof BranchConfig, value: string | boolean) => {
+    const newBranches = [...branches]
+    
+    if (field === 'isMain' && value === true) {
+      // If setting this branch as main, unset all others
+      newBranches.forEach((b, i) => {
+        b.isMain = i === index
+      })
+    } else {
+      newBranches[index][field] = value as any
+    }
+    
+    setBranches(newBranches)
+  }
+
   // Step 2: Organization Structure
   const renderStep2 = () => {
     return (
-      <div style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
+      <div style={{ padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
         <Title level={3} style={{ textAlign: 'center', marginBottom: '32px' }}>
           Organization Structure
         </Title>
@@ -200,26 +259,70 @@ const SetupWizard = () => {
               max={50}
               style={{ width: '100%' }}
               placeholder="Enter number of branches"
+              onChange={handleNumberOfBranchesChange}
             />
           </Form.Item>
 
-          <Form.Item
-            label="Main Branch Name"
-            name="mainBranchName"
-            rules={[{ required: true, message: 'Please enter main branch name' }]}
-          >
-            <Input size="large" placeholder="Enter main branch name" />
-          </Form.Item>
-
-          <Form.Item
-            label="Main Branch Address"
-            name="mainBranchAddress"
-          >
-            <Input.TextArea
-              rows={3}
-              placeholder="Enter main branch address (optional)"
-            />
-          </Form.Item>
+          <Divider>Branch Configuration</Divider>
+          
+          {branches.map((branch, index) => (
+            <Card
+              key={index}
+              title={`Branch ${index + 1}${branch.isMain ? ' (Main Branch)' : ''}`}
+              style={{ marginBottom: 16 }}
+              headStyle={{ backgroundColor: branch.isMain ? '#e6f7ff' : '#fafafa' }}
+            >
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    label="Branch Name"
+                    required
+                    validateStatus={!branch.name ? 'error' : ''}
+                    help={!branch.name ? 'Branch name is required' : ''}
+                  >
+                    <Input
+                      size="large"
+                      placeholder={`Enter branch ${index + 1} name`}
+                      value={branch.name}
+                      onChange={(e) => handleBranchChange(index, 'name', e.target.value)}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item label="Currency" required>
+                    <Select
+                      size="large"
+                      style={{ width: '100%' }}
+                      value={branch.currency}
+                      onChange={(value) => handleBranchChange(index, 'currency', value)}
+                    >
+                      <Option value="SAR">SAR - Saudi Riyal</Option>
+                      <Option value="USD">USD - US Dollar</Option>
+                      <Option value="EUR">EUR - Euro</Option>
+                      <Option value="AED">AED - UAE Dirham</Option>
+                      <Option value="IQD">IQD - Iraqi Dinar</Option>
+                      <Option value="EGP">EGP - Egyptian Pound</Option>
+                      <Option value="JOD">JOD - Jordanian Dinar</Option>
+                      <Option value="KWD">KWD - Kuwaiti Dinar</Option>
+                      <Option value="BHD">BHD - Bahraini Dinar</Option>
+                      <Option value="OMR">OMR - Omani Rial</Option>
+                      <Option value="QAR">QAR - Qatari Riyal</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col span={4}>
+                  <Form.Item label="Main Branch">
+                    <Radio
+                      checked={branch.isMain}
+                      onChange={(e) => handleBranchChange(index, 'isMain', e.target.checked)}
+                    >
+                      Main
+                    </Radio>
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Card>
+          ))}
         </Form>
       </div>
     )
@@ -366,19 +469,27 @@ const SetupWizard = () => {
       setCurrentStep(1)
     } else if (currentStep === 1) {
       try {
-        await form.validateFields(['companyName', 'numberOfBranches', 'mainBranchName'])
+        await form.validateFields(['companyName', 'numberOfBranches'])
+        
+        // Validate branches
+        const hasEmptyNames = branches.some(b => !b.name || b.name.trim() === '')
+        const mainBranchCount = branches.filter(b => b.isMain).length
+        
+        if (hasEmptyNames) {
+          message.error('Please enter a name for all branches')
+          return
+        }
+        
+        if (mainBranchCount !== 1) {
+          message.error('Please select exactly one branch as the main branch')
+          return
+        }
+        
         setCurrentStep(2)
       } catch (error) {
         console.error('Validation failed:', error)
       }
     } else if (currentStep === 2) {
-      try {
-        await form.validateFields(['currency', 'treasuryName', 'initialBalance'])
-        setCurrentStep(3)
-      } catch (error) {
-        console.error('Validation failed:', error)
-      }
-    } else if (currentStep === 3) {
       try {
         await form.validateFields(['superAdminName', 'superAdminEmail', 'superAdminPassword'])
         await handleFinish()
@@ -409,9 +520,6 @@ const SetupWizard = () => {
       // Collect all data from steps
       const companyName = values.companyName
       const industryType = selectedIndustry
-      const numberOfBranches = values.numberOfBranches || 1
-      const mainBranchName = values.mainBranchName
-      const currency = values.currency || 'SAR'
 
       // Collect admin credentials from Step 4
       const superAdminEmail = values.superAdminEmail
@@ -421,28 +529,41 @@ const SetupWizard = () => {
       // Validate admin credentials
       if (!superAdminEmail || !superAdminPassword) {
         message.error('Please provide Super Admin email and password')
-        setCurrentStep(3) // Go back to Step 4 (Admin Accounts)
+        setCurrentStep(2) // Go back to Admin Accounts step
         setIsSubmitting(false)
         return
       }
 
-      // Build additionalBranches array if numberOfBranches > 1
-      const additionalBranches: Array<{ name: string }> = []
-      if (numberOfBranches > 1) {
-        for (let i = 2; i <= numberOfBranches; i++) {
-          additionalBranches.push({ name: `Branch ${i}` })
-        }
+      // Validate branches before submission
+      const hasEmptyNames = branches.some(b => !b.name || b.name.trim() === '')
+      const mainBranchCount = branches.filter(b => b.isMain).length
+      
+      if (hasEmptyNames) {
+        message.error('Please enter a name for all branches')
+        setCurrentStep(1) // Go back to branch configuration
+        setIsSubmitting(false)
+        return
       }
+      
+      if (mainBranchCount !== 1) {
+        message.error('Please select exactly one branch as the main branch')
+        setCurrentStep(1) // Go back to branch configuration
+        setIsSubmitting(false)
+        return
+      }
+
+      // Prepare branches array for service
+      const branchesConfig = branches.map(b => ({
+        name: b.name.trim(),
+        currency: b.currency,
+        isMain: b.isMain
+      }))
 
       // Prepare payload matching service interface
       const payload = {
         name: companyName, // Company name
         industry_type: industryType, // Industry type
-        currency: currency, // Currency code
-        mainBranchName: mainBranchName, // Main branch name
-        additionalBranches: additionalBranches.length > 0 ? additionalBranches : undefined, // Additional branches array
-        // Also include numberOfBranches for backward compatibility
-        numberOfBranches: numberOfBranches,
+        branches: branchesConfig, // Array of branch configurations with name, currency, and isMain
         // Admin credentials for user creation
         adminData: {
           email: superAdminEmail,
@@ -451,16 +572,59 @@ const SetupWizard = () => {
         }
       }
 
+      // CRITICAL DEBUG: Log the exact payload being sent
+      console.log('🔥 [SetupWizard] Payload being sent to setupService:', JSON.stringify(payload, null, 2))
+      console.log('🔥 [SetupWizard] Company Name:', companyName)
+      console.log('🔥 [SetupWizard] Number of branches:', branchesConfig.length)
+      branchesConfig.forEach((b, i) => {
+        console.log(`🔥 [SetupWizard] Branch ${i + 1}:`, JSON.stringify(b, null, 2))
+      })
+
       // Call setup service
       const result = await setupService.completeSystemSetup(payload)
 
       if (result.success) {
-        message.success('Setup completed successfully! Redirecting to dashboard...')
+        // CRITICAL: Verify user linking before redirecting
+        console.log('✅ [SetupWizard] Setup completed. Verifying user linking...')
+        console.log('✅ [SetupWizard] Result:', {
+          tenantId: result.tenantId,
+          mainBranchId: result.mainBranchId,
+          user: result.user
+        })
         
-        // Wait 2 seconds then force full page refresh
-        setTimeout(() => {
-          window.location.href = '/'
-        }, 2000)
+        // CRITICAL VERIFICATION: Ensure user data is present and linked
+        if (!result.user) {
+          const errorMsg = 'CRITICAL: Setup completed but user data is missing. Cannot proceed.'
+          console.error(`❌ [SetupWizard] ${errorMsg}`)
+          message.error(errorMsg)
+          setIsSubmitting(false)
+          return
+        }
+        
+        if (!result.user.tenant_id || !result.user.branch_id) {
+          const errorMsg = `CRITICAL: User linking incomplete. tenant_id: ${result.user.tenant_id}, branch_id: ${result.user.branch_id}. Setup cannot complete.`
+          console.error(`❌ [SetupWizard] ${errorMsg}`)
+          message.error(errorMsg)
+          setIsSubmitting(false)
+          return
+        }
+        
+        console.log('✅ [SetupWizard] User linking confirmed:', {
+          tenant_id: result.user.tenant_id,
+          branch_id: result.user.branch_id,
+          role: result.user.role
+        })
+        
+        message.success('Setup completed successfully! Refreshing session...')
+        
+        // CRITICAL: Force context refresh before redirect
+        // Wait a moment for any pending database writes to complete
+        await new Promise(resolve => setTimeout(resolve, 1500))
+        
+        // Force a hard reload to refresh all contexts (TenantContext, BranchContext, AuthContext, etc.)
+        // This ensures the app reloads with the new tenant_id and branch_id
+        console.log('🔄 [SetupWizard] Force reloading application to refresh contexts...')
+        window.location.href = '/'
       } else {
         // Show error message with details
         const errorMessage = result.error || 'Failed to complete setup'
@@ -469,10 +633,10 @@ const SetupWizard = () => {
         // Show specific error messages based on error code
         if (result.errorCode === 'MISSING_ADMIN_CREDENTIALS') {
           message.warning('Please provide Super Admin email and password')
-          setCurrentStep(3) // Go back to Step 4 (Admin Accounts)
+          setCurrentStep(2) // Go back to Admin Accounts step
         } else if (result.errorCode === 'SIGNUP_FAILED' || result.errorCode === 'SIGNIN_FAILED') {
           message.warning('Failed to create or sign in admin account. Please check your credentials.')
-          setCurrentStep(3) // Go back to Step 4 (Admin Accounts)
+          setCurrentStep(2) // Go back to Admin Accounts step
         }
       }
     } catch (error: any) {
@@ -500,9 +664,7 @@ const SetupWizard = () => {
       case 1:
         return renderStep2()
       case 2:
-        return renderStep3()
-      case 3:
-        return renderStep4()
+        return renderStep4() // Admin Accounts (Step 3 removed)
       default:
         return null
     }
@@ -530,7 +692,7 @@ const SetupWizard = () => {
             System Setup Wizard
           </Title>
           <Paragraph style={{ textAlign: 'center', color: '#666' }}>
-            Configure your ERP system in 4 simple steps
+            Configure your ERP system in 3 simple steps
           </Paragraph>
         </div>
 

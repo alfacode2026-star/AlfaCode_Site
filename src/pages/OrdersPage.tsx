@@ -9,8 +9,10 @@ import treasuryService from '../services/treasuryService'
 import paymentsService from '../services/paymentsService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
 import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
+import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils'
 import { 
   Card, 
   Table, 
@@ -59,6 +61,7 @@ const { Step } = Steps
 
 const OrdersPage = () => {
   const { industryType } = useTenant()
+  const { branchCurrency } = useBranch() // Get branch currency from context
   const { language } = useLanguage()
   const t = getTranslations(language)
   const isEngineering = industryType === 'engineering'
@@ -87,6 +90,9 @@ const OrdersPage = () => {
   const [availableWorkScopes, setAvailableWorkScopes] = useState([])
   const [treasuryAccounts, setTreasuryAccounts] = useState([])
   const [selectedOrderTreasuryAccount, setSelectedOrderTreasuryAccount] = useState(null)
+  
+  // Use branch currency as the single source of truth
+  const displayCurrency = branchCurrency || 'SAR'
 
   // Load orders on mount
   useEffect(() => {
@@ -959,6 +965,9 @@ const OrdersPage = () => {
       }
       // Map account type to payment method: 'bank' -> 'bank_transfer', 'cash_box' -> 'cash'
       const derivedPaymentMethod = selectedAccount.type === 'bank' ? 'bank_transfer' : 'cash'
+      
+      // Use branch currency directly (single source of truth)
+      const currency = displayCurrency
 
       // Create order data
       const orderData = {
@@ -967,6 +976,7 @@ const OrdersPage = () => {
         customerPhone: finalCustomerPhone,
         customerEmail: finalCustomerEmail,
         projectId: isEngineering ? (values.projectId || null) : null,
+        currency: currency, // Include currency from treasury account
         workScope: isEngineering ? (values.workScope || null) : null,
         items: orderItems,
         status: values.status || 'pending',
@@ -1093,7 +1103,7 @@ const OrdersPage = () => {
               value={stats.totalRevenue}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix={t.common.sar}
+              suffix={displayCurrency}
             />
           </Card>
         </Col>
@@ -1379,13 +1389,33 @@ const OrdersPage = () => {
               placeholder={t.orders.selectTreasuryAccount} 
               disabled={treasuryAccounts.length === 0}
               notFoundContent={treasuryAccounts.length === 0 ? t.orders.treasuryAccountWarning : null}
+              onChange={(accountId) => {
+                // Note: Currency is now fixed to branch currency, no syncing needed
+                console.log('✅ Treasury account selected:', { accountId, branchCurrency: displayCurrency });
+              }}
             >
               {treasuryAccounts.map(acc => (
                 <Option key={acc.id} value={acc.id}>
                   {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                  {acc.currency && acc.currency !== 'SAR' ? ` - ${acc.currency}` : ''}
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+
+          {/* Currency Display - Static label showing branch currency */}
+          <Form.Item
+            label={`العملة / Currency (${displayCurrency})`}
+            tooltip="العملة مضبوطة على مستوى الفرع ولا يمكن تغييرها لكل معاملة / Currency is set at the branch level and cannot be changed per transaction"
+          >
+            <Input
+              readOnly
+              value={displayCurrency}
+              style={{
+                backgroundColor: '#fafafa',
+                cursor: 'default',
+              }}
+            />
           </Form.Item>
 
           <Form.Item

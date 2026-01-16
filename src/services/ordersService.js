@@ -220,6 +220,9 @@ class OrdersService {
       }
 
 
+      // Get currency from treasury account if provided, otherwise default to SAR
+      const currency = orderData.currency || 'SAR'
+
       // Prepare order data
       const newOrder = {
         id: orderId,
@@ -241,7 +244,8 @@ class OrdersService {
         shipping_address: orderData.shippingAddress || null,
         tracking_number: orderData.trackingNumber || null,
         notes: orderData.notes || null,
-        created_by: orderData.createdBy || 'user'
+        created_by: orderData.createdBy || 'user',
+        currency: currency // Currency from treasury account
       }
 
       // Prepare order items

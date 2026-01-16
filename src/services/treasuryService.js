@@ -127,30 +127,75 @@ class TreasuryService {
 
       // Get current user's branch_id from profile
       const userProfile = await this.getCurrentUserProfile()
-      const branchId = userProfile?.branch_id
+      let branchId = userProfile?.branch_id
+
+      // Fallback: If user doesn't have a branch_id, fetch the first available branch for this tenant
+      if (!branchId) {
+        console.warn('⚠️ User profile has no branch_id, fetching first available branch for tenant:', tenantId)
+        try {
+          const { data: branches, error: branchError } = await supabase
+            .from('branches')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .order('is_main', { ascending: false }) // Prefer main branch
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle()
+
+          if (!branchError && branches) {
+            branchId = branches.id
+            console.log('✅ Using fallback branch_id:', branchId)
+          } else if (branchError) {
+            console.error('❌ Error fetching fallback branch:', branchError)
+          } else {
+            console.warn('⚠️ No branches found for tenant:', tenantId)
+          }
+        } catch (fallbackError) {
+          console.error('❌ Exception during fallback branch fetch:', fallbackError)
+        }
+      }
 
       if (!branchId) {
         return {
           success: false,
-          error: 'User branch not found. Please ensure your profile has a branch assigned.',
+          error: 'User branch not found. Please ensure your profile has a branch assigned or that at least one branch exists for this tenant.',
           errorCode: 'NO_BRANCH_ID'
         }
       }
+
+      console.log('💾 Saving treasury account with Branch ID:', branchId)
+      console.log('💾 Saving treasury account with Tenant ID:', tenantId)
 
       const accountId = accountData.id || crypto.randomUUID()
       const initialBalance = parseFloat(accountData.initialBalance) || 0
 
       // Clean payload - let Supabase generate id and timestamps
+      // CRITICAL: currency must be a string (currency code like 'SAR', 'USD', 'IQD')
+      const currencyValue = typeof accountData.currency === 'string' 
+        ? accountData.currency.trim() 
+        : (accountData.currency || 'SAR');
+
       const newAccount = {
-        tenant_id: tenantId,
-        branch_id: branchId, // Inherit from user profile
-        name: accountData.name,
+        tenant_id: tenantId, // REQUIRED: tenant_id
+        branch_id: branchId, // REQUIRED: branch_id (from profile or fallback)
+        name: accountData.name, // REQUIRED: name
         type: accountData.type || 'bank', // 'bank' or 'cash_box'
         account_type: accountData.accountType || 'public', // 'public' or 'private'
-        currency: accountData.currency || 'SAR',
+        currency: currencyValue, // REQUIRED: currency code as string (e.g., 'SAR', 'USD', 'IQD')
         initial_balance: initialBalance,
         current_balance: initialBalance // Initialize current_balance to match initial_balance
       }
+
+      console.log('📤 Treasury Account Payload:', {
+        tenant_id: newAccount.tenant_id,
+        branch_id: newAccount.branch_id,
+        name: newAccount.name,
+        type: newAccount.type,
+        account_type: newAccount.account_type,
+        currency: newAccount.currency, // Should be string like 'SAR', 'USD', etc.
+        initial_balance: newAccount.initial_balance,
+        current_balance: newAccount.current_balance
+      });
 
       const { data, error } = await supabase
         .from('treasury_accounts')
@@ -164,7 +209,22 @@ class TreasuryService {
         `)
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Error inserting treasury account:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+        throw error;
+      }
+      
+      console.log('✅ Treasury account created successfully:', {
+        id: data?.id,
+        name: data?.name,
+        currency: data?.currency
+      });
 
       return {
         success: true,
@@ -428,8 +488,9 @@ class TreasuryService {
         }
       }
 
-      const transactionType = transactionData.transactionType || 'outflow' // 'inflow' or 'outflow'
-      const balanceChange = transactionType === 'inflow' ? amount : -amount
+      const transactionType = transactionData.transactionType || 'outflow' // 'inflow', 'outflow', 'deposit', or 'transfer'
+      // 'deposit' is treated as 'inflow' for balance calculation
+      const balanceChange = (transactionType === 'inflow' || transactionType === 'deposit') ? amount : -amount
 
       // STEP 1: Verify account exists (IGNORE TYPE - check ANY account with this ID)
       const { data: accountData, error: accountCheckError } = await supabase
@@ -663,6 +724,242 @@ class TreasuryService {
     }
   }
 
+  // Add Funds (Supply) - Manager/Super Admin only
+  async addFunds(fundsData) {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      const tenantValidation = validateTenantId(tenantId)
+      if (!tenantValidation.valid) {
+        return {
+          success: false,
+          error: tenantValidation.error || 'Select a Company first',
+          errorCode: 'NO_TENANT_ID'
+        }
+      }
+
+      const accountId = fundsData.accountId
+      const amount = parseFloat(fundsData.amount) || 0
+      const date = fundsData.date || new Date().toISOString()
+      const description = fundsData.description || fundsData.note || 'Funds added by manager'
+
+      if (!accountId) {
+        return {
+          success: false,
+          error: 'Account ID is required',
+          errorCode: 'NO_ACCOUNT_ID'
+        }
+      }
+
+      if (amount <= 0) {
+        return {
+          success: false,
+          error: 'Amount must be greater than zero',
+          errorCode: 'INVALID_AMOUNT'
+        }
+      }
+
+      // Use createTransaction with 'deposit' type (treated as inflow)
+      const result = await this.createTransaction({
+        accountId: accountId,
+        amount: amount,
+        transactionType: 'deposit', // Type for manager-supplied funds
+        description: description,
+        referenceType: 'deposit',
+        referenceId: crypto.randomUUID()
+      })
+
+      if (result.success) {
+        // Update transaction date if provided
+        if (date && date !== new Date().toISOString()) {
+          const { error: updateError } = await supabase
+            .from('treasury_transactions')
+            .update({ created_at: date })
+            .eq('id', result.transaction.id)
+            .eq('tenant_id', tenantId)
+
+          if (updateError) {
+            console.warn('Failed to update transaction date:', updateError)
+          }
+        }
+      }
+
+      return result
+    } catch (error) {
+      console.error('Error adding funds:', error.message)
+      return {
+        success: false,
+        error: error.message || 'Failed to add funds',
+        errorCode: 'ADD_FUNDS_FAILED'
+      }
+    }
+  }
+
+  // Transfer Funds between accounts with exchange rate
+  async transferFunds(transferData) {
+    try {
+      const tenantId = tenantStore.getTenantId()
+      const tenantValidation = validateTenantId(tenantId)
+      if (!tenantValidation.valid) {
+        return {
+          success: false,
+          error: tenantValidation.error || 'Select a Company first',
+          errorCode: 'NO_TENANT_ID'
+        }
+      }
+
+      const sourceAccountId = transferData.sourceAccountId
+      const destinationAccountId = transferData.destinationAccountId
+      const sourceAmount = parseFloat(transferData.sourceAmount) || 0
+      const exchangeRate = parseFloat(transferData.exchangeRate) || 1.0
+      const destinationAmount = parseFloat(transferData.destinationAmount) || (sourceAmount * exchangeRate)
+      const description = transferData.description || 'Funds transfer between accounts'
+
+      if (!sourceAccountId || !destinationAccountId) {
+        return {
+          success: false,
+          error: 'Both source and destination accounts are required',
+          errorCode: 'MISSING_ACCOUNTS'
+        }
+      }
+
+      if (sourceAccountId === destinationAccountId) {
+        return {
+          success: false,
+          error: 'Source and destination accounts cannot be the same',
+          errorCode: 'SAME_ACCOUNT'
+        }
+      }
+
+      if (sourceAmount <= 0) {
+        return {
+          success: false,
+          error: 'Transfer amount must be greater than zero',
+          errorCode: 'INVALID_AMOUNT'
+        }
+      }
+
+      if (exchangeRate <= 0) {
+        return {
+          success: false,
+          error: 'Exchange rate must be greater than zero',
+          errorCode: 'INVALID_EXCHANGE_RATE'
+        }
+      }
+
+      // Verify both accounts exist
+      const { data: sourceAccount, error: sourceError } = await supabase
+        .from('treasury_accounts')
+        .select('id, current_balance, name, currency')
+        .eq('id', sourceAccountId)
+        .eq('tenant_id', tenantId)
+        .single()
+
+      if (sourceError || !sourceAccount) {
+        return {
+          success: false,
+          error: `Source account not found: ${sourceAccountId}`,
+          errorCode: 'SOURCE_ACCOUNT_NOT_FOUND'
+        }
+      }
+
+      const { data: destAccount, error: destError } = await supabase
+        .from('treasury_accounts')
+        .select('id, current_balance, name, currency')
+        .eq('id', destinationAccountId)
+        .eq('tenant_id', tenantId)
+        .single()
+
+      if (destError || !destAccount) {
+        return {
+          success: false,
+          error: `Destination account not found: ${destinationAccountId}`,
+          errorCode: 'DEST_ACCOUNT_NOT_FOUND'
+        }
+      }
+
+      // Check if source account has sufficient balance
+      const sourceBalance = parseFloat(sourceAccount.current_balance) || 0
+      if (sourceBalance < sourceAmount) {
+        return {
+          success: false,
+          error: `Insufficient balance. Available: ${sourceBalance}, Required: ${sourceAmount}`,
+          errorCode: 'INSUFFICIENT_BALANCE'
+        }
+      }
+
+      // Use RPC function for atomic transfer (DO NOT update balances manually)
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('perform_treasury_transfer', {
+        p_tenant_id: tenantId,
+        p_source_account_id: sourceAccountId,
+        p_destination_account_id: destinationAccountId,
+        p_source_amount: sourceAmount,
+        p_exchange_rate: exchangeRate,
+        p_destination_amount: destinationAmount,
+        p_description: description
+      })
+
+      if (rpcError) {
+        console.error('RPC transfer error:', rpcError)
+        return {
+          success: false,
+          error: rpcError.message || 'Failed to transfer funds',
+          errorCode: 'RPC_TRANSFER_FAILED'
+        }
+      }
+
+      if (!rpcResult || !rpcResult.success) {
+        return {
+          success: false,
+          error: rpcResult?.error || 'Transfer failed',
+          errorCode: 'TRANSFER_FAILED'
+        }
+      }
+
+      // Fetch the created transaction to return it
+      const transactionId = rpcResult.transaction_id
+      if (transactionId) {
+        const { data: transaction, error: transactionError } = await supabase
+          .from('treasury_transactions')
+          .select('*')
+          .eq('id', transactionId)
+          .single()
+
+        if (!transactionError && transaction) {
+          return {
+            success: true,
+            transaction: this.mapTransactionToCamelCase(transaction),
+            sourceAccount: {
+              name: sourceAccount.name,
+              newBalance: rpcResult.source_new_balance || (sourceBalance - sourceAmount)
+            },
+            destinationAccount: {
+              name: destAccount.name,
+              newBalance: rpcResult.destination_new_balance || (parseFloat(destAccount.current_balance) + destinationAmount)
+            }
+          }
+        }
+      }
+
+      // Fallback response if transaction fetch fails
+      return {
+        success: true,
+        sourceAccount: {
+          name: sourceAccount.name
+        },
+        destinationAccount: {
+          name: destAccount.name
+        }
+      }
+    } catch (error) {
+      console.error('Error transferring funds:', error.message)
+      return {
+        success: false,
+        error: error.message || 'Failed to transfer funds',
+        errorCode: 'TRANSFER_FAILED'
+      }
+    }
+  }
+
   // Helper: Map snake_case to camelCase for transactions
   mapTransactionToCamelCase(data) {
     if (!data) return null
@@ -670,8 +967,12 @@ class TreasuryService {
     return {
       id: data.id,
       accountId: data.account_id,
+      destinationAccountId: data.destination_account_id || null,
       transactionType: data.transaction_type,
       amount: parseFloat(data.amount) || 0,
+      sourceAmount: parseFloat(data.source_amount) || null,
+      destinationAmount: parseFloat(data.destination_amount) || null,
+      exchangeRate: parseFloat(data.exchange_rate) || null,
       referenceType: data.reference_type,
       referenceId: data.reference_id,
       description: data.description,

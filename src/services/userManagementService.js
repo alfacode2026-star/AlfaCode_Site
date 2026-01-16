@@ -139,6 +139,30 @@ class UserManagementService {
         }
       }
 
+      // CRITICAL: If branch_id is not provided, fetch the main branch for this tenant
+      let finalBranchId = branch_id
+      if (!finalBranchId) {
+        console.warn('⚠️ No branch_id provided for new user, fetching main branch...')
+        try {
+          const { data: mainBranch, error: branchError } = await supabase
+            .from('branches')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('is_main', true)
+            .single()
+
+          if (!branchError && mainBranch?.id) {
+            finalBranchId = mainBranch.id
+            console.log('✅ Assigned main branch to new user:', finalBranchId)
+          } else {
+            console.error('❌ Could not find main branch for tenant:', tenantId)
+            // Still create the profile, but log the warning
+          }
+        } catch (fallbackError) {
+          console.error('❌ Error fetching main branch:', fallbackError)
+        }
+      }
+
       // Create profile with role
       const { error: profileError } = await supabase
         .from('profiles')
@@ -148,7 +172,7 @@ class UserManagementService {
           full_name: full_name,
           role: role || 'user',
           tenant_id: tenantId,
-          branch_id: branch_id || null
+          branch_id: finalBranchId // Use the resolved branch_id (main branch if not provided)
         }, {
           onConflict: 'id'
         })

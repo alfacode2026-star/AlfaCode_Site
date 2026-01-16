@@ -16,19 +16,25 @@ import paymentsService from '../services/paymentsService'
 import ordersService from '../services/ordersService'
 import customersService from '../services/customersService'
 import { useTenant } from '../contexts/TenantContext'
+import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getTranslations } from '../utils/translations'
+import { getCurrencySymbol } from '../utils/currencyUtils'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
+import { supabase } from '../services/supabaseClient'
+import tenantStore from '../services/tenantStore'
 
 const Dashboard = () => {
   const navigate = useNavigate()
-  const { industryType } = useTenant()
+  const { industryType, currentTenantId } = useTenant()
+  const { branchCurrency } = useBranch()
   const { language } = useLanguage()
   const t = getTranslations(language)
   const [products, setProducts] = useState([])
   const [orders, setOrders] = useState([])
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [showCurrencyWarning, setShowCurrencyWarning] = useState(false)
   const [financialMetrics, setFinancialMetrics] = useState({
     totalProjectsProfit: 0,
     totalGeneralExpenses: 0,
@@ -47,6 +53,38 @@ const Dashboard = () => {
         setProducts(Array.isArray(productsData) ? productsData : [])
         setOrders(Array.isArray(ordersData) ? ordersData : [])
         setCustomers(Array.isArray(customersData) ? customersData : [])
+
+        // Check if this is first run (no transactions/orders) and show currency warning
+        if (currentTenantId) {
+          try {
+            const [ordersCheck, paymentsCheck] = await Promise.all([
+              supabase
+                .from('orders')
+                .select('id')
+                .eq('tenant_id', currentTenantId)
+                .limit(1),
+              supabase
+                .from('payments')
+                .select('id')
+                .eq('tenant_id', currentTenantId)
+                .limit(1)
+            ])
+
+            const hasOrders = ordersCheck.data && ordersCheck.data.length > 0
+            const hasPayments = paymentsCheck.data && paymentsCheck.data.length > 0
+
+            // Show warning only if NO transactions exist
+            if (!hasOrders && !hasPayments) {
+              // Check if user has dismissed this warning
+              const dismissed = localStorage.getItem('currency_warning_dismissed')
+              if (!dismissed) {
+                setShowCurrencyWarning(true)
+              }
+            }
+          } catch (error) {
+            console.error('Error checking first run status:', error)
+          }
+        }
 
         // Calculate financial metrics for engineering companies
         if (industryType === 'engineering') {
@@ -133,7 +171,7 @@ const Dashboard = () => {
       value: totalValue,
       icon: <DollarOutlined />,
       color: '#722ed1',
-      suffix: t.common.sar,
+      suffix: branchCurrency || 'SAR',
       link: '/inventory'
     }
   ]
@@ -147,6 +185,47 @@ const Dashboard = () => {
 
   return (
     <div style={{ padding: 24 }}>
+      {/* First Run Currency Warning */}
+      {showCurrencyWarning && branchCurrency && (
+        <Alert
+          message={language === 'ar' ? '⚠️ تنبيه مهم' : '⚠️ Important Notice'}
+          description={
+            <div>
+              <p style={{ marginBottom: 8 }}>
+                {language === 'ar'
+                  ? `نظامك مضبوط للعمل بالعملة: ${branchCurrency}. بمجرد بدء العمل، لن يمكن تغيير هذه العملة.`
+                  : `Your system is set to operate in ${branchCurrency}. Once you start working, this cannot be changed.`}
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                {language === 'ar'
+                  ? 'انتقل إلى الإعدادات إذا كنت بحاجة لتعديلها الآن.'
+                  : 'Go to Settings if you need to modify it now.'}
+              </p>
+            </div>
+          }
+          type="warning"
+          showIcon
+          closable
+          onClose={() => {
+            setShowCurrencyWarning(false)
+            localStorage.setItem('currency_warning_dismissed', 'true')
+          }}
+          style={{ marginBottom: 24 }}
+          action={
+            <Button
+              size="small"
+              onClick={() => {
+                navigate('/settings')
+                setShowCurrencyWarning(false)
+                localStorage.setItem('currency_warning_dismissed', 'true')
+              }}
+            >
+              {language === 'ar' ? 'فتح الإعدادات' : 'Open Settings'}
+            </Button>
+          }
+        />
+      )}
+
       <Alert
         title={t.dashboard.welcomeMessage}
         description={t.dashboard.welcomeDescription}
@@ -186,7 +265,7 @@ const Dashboard = () => {
                 value={financialMetrics.totalProjectsProfit}
                 precision={0}
                 prefix={<RiseOutlined />}
-                suffix={t.common.sar}
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: financialMetrics.totalProjectsProfit >= 0 ? '#3f8600' : '#cf1322' } }}
               />
             </Card>
@@ -198,7 +277,7 @@ const Dashboard = () => {
                 value={financialMetrics.totalGeneralExpenses}
                 precision={0}
                 prefix={<FallOutlined />}
-                suffix={t.common.sar}
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: '#cf1322' } }}
               />
             </Card>
@@ -217,7 +296,7 @@ const Dashboard = () => {
                 value={financialMetrics.netCompanyProfit}
                 precision={0}
                 prefix={financialMetrics.netCompanyProfit >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <FallOutlined style={{ color: 'white' }} />}
-                suffix={<span style={{ color: 'white' }}>{t.common.sar || 'SAR'}</span>}
+                suffix={<span style={{ color: 'white' }}>{branchCurrency || 'SAR'}</span>}
                 styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
               />
               <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>

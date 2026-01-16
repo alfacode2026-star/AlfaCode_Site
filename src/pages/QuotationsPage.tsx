@@ -9,6 +9,7 @@ import contractsService from '../services/contractsService'
 import userManagementService from '../services/userManagementService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
 import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
 import {
@@ -54,6 +55,7 @@ const { Option } = Select
 const QuotationsPage = () => {
   const { currentTenantId } = useTenant()
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language)
   const [quotations, setQuotations] = useState([])
   const [loading, setLoading] = useState(true)
@@ -769,7 +771,7 @@ const QuotationsPage = () => {
               value={stats.totalAmount}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix={t.common?.sar || 'SAR'}
+              suffix={branchCurrency || 'SAR'}
             />
           </Card>
         </Col>

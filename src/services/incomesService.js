@@ -203,6 +203,9 @@ class IncomesService {
         transactionType = 'advance'
       }
 
+      // Get currency from treasury account if provided, otherwise default to SAR
+      const currency = incomeData.currency || 'SAR'
+
       // Create payment record
       // CRITICAL: Ensure amount is always positive for incomes
       const positiveAmount = Math.abs(amount)
@@ -230,6 +233,7 @@ class IncomesService {
         is_general_expense: false,
         payment_type: 'income', // CRITICAL: Always mark as 'income' so filters can catch it
         completion_percentage: incomeData.completionPercentage || null,
+        currency: currency, // Currency from treasury account
         created_by: 'user'
       }
 

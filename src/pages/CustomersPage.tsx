@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import customersService from '../services/customersService'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
 import {
   Card,
@@ -49,6 +50,7 @@ const { Option } = Select
 
 const CustomersPage = () => {
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language)
   
   const [customers, setCustomers] = useState([])
@@ -382,7 +384,7 @@ const CustomersPage = () => {
               title={t.customers.totalBalance}
               value={stats.totalBalance}
               prefix={<DollarOutlined />}
-              suffix={t.common.sar}
+              suffix={branchCurrency || 'SAR'}
             />
           </Card>
         </Col>

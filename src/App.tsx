@@ -33,7 +33,7 @@ import RequireSetup from './components/RequireSetup';
 import Navigation from './components/Navigation';
 
 // Import Ant Design Layout
-import { Layout } from 'antd';
+import { Layout, Alert } from 'antd';
 
 // Import transaction manager for lock cleanup
 import transactionManager from './services/transactionManager';
@@ -41,12 +41,17 @@ import transactionManager from './services/transactionManager';
 // Import Tenant Provider
 import { TenantProvider, useTenant } from './contexts/TenantContext';
 
+// Import Branch Provider
+import { BranchProvider, useBranch } from './contexts/BranchContext';
+
 // Import Language Provider
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
 import LanguageSelection from './components/LanguageSelection';
 
 // Import company settings service
 import companySettingsService from './services/companySettingsService';
+// Import supabase for direct tenant data access (fallback)
+import { supabase } from './services/supabaseClient';
 
 const { Sider, Content } = Layout;
 
@@ -56,20 +61,48 @@ function AppHeader() {
   const [companySettings, setCompanySettings] = React.useState<any>(null);
 
   React.useEffect(() => {
-    const loadCompanySettings = async () => {
+    const loadCompanyData = async () => {
       if (currentTenantId) {
         try {
-          const settings = await companySettingsService.getCompanySettings();
-          setCompanySettings(settings);
+          // CRITICAL: Fetch DIRECTLY from tenants table (PRIMARY SOURCE OF TRUTH)
+          // This is the data entered during installation - it's always authoritative
+          const { data: tenantData, error } = await supabase
+            .from('tenants')
+            .select('name, logo_url')
+            .eq('id', currentTenantId)
+            .single();
+          
+          if (error) {
+            console.error('❌ Header: Error fetching tenant data:', error);
+            // Fallback to service if direct fetch fails
+            const settings = await companySettingsService.getCompanySettings();
+            setCompanySettings(settings);
+          } else if (tenantData) {
+            // Use data directly from tenants table (installation data)
+            setCompanySettings({
+              companyName: tenantData.name || null,
+              tenantName: tenantData.name || null,
+              logoUrl: tenantData.logo_url || null
+            });
+            console.log('✅ Header: Loaded directly from tenants table (PRIMARY SOURCE)', {
+              name: tenantData.name,
+              hasLogo: !!tenantData.logo_url
+            });
+          } else {
+            setCompanySettings(null);
+          }
         } catch (error) {
-          console.error('Error loading company settings for header:', error);
+          console.error('❌ Header: Error loading company data:', error);
+          setCompanySettings(null);
         }
       }
     };
-    loadCompanySettings();
+    loadCompanyData();
   }, [currentTenantId]);
 
-  const companyName = companySettings?.companyName || 'ERP System';
+  // CRITICAL: Use tenant name from installation as PRIMARY source
+  // Do NOT use hardcoded defaults - show null/empty until data loads
+  const companyName = companySettings?.companyName || companySettings?.tenantName || null;
   const logoUrl = companySettings?.logoUrl;
 
   return (
@@ -98,7 +131,7 @@ function AppHeader() {
         <div style={{ fontSize: '32px', marginBottom: '8px' }}>🚀</div>
       )}
       <h2 style={{ margin: 0, color: '#1890ff', fontSize: '18px', fontWeight: 'bold' }}>
-        {companyName}
+        {companyName || 'Loading...'}
       </h2>
     </div>
   );
@@ -181,6 +214,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { industryType } = useTenant();
   const { language } = useLanguage();
+  const { error: branchError } = useBranch();
   const location = useLocation();
 
   // Show full layout only if not on setup page and industry is set
@@ -212,8 +246,27 @@ function AppContent() {
   }
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      {/* Sidebar Navigation */}
+    <>
+      {/* Global Branch Error Alert - Shows at the very top of the app */}
+      {branchError && (
+        <Alert
+          type="error"
+          banner
+          message="CRITICAL: Could not load Branch Settings"
+          description={branchError}
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 10000,
+            borderRadius: 0,
+            margin: 0
+          }}
+          closable={false}
+        />
+      )}
+      
+      <Layout style={{ minHeight: '100vh' }}>
+        {/* Sidebar Navigation */}
       <Sider 
         width={250} 
         theme="light"
@@ -255,6 +308,7 @@ function AppContent() {
         </Content>
       </Layout>
     </Layout>
+    </>
   );
 }
 
@@ -297,13 +351,15 @@ function AppWrapper() {
   return (
     <ConfigProvider direction={direction} locale={locale}>
       <TenantProvider>
-        <Router>
-          <RequireSetup>
-            <OnboardingGuard>
-              <AppContent />
-            </OnboardingGuard>
-          </RequireSetup>
-        </Router>
+        <BranchProvider>
+          <Router>
+            <RequireSetup>
+              <OnboardingGuard>
+                <AppContent />
+              </OnboardingGuard>
+            </RequireSetup>
+          </Router>
+        </BranchProvider>
       </TenantProvider>
     </ConfigProvider>
   );

@@ -16,8 +16,10 @@ import projectsService from '../services/projectsService'
 import treasuryService from '../services/treasuryService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
 import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
+import { getCurrencyFromTreasury, formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils'
 import type { Contract, Customer, Quotation, Project, Payment, TreasuryAccount, ContractItem } from '../types'
 import {
   Card,
@@ -93,6 +95,7 @@ interface WorkTypeCategory {
 const ContractsPage = () => {
   const { industryType, currentTenantId } = useTenant()
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language || 'en')
   
   // State with proper types
@@ -118,6 +121,7 @@ const ContractsPage = () => {
   const [treasuryAccounts, setTreasuryAccounts] = useState<TreasuryAccount[]>([])
   const [datesEditModalVisible, setDatesEditModalVisible] = useState<boolean>(false)
   const [datesEditForm] = Form.useForm()
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('SAR') // Track selected currency
 
   useEffect(() => {
     loadContracts()
@@ -1018,6 +1022,10 @@ const ContractsPage = () => {
         ? moment(values.paidDate).format('YYYY-MM-DD')
         : (values.dueDate ? moment(values.dueDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'))
 
+      // Get currency from selected treasury account
+      const selectedAccount = treasuryAccounts.find(acc => acc.id === values.treasuryAccountId);
+      const currency = selectedAccount?.currency || selectedCurrency || 'SAR';
+
       const paymentData = {
         contractId: selectedContract.id,
         projectId: selectedContract.projectId || null,
@@ -1031,8 +1039,11 @@ const ContractsPage = () => {
         referenceNumber: values.referenceNumber || null,
         notes: values.notes || '',
         treasuryAccountId: values.treasuryAccountId,
+        currency: currency, // Include currency from treasury account
         createdBy: 'user'
       }
+
+      console.log('💾 Saving payment with currency:', currency);
 
       const result = await paymentsService.createPayment(paymentData)
 
@@ -1057,7 +1068,9 @@ const ContractsPage = () => {
         setPaymentModalVisible(false)
         setSelectedPaymentProject(null)
         setAvailablePaymentWorkScopes([])
+        setSelectedCurrency('SAR') // Reset to default currency
         paymentForm.resetFields()
+        paymentForm.setFieldsValue({ currency: 'SAR' })
         if (selectedContract) {
           await loadContractPayments(selectedContract.id)
         }
@@ -1127,7 +1140,7 @@ const ContractsPage = () => {
               value={stats.totalAmount}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix={t.contracts.sar}
+              suffix={branchCurrency || 'SAR'}
             />
           </Card>
         </Col>
@@ -1485,7 +1498,9 @@ const ContractsPage = () => {
             type="primary"
             icon={<PlusCircleOutlined />}
             onClick={() => {
+              setSelectedCurrency('SAR') // Reset to default currency
               paymentForm.resetFields()
+              paymentForm.setFieldsValue({ currency: 'SAR' })
               setSelectedPaymentProject(null)
               setAvailablePaymentWorkScopes([])
               setPaymentModalVisible(true)
@@ -1721,7 +1736,9 @@ const ContractsPage = () => {
           setPaymentModalVisible(false)
           setSelectedPaymentProject(null)
           setAvailablePaymentWorkScopes([])
+          setSelectedCurrency('SAR') // Reset to default currency
           paymentForm.resetFields()
+          paymentForm.setFieldsValue({ currency: 'SAR' })
         }}
         okText={t.common.add}
         cancelText={t.common.cancel}
@@ -1864,12 +1881,36 @@ const ContractsPage = () => {
               placeholder={t.contracts.selectTreasuryAccount}
               disabled={treasuryAccounts.length === 0}
               notFoundContent={treasuryAccounts.length === 0 ? 'No treasury accounts' : null}
+              onChange={(accountId) => {
+                // Sync currency when treasury account is selected
+                const account = treasuryAccounts.find(acc => acc.id === accountId);
+                const currency = account?.currency || 'SAR';
+                setSelectedCurrency(currency);
+                paymentForm.setFieldsValue({ currency });
+                console.log('✅ Currency synced to treasury account:', { accountId, currency });
+              }}
             >
               {treasuryAccounts.map((acc: TreasuryAccount) => (
                 <Option key={acc.id} value={acc.id}>
                   {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                  {acc.currency && acc.currency !== 'SAR' ? ` - ${acc.currency}` : ''}
                 </Option>
               ))}
+            </Select>
+          </Form.Item>
+
+          {/* Currency Field - Auto-synced and locked when treasury is selected */}
+          <Form.Item
+            name="currency"
+            label="Currency"
+            rules={[{ required: true, message: 'Currency is required' }]}
+            tooltip="Currency is automatically set based on the selected treasury account"
+          >
+            <Select
+              disabled={true} // Lock currency field - it's synced from treasury
+              placeholder="Currency will be set automatically"
+            >
+              <Option value={selectedCurrency}>{selectedCurrency}</Option>
             </Select>
           </Form.Item>
 

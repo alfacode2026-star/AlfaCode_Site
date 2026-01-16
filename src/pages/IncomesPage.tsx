@@ -31,9 +31,11 @@ import {
 } from '@ant-design/icons';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useTenant } from '../contexts/TenantContext';
+import { useBranch } from '../contexts/BranchContext';
 import incomesService from '../services/incomesService';
 import projectsService from '../services/projectsService';
 import treasuryService from '../services/treasuryService';
+import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils';
 
 const { Option } = Select;
 
@@ -70,6 +72,7 @@ interface TreasuryAccount {
   id: string;
   name: string;
   type: 'bank' | 'cash_box';
+  currency?: string;
   currentBalance?: number;
 }
 
@@ -91,6 +94,7 @@ const formatCurrency = (value: number, currency: string = 'SAR'): string => {
 const IncomesPage: FC = () => {
   const { setLanguage } = useLanguage();
   const { industryType } = useTenant();
+  const { branchCurrency } = useBranch(); // Get branch currency from context
 
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -107,6 +111,9 @@ const IncomesPage: FC = () => {
   const [hasExistingIncomes, setHasExistingIncomes] = useState<boolean>(false);
   const [loadingProjectIncomes, setLoadingProjectIncomes] = useState<boolean>(false);
   const [availableWorkScopes, setAvailableWorkScopes] = useState<string[]>([]);
+  
+  // Use branch currency as the single source of truth
+  const displayCurrency = branchCurrency || 'SAR';
 
   const isEngineering = industryType === 'engineering';
 
@@ -196,7 +203,9 @@ const IncomesPage: FC = () => {
   ======================= */
 
   const columns = useMemo<ColumnsType<Income>>(
-    () => [
+    () => {
+      // Get currency from treasury accounts for display
+      return [
       {
         title: 'Project Name',
         dataIndex: 'projectName',
@@ -218,11 +227,15 @@ const IncomesPage: FC = () => {
         title: 'Amount',
         dataIndex: 'amount',
         key: 'amount',
-        render: (value: number) => (
-          <span style={{ fontWeight: 'bold', color: '#52c41a' }}>
-            {formatCurrency(value)}
-          </span>
-        ),
+        render: (value: number, record: Income) => {
+          // Use branch currency as single source of truth
+          const currency = branchCurrency || 'SAR';
+          return (
+            <span style={{ fontWeight: 'bold', color: '#52c41a' }}>
+              {formatCurrencyWithSymbol(value, currency)}
+            </span>
+          );
+        },
         align: 'right',
         sorter: (a: Income, b: Income) => (a.amount || 0) - (b.amount || 0),
       },
@@ -292,8 +305,9 @@ const IncomesPage: FC = () => {
           </Space>
         ),
       },
-    ],
-    []
+    ];
+    },
+    [treasuryAccounts]
   );
 
   /* =======================
@@ -305,7 +319,10 @@ const IncomesPage: FC = () => {
     setSelectedProjectId(null);
     setHasExistingIncomes(false);
     form.resetFields();
-    form.setFieldsValue({ incomeType: 'down_payment', date: moment() });
+    form.setFieldsValue({ 
+      incomeType: 'down_payment', 
+      date: moment().format('YYYY-MM-DD'), // Use string format for native date input
+    });
     setIsModalVisible(true);
   };
 
@@ -355,12 +372,15 @@ const IncomesPage: FC = () => {
       }
     }
 
+    // Note: Currency is now fixed to branch currency, no syncing needed
+
     form.setFieldsValue({
       projectId: income.projectId,
-      date: income.date ? moment(income.date) : moment(),
+      date: income.date ? moment(income.date).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'), // Use string format for native date input
       amount: income.amount,
       incomeType: income.incomeType === 'advance' ? 'advance' : 'down_payment',
       treasuryAccountId: income.treasuryAccountId,
+      // Currency is now fixed to branch currency, no need to set it
       description: income.description,
       referenceNumber: income.referenceNumber,
       workScope: income.workScope,
@@ -390,19 +410,42 @@ const IncomesPage: FC = () => {
       const values = await form.validateFields();
       const selectedProject = projects.find((p: any) => p.id === values.projectId);
 
+      // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
+      const currency = branchCurrency || 'SAR';
+
+      // Safely format date - handle both string and moment/dayjs objects
+      let formattedDate: string;
+      if (!values.date) {
+        formattedDate = moment().format('YYYY-MM-DD');
+      } else if (typeof values.date === 'string') {
+        // Already a string, validate and use as-is
+        formattedDate = moment(values.date).isValid() 
+          ? moment(values.date).format('YYYY-MM-DD')
+          : moment().format('YYYY-MM-DD');
+      } else if (values.date && typeof values.date.format === 'function') {
+        // Moment or Dayjs object
+        formattedDate = values.date.format('YYYY-MM-DD');
+      } else {
+        // Fallback to current date
+        formattedDate = moment().format('YYYY-MM-DD');
+      }
+
       const incomeData = {
         projectId: values.projectId,
         projectName: selectedProject?.name || '',
-        date: values.date ? values.date.format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
+        date: formattedDate, // Safely formatted date (YYYY-MM-DD string)
         amount: values.amount,
         incomeType: values.incomeType || 'down_payment',
         treasuryAccountId: values.treasuryAccountId,
+        currency: currency, // Include currency from treasury account
         description: values.description,
         referenceNumber: values.referenceNumber,
         workScope: values.workScope || null,
         completionPercentage:
           values.incomeType === 'advance' ? values.completionPercentage : null,
       };
+
+      console.log('💾 Saving income with currency:', currency);
 
       let result;
       if (editingIncome) {
@@ -513,9 +556,10 @@ const IncomesPage: FC = () => {
           <Col xs={24} sm={12} lg={8}>
             <Card>
               <Statistic
-                title="Total Incomes"
+                title={formatCurrencyLabel('Total Incomes', displayCurrency)}
                 value={totalAmount}
                 prefix={<DollarOutlined />}
+                suffix={getCurrencySymbol(displayCurrency)}
                 styles={{ value: { color: '#52c41a' } }}
                 formatter={(value) => formatCurrency(Number(value))}
               />
@@ -627,16 +671,28 @@ const IncomesPage: FC = () => {
             <Col span={12}>
               <Form.Item
                 name="amount"
-                label="Amount"
+                label={formatCurrencyLabel('Amount', displayCurrency)}
                 rules={[{ required: true, message: 'Please enter the amount' }]}
               >
-                <InputNumber
-                  min={0}
-                  style={{ width: '100%' }}
-                  placeholder="0"
-                  formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={(value) => value!.replace(/\$\s?|(,*)/g, '')}
-                />
+                <Space.Compact style={{ width: '100%' }}>
+                  <InputNumber
+                    min={0}
+                    style={{ flex: 1 }}
+                    placeholder="0"
+                    formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={(value) => value!.replace(/\$\s?|(,*)/g, '')}
+                  />
+                  <Input
+                    readOnly
+                    value={getCurrencySymbol(displayCurrency)}
+                    style={{
+                      width: '60px',
+                      textAlign: 'center',
+                      backgroundColor: '#fafafa',
+                      cursor: 'default',
+                    }}
+                  />
+                </Space.Compact>
               </Form.Item>
             </Col>
           </Row>
@@ -746,13 +802,33 @@ const IncomesPage: FC = () => {
               notFoundContent={
                 treasuryAccounts.length === 0 ? 'No treasury accounts found' : null
               }
+              onChange={(accountId) => {
+                // Note: Currency is now fixed to branch currency, no syncing needed
+                console.log('✅ Treasury account selected:', { accountId, branchCurrency: displayCurrency });
+              }}
             >
               {treasuryAccounts.map((acc) => (
                 <Option key={acc.id} value={acc.id}>
                   {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
+                  {acc.currency && acc.currency !== 'SAR' ? ` - ${acc.currency}` : ''}
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+
+          {/* Currency Display - Static label showing branch currency */}
+          <Form.Item
+            label={`Currency (${displayCurrency})`}
+            tooltip="Currency is set at the branch level and cannot be changed per transaction"
+          >
+            <Input
+              readOnly
+              value={displayCurrency}
+              style={{
+                backgroundColor: '#fafafa',
+                cursor: 'default',
+              }}
+            />
           </Form.Item>
 
           <Form.Item

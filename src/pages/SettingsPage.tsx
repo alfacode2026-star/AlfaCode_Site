@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { useTenant } from '../contexts/TenantContext'
+import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getTranslations } from '../utils/translations'
 import companySettingsService from '../services/companySettingsService'
 import userManagementService from '../services/userManagementService'
 import { supabase } from '../services/supabaseClient'
+import tenantStore from '../services/tenantStore'
 import {
   Card,
   Form,
@@ -61,6 +63,7 @@ const { Title, Text } = Typography
 
 const SettingsPage = () => {
   const { currentTenantId } = useTenant()
+  const { branchCurrency, branchId, refreshBranchData } = useBranch()
   const { language } = useLanguage()
   const t = getTranslations(language)
   const [form] = Form.useForm()
@@ -79,19 +82,20 @@ const SettingsPage = () => {
   const [isUserModalVisible, setIsUserModalVisible] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [userForm] = Form.useForm()
+  const [hasFinancialTransactions, setHasFinancialTransactions] = useState(false) // Check if currency can be changed
 
-  // بيانات الشركة
-  const companyData = {
-    name: 'شركة التقنية المتطورة',
-    email: 'info@tech-company.com',
-    phone: '0112345678',
-    address: 'الرياض - حي المروج - شارع الملك فهد',
-    taxNumber: '310123456700003',
-    commercialRegister: '1012345678',
+  // بيانات الشركة - سيتم ملؤها من قاعدة البيانات
+  const [companyData, setCompanyData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    taxNumber: '',
+    commercialRegister: '',
     currency: 'SAR',
     timezone: 'Asia/Riyadh',
     language: 'ar'
-  }
+  })
 
   // إعدادات النظام
   const systemSettings = {
@@ -166,8 +170,71 @@ const SettingsPage = () => {
       loadCompanySettings()
     } else if (activeTab === 'users') {
       checkSuperAdminAndLoadUsers()
+    } else if (activeTab === 'general') {
+      loadGeneralSettings()
     }
   }, [activeTab, currentTenantId])
+
+  const loadGeneralSettings = async () => {
+    try {
+      const settings = await companySettingsService.getCompanySettings()
+      
+      // Always use tenant name from installation if available
+      // Priority: companyName (from company_settings) > tenantName (from tenants/installation) > ''
+      const companyNameToUse = settings?.companyName || settings?.tenantName || ''
+      
+      if (settings) {
+        setCompanyData({
+          name: companyNameToUse,
+          email: settings.companyEmail || '',
+          phone: settings.companyPhone || '',
+          address: settings.companyAddress || '',
+          taxNumber: settings.taxNumber || '',
+          commercialRegister: settings.commercialRegister || '',
+          currency: settings.currency || 'SAR',
+          timezone: 'Asia/Riyadh',
+          language: language || 'ar'
+        })
+        // Also update the form with installation data
+        form.setFieldsValue({
+          name: companyNameToUse,
+          email: settings.companyEmail || '',
+          phone: settings.companyPhone || '',
+          address: settings.companyAddress || '',
+          taxNumber: settings.taxNumber || '',
+          commercialRegister: settings.commercialRegister || ''
+        })
+        
+        // Log for debugging
+        if (settings.tenantName && !settings.companyName) {
+          console.log('General tab: Using tenant name from installation:', settings.tenantName)
+        }
+      } else {
+        // Fallback: If getCompanySettings returns null, fetch tenant name directly
+        try {
+          const tenantId = tenantStore.getTenantId()
+          if (tenantId) {
+            const { data: tenantData } = await supabase
+              .from('tenants')
+              .select('name')
+              .eq('id', tenantId)
+              .single()
+            
+            if (tenantData) {
+              const tenantName = tenantData.name || ''
+              setCompanyData(prev => ({ ...prev, name: tenantName }))
+              form.setFieldsValue({ name: tenantName })
+              console.log('General tab fallback: Using tenant name from direct fetch:', tenantName)
+            }
+          }
+        } catch (fetchError) {
+          console.error('Error fetching tenant name for general tab:', fetchError)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading general settings:', error)
+    }
+  }
 
   const checkSuperAdminAndLoadUsers = async () => {
     try {
@@ -274,30 +341,160 @@ const SettingsPage = () => {
 
   const loadCompanySettings = async () => {
     try {
+      // CRITICAL: Fetch DIRECTLY from tenants table FIRST (PRIMARY SOURCE OF TRUTH)
+      const tenantId = tenantStore.getTenantId()
+      let tenantData = null
+      let profileData = null
+      
+      if (tenantId) {
+        // Fetch tenant data (name, logo, phone, address, website, manager_name)
+        // NOTE: email is NOT in tenants table - fetch from profiles instead
+        const { data: tenant, error: tenantError } = await supabase
+          .from('tenants')
+          .select('name, logo_url, phone, address, website, manager_name')
+          .eq('id', tenantId)
+          .single()
+        
+        if (!tenantError && tenant) {
+          tenantData = tenant
+          console.log('✅ Settings: Loaded tenant data directly from tenants table:', {
+            name: tenant.name,
+            hasLogo: !!tenant.logo_url,
+            hasManager: !!tenant.manager_name
+          })
+        } else if (tenantError) {
+          console.error('❌ Error fetching tenant data:', tenantError)
+        }
+        
+        // Fetch profile data for email (super_admin)
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('tenant_id', tenantId)
+          .eq('role', 'super_admin')
+          .limit(1)
+          .maybeSingle()
+        
+        if (!profileError && profile) {
+          profileData = profile
+          console.log('✅ Settings: Loaded profile data for email:', {
+            email: profile.email,
+            name: profile.full_name
+          })
+        } else if (profileError && profileError.code !== 'PGRST116') {
+          console.error('❌ Error fetching profile data:', profileError)
+        }
+      }
+      
+      // Also get merged settings for other fields (letterhead, margins, etc.)
       const settings = await companySettingsService.getCompanySettings()
       setCompanySettings(settings) // Set even if null for null-safety checks
-      if (settings) {
+      
+      // Debug: Log the fetched data
+      console.log('🔍 Fetched Settings Data:', {
+        tenantData: tenantData,
+        profileData: profileData,
+        companyName: settings?.companyName,
+        tenantName: settings?.tenantName,
+        branchName: settings?.branchName,
+        companyEmail: settings?.companyEmail
+      })
+      
+      // CRITICAL: Wait for BOTH tenant data AND profile data before populating form
+      // Pre-fill form with data from tenants table (PRIMARY SOURCE) and branches table (for branch name)
+      // Use settings from service as fallback if direct fetch fails
+      const companyNameToUse = tenantData?.name || settings?.companyName || settings?.tenantName || ''
+      const branchNameToUse = settings?.branchName || ''
+      // Email comes from profile data, NOT tenant data
+      const emailToUse = profileData?.email || settings?.companyEmail || ''
+      
+      console.log('📝 Setting form values:', {
+        companyName: companyNameToUse,
+        branchName: branchNameToUse,
+        email: emailToUse,
+        hasTenantData: !!tenantData,
+        hasProfileData: !!profileData,
+        settingsCompanyName: settings?.companyName,
+        settingsBranchName: settings?.branchName
+      })
+      
+      // Pre-fill form with data from tenants table (PRIMARY SOURCE) and profiles (for email)
+      // Also include branch name from settings (fetched from branches table)
+      if (companyNameToUse || branchNameToUse || emailToUse) {
         companyForm.setFieldsValue({
-          companyName: settings.companyName || '',
-          authorizedManagerName: settings.authorizedManagerName || '',
-          authorizedManagerTitle: settings.authorizedManagerTitle || '',
-          companyAddress: settings.companyAddress || '',
-          companyPhone: settings.companyPhone || '',
-        companyEmail: settings.companyEmail || '',
-        companyWebsite: settings.companyWebsite || '',
-        taxNumber: settings.taxNumber || '',
-        commercialRegister: settings.commercialRegister || '',
-        vatPercentage: settings.vatPercentage ?? 0,
-        vatEnabled: settings.vatEnabled ?? false,
-        topMargin: settings.topMarginCm ?? 4.0,
-        bottomMargin: settings.bottomMarginCm ?? 3.0
+          companyName: companyNameToUse, // From tenants.name (installation) via settings
+          branchName: branchNameToUse, // From branches.name (installation) via settings
+          // Manager name from tenants.manager_name (installation) or profiles (fallback)
+          authorizedManagerName: tenantData?.manager_name || profileData?.full_name || settings?.authorizedManagerName || '',
+          authorizedManagerTitle: settings?.authorizedManagerTitle || '',
+          // Use tenant data from installation as PRIMARY source
+          companyAddress: tenantData?.address || settings?.companyAddress || '',
+          companyPhone: tenantData?.phone || settings?.companyPhone || '',
+          companyEmail: emailToUse, // From profiles.email, NOT tenants.email
+          companyWebsite: tenantData?.website || settings?.companyWebsite || '',
+          taxNumber: settings?.taxNumber || '',
+          commercialRegister: settings?.commercialRegister || '',
+          vatPercentage: settings?.vatPercentage ?? 0,
+          vatEnabled: settings?.vatEnabled ?? false,
+          topMargin: settings?.topMarginCm ?? 4.0,
+          bottomMargin: settings?.bottomMarginCm ?? 3.0
+        })
+        
+        // Log what fields were populated for debugging
+        console.log('📋 Pre-filled Company Settings form with:', {
+          companyName: companyNameToUse,
+          branchName: branchNameToUse,
+          email: emailToUse,
+          phone: tenantData?.phone,
+          address: tenantData?.address,
+          website: tenantData?.website,
+          managerName: tenantData?.manager_name || profileData?.full_name,
+          formValues: companyForm.getFieldsValue()
         })
       } else {
-        // Set defaults if no settings exist
-        companyForm.setFieldsValue({
-          topMargin: 4.0,
-          bottomMargin: 3.0
-        })
+        // No tenant data available - try to use settings from service as fallback
+        if (settings) {
+          const companyNameFromSettings = settings.companyName || settings.tenantName || ''
+          const branchNameFromSettings = settings.branchName || ''
+          
+          if (companyNameFromSettings || branchNameFromSettings) {
+            console.log('⚠️ No direct tenant data, using service settings:', {
+              companyName: companyNameFromSettings,
+              branchName: branchNameFromSettings
+            })
+            
+            companyForm.setFieldsValue({
+              companyName: companyNameFromSettings,
+              branchName: branchNameFromSettings,
+              authorizedManagerName: settings.authorizedManagerName || '',
+              authorizedManagerTitle: settings.authorizedManagerTitle || '',
+              companyAddress: settings.companyAddress || '',
+              companyPhone: settings.companyPhone || '',
+              companyEmail: settings.companyEmail || '',
+              companyWebsite: settings.companyWebsite || '',
+              taxNumber: settings.taxNumber || '',
+              commercialRegister: settings.commercialRegister || '',
+              vatPercentage: settings.vatPercentage ?? 0,
+              vatEnabled: settings.vatEnabled ?? false,
+              topMargin: settings.topMarginCm ?? 4.0,
+              bottomMargin: settings.bottomMarginCm ?? 3.0
+            })
+          } else {
+            // No data at all - set defaults only
+            console.warn('⚠️ No tenant data or settings available for Settings form')
+            companyForm.setFieldsValue({
+              topMargin: 4.0,
+              bottomMargin: 3.0
+            })
+          }
+        } else {
+          // No data at all - set defaults only
+          console.warn('⚠️ No tenant data or settings available for Settings form')
+          companyForm.setFieldsValue({
+            topMargin: 4.0,
+            bottomMargin: 3.0
+          })
+        }
       }
     } catch (error) {
       console.error('Error loading company settings:', error)
@@ -375,7 +572,15 @@ const SettingsPage = () => {
   const handleCompanySettingsSave = async () => {
     try {
       setCompanyLoading(true)
+      console.log('💾 Starting save operation...')
+      
       const values = await companyForm.validateFields()
+      console.log('✅ Form validation passed. Values:', {
+        companyName: values.companyName,
+        hasLogo: !!logoFile?.url,
+        hasLetterhead: !!letterheadFile?.url,
+        hasStamp: !!stampFile?.url
+      })
 
       const settingsData: any = {
         companyName: values.companyName,
@@ -387,46 +592,90 @@ const SettingsPage = () => {
         companyWebsite: values.companyWebsite,
         taxNumber: values.taxNumber,
         commercialRegister: values.commercialRegister,
-        vatPercentage: values.vatPercentage || 0,
-        vatEnabled: values.vatEnabled ?? false,
+        // NOTE: vatPercentage and vatEnabled are NOT saved to company_settings table
+        // They don't exist in the schema, so we exclude them to avoid 406 errors
+        // vatPercentage: values.vatPercentage || 0,
+        // vatEnabled: values.vatEnabled ?? false,
         topMarginCm: values.topMargin || 4,
         bottomMarginCm: values.bottomMargin || 3
       }
 
+      // Include uploaded files (base64 encoded)
       if (letterheadFile?.url) {
         settingsData.letterheadUrl = letterheadFile.url
+        console.log('📄 Including letterhead URL in save data')
       } else if (companySettings?.letterheadUrl) {
         settingsData.letterheadUrl = companySettings.letterheadUrl
+        console.log('📄 Keeping existing letterhead URL')
       }
 
       if (stampFile?.url) {
         settingsData.digitalStampUrl = stampFile.url
+        console.log('🔖 Including stamp URL in save data')
       } else if (companySettings?.digitalStampUrl) {
         settingsData.digitalStampUrl = companySettings.digitalStampUrl
+        console.log('🔖 Keeping existing stamp URL')
       }
 
       if (logoFile?.url) {
         settingsData.logoUrl = logoFile.url
+        console.log('🖼️ Including logo URL in save data (base64)')
       } else if (companySettings?.logoUrl) {
         settingsData.logoUrl = companySettings.logoUrl
+        console.log('🖼️ Keeping existing logo URL')
       }
+
+      console.log('📤 Calling saveCompanySettings with data:', {
+        companyName: settingsData.companyName,
+        hasLogo: !!settingsData.logoUrl,
+        hasLetterhead: !!settingsData.letterheadUrl,
+        hasStamp: !!settingsData.digitalStampUrl
+      })
 
       const result = await companySettingsService.saveCompanySettings(settingsData)
 
+      console.log('📥 Save result received:', {
+        success: result.success,
+        error: result.error,
+        errorCode: result.errorCode
+      })
+
       if (result.success) {
-        message.success(language === 'ar' ? 'تم حفظ إعدادات الشركة بنجاح' : 'Company settings saved successfully!')
-        await loadCompanySettings()
+        console.log('✅ Save operation successful!')
+        message.success(language === 'ar' ? 'تم حفظ إعدادات الشركة بنجاح' : 'Company settings saved successfully!', 3)
+        
+        // Clear uploaded file states
         setLetterheadFile(null)
         setStampFile(null)
         setLogoFile(null)
+        
+        // Reload settings to get fresh data
+        await loadCompanySettings()
+        
+        // Force page reload to refresh all contexts (Header, Sidebar, etc.)
+        // This ensures the new company name appears everywhere immediately
+        setTimeout(() => {
+          console.log('🔄 Reloading page to refresh all contexts...')
+          window.location.reload()
+        }, 1000) // Small delay to show success message
       } else {
-        message.error(result.error || (language === 'ar' ? 'فشل حفظ الإعدادات' : 'Failed to save settings'))
+        console.error('❌ Save operation failed:', result.error)
+        const errorMessage = result.error || (language === 'ar' ? 'فشل حفظ الإعدادات' : 'Failed to save settings')
+        message.error(errorMessage)
       }
-    } catch (error) {
-      console.error('Error saving company settings:', error)
-      message.error(language === 'ar' ? 'فشل حفظ الإعدادات' : 'Failed to save settings')
+    } catch (error: any) {
+      console.error('❌ Exception during save operation:', error)
+      console.error('❌ Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        stack: error.stack
+      })
+      const errorMessage = error.message || (language === 'ar' ? 'فشل حفظ الإعدادات' : 'Failed to save settings')
+      message.error(errorMessage)
     } finally {
       setCompanyLoading(false)
+      console.log('🏁 Save operation completed (loading set to false)')
     }
   }
 
@@ -552,9 +801,8 @@ const SettingsPage = () => {
                         <Form.Item
                           name="taxNumber"
                           label="الرقم الضريبي"
-                          rules={[{ required: true, message: 'يرجى إدخال الرقم الضريبي' }]}
                         >
-                          <Input placeholder="الرقم الضريبي" />
+                          <Input placeholder="الرقم الضريبي (اختياري)" />
                         </Form.Item>
                       </Col>
                       <Col span={24}>
@@ -627,14 +875,61 @@ const SettingsPage = () => {
                         <Form.Item
                           label="العملة"
                           name="currency"
+                          tooltip={hasFinancialTransactions 
+                            ? (language === 'ar' 
+                                ? 'لا يمكن تغيير العملة لأن هناك معاملات مالية موجودة' 
+                                : 'Currency cannot be changed because financial transactions exist')
+                            : (language === 'ar'
+                                ? 'يمكنك تغيير العملة الآن. بعد بدء العمل، لن يمكن تغييرها'
+                                : 'You can change the currency now. Once you start working, it cannot be changed')
+                          }
                         >
-                          <Select style={{ width: 200 }}>
+                          <Select 
+                            style={{ width: 200 }}
+                            disabled={hasFinancialTransactions}
+                            value={branchCurrency || 'SAR'}
+                            onChange={async (value) => {
+                              // Update branch currency in database
+                              if (branchId && !hasFinancialTransactions) {
+                                try {
+                                  const { error } = await supabase
+                                    .from('branches')
+                                    .update({ currency: value })
+                                    .eq('id', branchId)
+                                  
+                                  if (error) {
+                                    console.error('Error updating branch currency:', error)
+                                    message.error(language === 'ar' ? 'فشل تحديث العملة' : 'Failed to update currency')
+                                  } else {
+                                    message.success(language === 'ar' ? 'تم تحديث العملة بنجاح' : 'Currency updated successfully')
+                                    // Refresh branch context to update currency globally
+                                    await refreshBranchData()
+                                  }
+                                } catch (error) {
+                                  console.error('Exception updating branch currency:', error)
+                                  message.error(language === 'ar' ? 'فشل تحديث العملة' : 'Failed to update currency')
+                                }
+                              }
+                            }}
+                          >
                             <Option value="SAR">ريال سعودي (SAR)</Option>
                             <Option value="USD">دولار أمريكي (USD)</Option>
                             <Option value="EUR">يورو (EUR)</Option>
                             <Option value="AED">درهم إماراتي (AED)</Option>
+                            <Option value="IQD">دينار عراقي (IQD)</Option>
                           </Select>
                         </Form.Item>
+                        {hasFinancialTransactions && (
+                          <Alert
+                            message={language === 'ar' ? 'قفل العملة' : 'Currency Locked'}
+                            description={language === 'ar'
+                              ? 'لا يمكن تغيير العملة لأن هناك معاملات مالية (طلبات أو دفعات) موجودة في النظام. هذا يمنع أخطاء المحاسبة.'
+                              : 'Currency cannot be changed because financial transactions (orders or payments) exist in the system. This prevents accounting errors.'}
+                            type="warning"
+                            showIcon
+                            style={{ marginTop: 8 }}
+                          />
+                        )}
                         <Form.Item
                           label="المنطقة الزمنية"
                           name="timezone"
@@ -1027,7 +1322,7 @@ const SettingsPage = () => {
                       </Col>
                       <Col span={12}>
                         <Form.Item name="taxNumber" label={language === 'ar' ? 'الرقم الضريبي' : 'Tax Number'}>
-                          <Input placeholder={language === 'ar' ? 'الرقم الضريبي' : 'Tax Number'} />
+                          <Input placeholder={language === 'ar' ? 'الرقم الضريبي (اختياري)' : 'Tax Number (Optional)'} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>

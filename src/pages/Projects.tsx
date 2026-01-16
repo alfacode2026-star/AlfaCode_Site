@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import projectsService from '../services/projectsService'
 import customersService from '../services/customersService'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
 import {
   Card,
@@ -43,6 +44,7 @@ const { Option } = Select
 const ProjectsPage = () => {
   const navigate = useNavigate()
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language)
   const [projects, setProjects] = useState([])
   const [customers, setCustomers] = useState([])
@@ -455,7 +457,7 @@ const ProjectsPage = () => {
               value={stats.totalBudget}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix={t.common.sar}
+              suffix={branchCurrency || 'SAR'}
             />
           </Card>
         </Col>
