@@ -80,8 +80,9 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         return
       }
 
-      // Check if currency column is null/undefined
-      if (!branchData.currency || branchData.currency.trim() === '') {
+      // Check if currency column is null/undefined (use optional chaining to prevent runtime crash)
+      const currencyValue = typeof branchData.currency === 'string' ? branchData.currency.trim() : ''
+      if (!branchData.currency || currencyValue === '') {
         const errorMsg = 'Branch found, but currency column is empty. Please set currency in Settings.'
         console.error('❌', errorMsg)
         setError(errorMsg)

@@ -175,6 +175,56 @@ const SettingsPage = () => {
     }
   }, [activeTab, currentTenantId])
 
+  // Check for financial transactions to lock currency dropdown
+  useEffect(() => {
+    const checkFinancialActivity = async () => {
+      if (!currentTenantId) {
+        setHasFinancialTransactions(false)
+        return
+      }
+
+      try {
+        // Check treasury_transactions table for any transactions
+        const { count: treasuryCount, error: treasuryError } = await supabase
+          .from('treasury_transactions')
+          .select('*', { count: 'exact', head: true })
+          .eq('tenant_id', currentTenantId)
+
+        if (!treasuryError && treasuryCount && treasuryCount > 0) {
+          setHasFinancialTransactions(true)
+          return
+        }
+
+        // Also check orders and payments tables (as mentioned in architecture)
+        const [ordersResult, paymentsResult] = await Promise.all([
+          supabase
+            .from('orders')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', currentTenantId),
+          supabase
+            .from('payments')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', currentTenantId)
+        ])
+
+        const ordersCount = ordersResult.count || 0
+        const paymentsCount = paymentsResult.count || 0
+
+        if (ordersCount > 0 || paymentsCount > 0) {
+          setHasFinancialTransactions(true)
+        } else {
+          setHasFinancialTransactions(false)
+        }
+      } catch (error) {
+        console.error('Error checking financial transactions:', error)
+        // On error, default to false (allow currency change) to be safe
+        setHasFinancialTransactions(false)
+      }
+    }
+
+    checkFinancialActivity()
+  }, [currentTenantId])
+
   const loadGeneralSettings = async () => {
     try {
       const settings = await companySettingsService.getCompanySettings()
