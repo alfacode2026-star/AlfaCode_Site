@@ -1,14 +1,18 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, Row, Col, Statistic, Button, Alert } from 'antd'
+import { Card, Row, Col, Statistic, Button, Alert, Tag, Typography } from 'antd'
 import { 
   ShoppingOutlined, 
   UserOutlined, 
   DatabaseOutlined,
   DollarOutlined,
   RocketOutlined,
-  ArrowUpOutlined
+  ArrowUpOutlined,
+  CheckCircleOutlined,
+  MailOutlined,
+  SafetyOutlined,
+  EnvironmentOutlined
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import inventoryService from '../services/inventoryService'
@@ -23,13 +27,20 @@ import { getCurrencySymbol } from '../utils/currencyUtils'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { supabase } from '../services/supabaseClient'
 import tenantStore from '../services/tenantStore'
+import userManagementService from '../services/userManagementService'
+
+const { Text } = Typography
 
 const Dashboard = () => {
   const navigate = useNavigate()
   const { industryType, currentTenantId } = useTenant()
-  const { branchCurrency } = useBranch()
+  const { branchCurrency, branchName } = useBranch()
   const { language } = useLanguage()
   const t = getTranslations(language)
+  
+  // Debug currency value
+  console.log('💰 [Dashboard] Current Branch Currency:', branchCurrency)
+  
   const [products, setProducts] = useState([])
   const [orders, setOrders] = useState([])
   const [customers, setCustomers] = useState([])
@@ -40,6 +51,33 @@ const Dashboard = () => {
     totalGeneralExpenses: 0,
     netCompanyProfit: 0
   })
+  
+  // User info for System Status
+  const [userInfo, setUserInfo] = useState<{
+    email: string | null;
+    role: string | null;
+  }>({
+    email: null,
+    role: null
+  })
+
+  // Fetch user profile info for System Status
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      try {
+        const profile = await userManagementService.getCurrentUserProfile()
+        if (profile) {
+          setUserInfo({
+            email: profile.email || null,
+            role: profile.role || null
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching user info:', error)
+      }
+    }
+    fetchUserInfo()
+  }, [])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -171,7 +209,7 @@ const Dashboard = () => {
       value: totalValue,
       icon: <DollarOutlined />,
       color: '#722ed1',
-      suffix: branchCurrency || 'SAR',
+      suffix: branchCurrency || '',
       link: '/inventory'
     }
   ]
@@ -226,13 +264,89 @@ const Dashboard = () => {
         />
       )}
 
-      <Alert
-        title={t.dashboard.welcomeMessage}
-        description={t.dashboard.welcomeDescription}
-        type="success"
-        showIcon
-        style={{ marginBottom: 24 }}
-      />
+      {/* Welcome Section with System Status */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Col xs={24} lg={16}>
+          <Alert
+            title={t.dashboard.welcomeMessage}
+            description={t.dashboard.welcomeDescription}
+            type="success"
+            showIcon
+            style={{ height: '100%' }}
+          />
+        </Col>
+        <Col xs={24} lg={8}>
+          <Card 
+            title={
+              <span>
+                <SafetyOutlined style={{ marginRight: 8 }} />
+                {language === 'ar' ? 'حالة النظام' : 'System Status'}
+              </span>
+            }
+            style={{ 
+              height: '100%',
+              background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+              border: '1px solid #e8e8e8'
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Account Type */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text strong>{language === 'ar' ? 'نوع الحساب:' : 'Account Type:'}</Text>
+                {userInfo.role === 'super_admin' ? (
+                  <Tag color="success" icon={<SafetyOutlined />} style={{ fontSize: '12px', padding: '4px 8px' }}>
+                    {language === 'ar' ? 'مدير عام' : 'Super Admin'}
+                  </Tag>
+                ) : (
+                  <Tag color="default" style={{ fontSize: '12px', padding: '4px 8px' }}>
+                    {userInfo.role || (language === 'ar' ? 'مستخدم' : 'User')}
+                  </Tag>
+                )}
+              </div>
+
+              {/* Active Branch */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <Text strong style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <EnvironmentOutlined />
+                  {language === 'ar' ? 'الفرع النشط:' : 'Active Branch:'}
+                </Text>
+                <Text style={{ color: '#666', fontSize: '13px' }}>
+                  {branchName || (language === 'ar' ? 'غير محدد' : 'Not Specified')}
+                </Text>
+              </div>
+
+              {/* System User */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <Text strong style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <MailOutlined />
+                  {language === 'ar' ? 'المستخدم:' : 'System User:'}
+                </Text>
+                <Text style={{ color: '#666', fontSize: '12px' }} ellipsis={{ tooltip: userInfo.email }}>
+                  {userInfo.email || (language === 'ar' ? 'غير محدد' : 'Not Available')}
+                </Text>
+              </div>
+
+              {/* Status */}
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                paddingTop: 12,
+                borderTop: '1px solid #e8e8e8'
+              }}>
+                <Text strong>{language === 'ar' ? 'الحالة:' : 'Status:'}</Text>
+                <Tag 
+                  color="success" 
+                  icon={<CheckCircleOutlined />}
+                  style={{ fontSize: '12px', padding: '4px 8px' }}
+                >
+                  {language === 'ar' ? 'النظام يعمل بشكل طبيعي' : 'System Healthy'}
+                </Tag>
+              </div>
+            </div>
+          </Card>
+        </Col>
+      </Row>
 
       {/* Statistics */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
@@ -265,7 +379,7 @@ const Dashboard = () => {
                 value={financialMetrics.totalProjectsProfit}
                 precision={0}
                 prefix={<RiseOutlined />}
-                suffix={branchCurrency || 'SAR'}
+                suffix={branchCurrency || ''}
                 styles={{ value: { color: financialMetrics.totalProjectsProfit >= 0 ? '#3f8600' : '#cf1322' } }}
               />
             </Card>
@@ -277,7 +391,7 @@ const Dashboard = () => {
                 value={financialMetrics.totalGeneralExpenses}
                 precision={0}
                 prefix={<FallOutlined />}
-                suffix={branchCurrency || 'SAR'}
+                suffix={branchCurrency || ''}
                 styles={{ value: { color: '#cf1322' } }}
               />
             </Card>
@@ -296,7 +410,7 @@ const Dashboard = () => {
                 value={financialMetrics.netCompanyProfit}
                 precision={0}
                 prefix={financialMetrics.netCompanyProfit >= 0 ? <RiseOutlined style={{ color: 'white' }} /> : <FallOutlined style={{ color: 'white' }} />}
-                suffix={<span style={{ color: 'white' }}>{branchCurrency || 'SAR'}</span>}
+                suffix={<span style={{ color: 'white' }}>{branchCurrency || ''}</span>}
                 styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
               />
               <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>

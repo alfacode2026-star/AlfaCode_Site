@@ -1,11 +1,12 @@
-import React, { useEffect, Component } from 'react';
+import React, { useEffect, Component, useState } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, Select, Space, Badge, message } from 'antd'; // Added Select, Space, Badge
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import arEG from 'antd/locale/ar_EG';
 import enUS from 'antd/locale/en_US';
 import moment from 'moment';
 import './App.css';
+import { EnvironmentOutlined } from '@ant-design/icons'; // Added Icon
 
 // Import your pages
 import Dashboard from './pages/Dashboard';
@@ -28,12 +29,14 @@ import AdminApprovals from './pages/AdminApprovals';
 import TreasuryPage from './pages/TreasuryPage';
 import IncomesPage from './pages/IncomesPage';
 import RequireSetup from './components/RequireSetup';
+import BranchesSettings from './pages/settings/BranchesSettings';
+import AuthPage from './pages/AuthPage';
 
 // Import Navigation component
 import Navigation from './components/Navigation';
 
 // Import Ant Design Layout
-import { Layout, Alert } from 'antd';
+import { Layout, Alert, Spin } from 'antd';
 
 // Import transaction manager for lock cleanup
 import transactionManager from './services/transactionManager';
@@ -52,20 +55,26 @@ import LanguageSelection from './components/LanguageSelection';
 import companySettingsService from './services/companySettingsService';
 // Import supabase for direct tenant data access (fallback)
 import { supabase } from './services/supabaseClient';
+// Import user management service for role checking
+import userManagementService from './services/userManagementService';
 
 const { Sider, Content } = Layout;
+const { Option } = Select;
 
-// App Header Component - displays company name and logo
+// App Header Component - displays company name, logo AND BRANCH SWITCHER
 function AppHeader() {
   const { currentTenantId } = useTenant();
-  const [companySettings, setCompanySettings] = React.useState<any>(null);
+  const { branchId, setBranch } = useBranch(); // Use branch context
+  const { language } = useLanguage();
+  const [companySettings, setCompanySettings] = useState<any>(null);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
 
-  React.useEffect(() => {
+  // 1. Fetch Company Data (Existing Logic)
+  useEffect(() => {
     const loadCompanyData = async () => {
       if (currentTenantId) {
         try {
-          // CRITICAL: Fetch DIRECTLY from tenants table (PRIMARY SOURCE OF TRUTH)
-          // This is the data entered during installation - it's always authoritative
           const { data: tenantData, error } = await supabase
             .from('tenants')
             .select('name, logo_url')
@@ -74,19 +83,13 @@ function AppHeader() {
           
           if (error) {
             console.error('❌ Header: Error fetching tenant data:', error);
-            // Fallback to service if direct fetch fails
             const settings = await companySettingsService.getCompanySettings();
             setCompanySettings(settings);
           } else if (tenantData) {
-            // Use data directly from tenants table (installation data)
             setCompanySettings({
               companyName: tenantData.name || null,
               tenantName: tenantData.name || null,
               logoUrl: tenantData.logo_url || null
-            });
-            console.log('✅ Header: Loaded directly from tenants table (PRIMARY SOURCE)', {
-              name: tenantData.name,
-              hasLogo: !!tenantData.logo_url
             });
           } else {
             setCompanySettings(null);
@@ -100,39 +103,215 @@ function AppHeader() {
     loadCompanyData();
   }, [currentTenantId]);
 
-  // CRITICAL: Use tenant name from installation as PRIMARY source
-  // Do NOT use hardcoded defaults - show null/empty until data loads
+  // 2. Fetch Branches for the Switcher - REFACTORED for reliability
+  useEffect(() => {
+    const fetchBranches = async () => {
+      if (!currentTenantId) {
+        console.log('🔍 [AppHeader] No tenant ID, skipping branch fetch');
+        return;
+      }
+      
+      console.log('🔍 [AppHeader] Fetching branches for tenant:', currentTenantId);
+      setLoadingBranches(true);
+      
+      try {
+        // Check if user is super_admin
+        const isAdmin = await userManagementService.isSuperAdmin();
+        
+        let query = supabase
+          .from('branches')
+          .select('*') // Get all fields
+          .eq('tenant_id', currentTenantId); // Filter by tenant_id
+        
+        // If user is NOT super_admin, filter by their branch_id (if available)
+        if (!isAdmin) {
+          const profile = await userManagementService.getCurrentUserProfile();
+          if (profile?.branch_id) {
+            // For non-super-admin, only show their assigned branch
+            query = query.eq('id', profile.branch_id);
+            console.log('🔍 [AppHeader] Non-super-admin: Filtering by branch_id:', profile.branch_id);
+          }
+        } else {
+          console.log('✅ [AppHeader] Super admin: Showing ALL branches');
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          console.error('❌ [AppHeader] Error fetching branches:', error);
+          throw error;
+        }
+
+        // CRITICAL DEBUG: Log all branches found
+        console.log('✅ [AppHeader] Branches Found:', data?.length || 0);
+        if (data && data.length > 0) {
+          data.forEach((branch, index) => {
+            console.log(`  Branch ${index + 1}:`, {
+              id: branch.id,
+              name: branch.name,
+              currency: branch.currency,
+              is_main: branch.is_main,
+              tenant_id: branch.tenant_id
+            });
+          });
+        } else {
+          console.warn('⚠️ [AppHeader] No branches found for tenant:', currentTenantId);
+        }
+
+        // Sort: Main branch first, then by name
+        const sortedBranches = (data || []).sort((a, b) => {
+          if (a.is_main && !b.is_main) return -1;
+          if (!a.is_main && b.is_main) return 1;
+          return (a.name || '').localeCompare(b.name || '');
+        });
+
+        setBranches(sortedBranches);
+        console.log('✅ [AppHeader] Branches state updated:', sortedBranches.length);
+      } catch (err) {
+        console.error('❌ [AppHeader] Critical error fetching branches:', err);
+        setBranches([]); // Reset to empty array on error
+      } finally {
+        setLoadingBranches(false);
+      }
+    };
+    fetchBranches();
+  }, [currentTenantId]);
+
+  // 3. Handle Branch Switch - Enhanced with logging
+  const handleBranchChange = async (branchId: string) => {
+    console.log('🔄 [AppHeader] Branch change requested:', branchId);
+    console.log('🔄 [AppHeader] Available branches:', branches.map(b => ({ id: b.id, name: b.name })));
+    
+    const selectedBranch = branches.find(b => b.id === branchId);
+    
+    if (selectedBranch) {
+        console.log('✅ [AppHeader] Switching to branch:', {
+          id: selectedBranch.id,
+          name: selectedBranch.name,
+          currency: selectedBranch.currency,
+          is_main: selectedBranch.is_main
+        });
+        
+        // Update Context using the new setBranch function
+        // This will save to localStorage and update the context
+        await setBranch({
+          id: selectedBranch.id,
+          name: selectedBranch.name || '',
+          currency: selectedBranch.currency || '',
+          is_main: selectedBranch.is_main || false
+        });
+        console.log('✅ [AppHeader] Branch context updated, reloading page...');
+        
+        // CRITICAL: Reload page to ensure TOTAL ISOLATION
+        // This forces all pages (Dashboard, Treasury, etc.) to re-fetch data 
+        // using the new branch ID and Currency.
+        window.location.reload(); 
+    } else {
+        console.error('❌ [AppHeader] Branch not found in branches array:', branchId);
+    }
+  };
+
   const companyName = companySettings?.companyName || companySettings?.tenantName || null;
   const logoUrl = companySettings?.logoUrl;
 
   return (
     <div style={{ 
-      padding: '24px 16px', 
+      padding: '20px 16px', 
       textAlign: 'center',
       borderBottom: '1px solid #f0f0f0',
-      minHeight: '80px',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center'
+      gap: '12px',
+      background: '#fff'
     }}>
+      {/* Logo Section */}
       {logoUrl ? (
         <img 
           src={logoUrl} 
           alt={companyName}
-          style={{ 
-            maxWidth: '100%', 
-            maxHeight: '50px', 
-            marginBottom: '8px',
-            objectFit: 'contain'
-          }} 
+          style={{ maxWidth: '100%', maxHeight: '50px', objectFit: 'contain' }} 
         />
       ) : (
-        <div style={{ fontSize: '32px', marginBottom: '8px' }}>🚀</div>
+        <div style={{ fontSize: '32px' }}>🏢</div>
       )}
-      <h2 style={{ margin: 0, color: '#1890ff', fontSize: '18px', fontWeight: 'bold' }}>
+      
+      {/* Company Name */}
+      <h2 style={{ margin: 0, color: '#001529', fontSize: '16px', fontWeight: 'bold' }}>
         {companyName || 'Loading...'}
       </h2>
+
+      {/* BRANCH SWITCHER - The "Room Key" 🔑 */}
+      {currentTenantId && (
+        <div style={{ width: '100%' }}>
+            <div style={{ 
+                fontSize: '12px', 
+                color: '#888', 
+                marginBottom: '4px', 
+                textAlign: language === 'ar' ? 'right' : 'left',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+            }}>
+                <EnvironmentOutlined /> 
+                {language === 'ar' ? 'الفرع الحالي:' : 'Current Branch:'}
+            </div>
+            <Select
+                value={branchId} // Currently active branch ID
+                style={{ width: '100%' }}
+                onChange={handleBranchChange}
+                loading={loadingBranches}
+                placeholder={loadingBranches 
+                  ? (language === 'ar' ? 'جاري التحميل...' : 'Loading...')
+                  : (language === 'ar' ? 'اختر الفرع' : 'Select Branch')
+                }
+                optionLabelProp="label"
+                notFoundContent={loadingBranches ? 'Loading...' : 'No branches found'}
+            >
+                {branches.map(b => {
+                  const branchName = b.name || `Branch ${b.id?.substring(0, 8)}`;
+                  const branchCurrency = b.currency || 'N/A';
+                  
+                  return (
+                    <Option key={b.id} value={b.id} label={branchName}>
+                        <div style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          width: '100%'
+                        }}>
+                            <span style={{ flex: 1 }}>{branchName}</span>
+                            {b.is_main && (
+                              <span style={{ 
+                                fontSize: '10px', 
+                                color: '#1890ff', 
+                                marginRight: '8px',
+                                fontWeight: 'bold'
+                              }}>
+                                MAIN
+                              </span>
+                            )}
+                            <Badge 
+                                count={branchCurrency} 
+                                style={{ backgroundColor: '#52c41a' }} 
+                            />
+                        </div>
+                    </Option>
+                  );
+                })}
+            </Select>
+            {branches.length === 0 && !loadingBranches && (
+              <div style={{ 
+                fontSize: '11px', 
+                color: '#ff4d4f', 
+                marginTop: '4px',
+                textAlign: 'center'
+              }}>
+                {language === 'ar' ? '⚠️ لم يتم العثور على فروع' : '⚠️ No branches found'}
+              </div>
+            )}
+        </div>
+      )}
     </div>
   );
 }
@@ -158,11 +337,7 @@ class ErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ 
-          padding: 24, 
-          textAlign: 'center',
-          direction: 'ltr'
-        }}>
+        <div style={{ padding: 24, textAlign: 'center', direction: 'ltr' }}>
           <h2>Error Loading Page</h2>
           <p style={{ color: '#666', marginTop: 16 }}>
             {this.state.error?.message || 'Unknown error'}
@@ -187,7 +362,6 @@ class ErrorBoundary extends Component<
         </div>
       );
     }
-
     return this.props.children;
   }
 }
@@ -199,9 +373,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   useEffect(() => {
-    // Only check if we have a tenant selected and we're not already on the setup page
     if (currentTenantId && location.pathname !== '/setup') {
-      // Redirect to setup if industry_type is null, undefined, or 'default'
       if (!industryType || industryType === 'default') {
         navigate('/setup', { replace: true });
       }
@@ -214,24 +386,98 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { industryType } = useTenant();
   const { language } = useLanguage();
-  const { error: branchError } = useBranch();
+  const { error: branchError, branchId } = useBranch();
   const location = useLocation();
+  
+  // SIMPLE AUTH GUARD: Standard Supabase session state
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Show full layout only if not on setup page and industry is set
+  // SIMPLE AUTH CHECK: Standard Supabase flow
+  useEffect(() => {
+    let isMounted = true;
+
+    // Get initial session
+    const getInitialSession = async () => {
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        
+        console.log('🔐 [AppContent] Initial session check:', {
+          hasSession: !!initialSession,
+          userId: initialSession?.user?.id,
+          error: error?.message
+        });
+
+        if (isMounted) {
+          setSession(initialSession);
+          setLoading(false);
+        }
+      } catch (error: any) {
+        console.error('❌ [AppContent] Error getting session:', error);
+        if (isMounted) {
+          setSession(null);
+          setLoading(false);
+        }
+      }
+    };
+
+    // Get initial session
+    getInitialSession();
+
+    // Listen to auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      console.log('🔄 [AppContent] Auth state changed:', _event, newSession?.user?.id);
+      
+      if (isMounted) {
+        setSession(newSession);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []); // Run once on mount
+
   const isSetupPage = location.pathname === '/setup';
   const isSetupWizard = location.pathname === '/setup-wizard';
-  const shouldShowLayout = !isSetupPage && !isSetupWizard && industryType && industryType !== 'default';
 
-  if (isSetupWizard) {
-    return <SetupWizard />;
+  // SIMPLE RENDER LOGIC: No complex flags, just loading and session
+  // Show loading spinner while checking authentication
+  if (loading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        minHeight: '100vh',
+        direction: language === 'ar' ? 'rtl' : 'ltr',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <Spin size="large" />
+        <div style={{ color: '#666' }}>
+          {language === 'ar' ? 'جاري التحميل...' : 'Loading...'}
+        </div>
+      </div>
+    );
   }
 
-  if (isSetupPage) {
-    return <SetupPage />;
+  // Allow setup pages without authentication
+  if (isSetupWizard) return <SetupWizard />;
+  if (isSetupPage) return <SetupPage />;
+
+  // If no session, show login page
+  if (!session) {
+    console.log('🚫 [AppContent] No session - showing login page');
+    return <AuthPage />;
   }
+
+  // Session exists - show main layout
+  const shouldShowLayout = industryType && industryType !== 'default';
 
   if (!shouldShowLayout) {
-    // Show loading or minimal layout while checking
     return (
       <div style={{ 
         display: 'flex', 
@@ -247,84 +493,67 @@ function AppContent() {
 
   return (
     <>
-      {/* Global Branch Error Alert - Shows at the very top of the app */}
       {branchError && (
         <Alert
           type="error"
           banner
           message="CRITICAL: Could not load Branch Settings"
           description={branchError}
-          style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 10000,
-            borderRadius: 0,
-            margin: 0
-          }}
+          style={{ position: 'sticky', top: '50px', zIndex: 10000, margin: 0 }}
           closable={false}
         />
       )}
       
       <Layout style={{ minHeight: '100vh' }}>
-        {/* Sidebar Navigation */}
-      <Sider 
-        width={250} 
-        theme="light"
-        style={{
-          boxShadow: '2px 0 8px rgba(0,0,0,0.1)',
-          zIndex: 1000
-        }}
-      >
-        <AppHeader />
-        <Navigation />
-      </Sider>
-      
-      {/* Main Content */}
-      <Layout>
-        <Content>
-          <ErrorBoundary>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/orders" element={<OrdersPage />} />
-              <Route path="/quotations" element={<QuotationsPage />} />
-              <Route path="/quotation-builder" element={<QuotationBuilder />} />
-              <Route path="/contracts" element={<ContractsPage />} />
-              <Route path="/projects" element={<ProjectsPage />} />
-              <Route path="/projects/:id" element={<ProjectDetails />} />
-              <Route path="/labor" element={<LaborPage />} />
-              <Route path="/general-expenses" element={<GeneralExpenses />} />
-              <Route path="/admin-approvals" element={<AdminApprovals />} />
-              <Route path="/treasury" element={<TreasuryPage />} />
-              <Route path="/incomes" element={<IncomesPage />} />
-              <Route path="/customers" element={<CustomersPage />} />
-              <Route path="/suppliers" element={<SuppliersPage />} />
-              <Route path="/inventory" element={<InventoryPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/setup" element={<SetupPage />} />
-              <Route path="/setup-wizard" element={<SetupWizard />} />
-            </Routes>
-          </ErrorBoundary>
-        </Content>
+        <Sider 
+          width={260} // Increased slightly to fit the dropdown better
+          theme="light"
+          style={{ boxShadow: '2px 0 8px rgba(0,0,0,0.1)', zIndex: 1000 }}
+        >
+          <AppHeader />
+          <Navigation />
+        </Sider>
+        
+        <Layout>
+          <Content>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/orders" element={<OrdersPage />} />
+                <Route path="/quotations" element={<QuotationsPage />} />
+                <Route path="/quotation-builder" element={<QuotationBuilder />} />
+                <Route path="/contracts" element={<ContractsPage />} />
+                <Route path="/projects" element={<ProjectsPage />} />
+                <Route path="/projects/:id" element={<ProjectDetails />} />
+                <Route path="/labor" element={<LaborPage />} />
+                <Route path="/general-expenses" element={<GeneralExpenses />} />
+                <Route path="/admin-approvals" element={<AdminApprovals />} />
+                <Route path="/treasury" element={<TreasuryPage />} />
+                <Route path="/incomes" element={<IncomesPage />} />
+                <Route path="/customers" element={<CustomersPage />} />
+                <Route path="/suppliers" element={<SuppliersPage />} />
+                <Route path="/inventory" element={<InventoryPage />} />
+                <Route path="/reports" element={<ReportsPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/branches" element={<BranchesSettings />} />
+                <Route path="/setup" element={<SetupPage />} />
+                <Route path="/setup-wizard" element={<SetupWizard />} />
+              </Routes>
+            </ErrorBoundary>
+          </Content>
+        </Layout>
       </Layout>
-    </Layout>
     </>
   );
 }
 
 function AppWrapper() {
-  // Must call hooks unconditionally (Rules of Hooks)
   const { language } = useLanguage();
   
-  // CRITICAL: Force Language Selection Gate on Boot
-  // Check localStorage directly to prevent flash - must check before rendering routes
   const storedLanguage = localStorage.getItem('language');
   const hasLanguage = storedLanguage === 'en' || storedLanguage === 'ar';
   
-  // If language is not set, show ONLY LanguageSelection component
-  // Do NOT mount the Sidebar, Navbar, or any Routes until language is set
   if (!hasLanguage) {
-    // Force English locale and LTR for language selection screen
     moment.locale('en');
     return (
       <ConfigProvider direction="ltr" locale={enUS}>
@@ -333,8 +562,6 @@ function AppWrapper() {
     );
   }
   
-  // ENGLISH-FIRST BOOT: Set moment locale based on language
-  // CRITICAL: When English is selected, MUST use 'en' locale globally
   useEffect(() => {
     if (language === 'en') {
       moment.locale('en');
@@ -343,8 +570,6 @@ function AppWrapper() {
     }
   }, [language]);
 
-  // ENGLISH CLEAN ROOM: When English is active, MUST use LTR and en_US locale
-  // CRITICAL: Force LTR and en_US when language is English
   const locale = language === 'en' ? enUS : arEG;
   const direction = language === 'en' ? 'ltr' : 'rtl';
 
@@ -366,17 +591,12 @@ function AppWrapper() {
 }
 
 function App() {
-  // Cleanup expired locks on app startup
   useEffect(() => {
-    // Cleanup on mount
     transactionManager.cleanupExpiredLocks()
-    
-    // Set up periodic cleanup (every 10 seconds)
     const cleanupInterval = setInterval(() => {
       transactionManager.cleanupExpiredLocks()
     }, 10000)
     
-    // Cleanup on page unload
     const handleBeforeUnload = () => {
       transactionManager.cleanupExpiredLocks()
     }

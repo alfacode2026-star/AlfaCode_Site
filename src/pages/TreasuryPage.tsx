@@ -102,7 +102,7 @@ const formatNumber = (value: number): string => {
 
 const TreasuryPage: FC = () => {
   const { language } = useLanguage();
-  const { branchCurrency } = useBranch();
+  const { branchCurrency, branchId, branchName } = useBranch(); // CRITICAL: Get branchId for strict isolation
 
   const [accounts, setAccounts] = useState<TreasuryAccount[]>([]);
   const [allAccounts, setAllAccounts] = useState<TreasuryAccount[]>([]); // Store all accounts before filtering
@@ -139,12 +139,16 @@ const TreasuryPage: FC = () => {
      Data Loading
   ======================= */
 
+  // CRITICAL: Re-fetch data when branchId changes (strict branch isolation)
   useEffect(() => {
-    loadData();
+    if (branchId) {
+      console.log('🔄 [TreasuryPage] Branch changed, reloading data for branch:', branchId, branchName);
+      loadData();
+    }
     checkSuperAdmin();
     checkManager();
     loadCurrencies();
-  }, []);
+  }, [branchId]); // Re-fetch when branch changes
 
   const checkSuperAdmin = async (): Promise<void> => {
     try {
@@ -257,17 +261,41 @@ const TreasuryPage: FC = () => {
 
   const loadAccounts = async (): Promise<void> => {
     try {
+      // CRITICAL: Strict branch isolation - only fetch accounts for current branch
+      if (!branchId) {
+        console.warn('⚠️ [TreasuryPage] No branchId, cannot load accounts');
+        setAccounts([]);
+        setAllAccounts([]);
+        return;
+      }
+
+      console.log('🔍 [TreasuryPage] Loading accounts for branch:', branchId, branchName);
+      
+      // Fetch accounts and filter by branchId (service already filters by user profile branch_id, but we enforce it here too)
       const data = await treasuryService.getAccounts();
-      setAllAccounts(data || []);
+      
+      // CRITICAL: Double-filter by branchId to ensure strict isolation
+      // Even if service returns data, we filter again to ensure only current branch accounts
+      const branchFilteredData = (data || []).filter(
+        (acc) => acc.branchId === branchId
+      );
+      
+      console.log(`✅ [TreasuryPage] Loaded ${branchFilteredData.length} accounts for branch ${branchId} (filtered from ${data?.length || 0} total)`);
+      
+      setAllAccounts(branchFilteredData);
       
       // Filter out private accounts for non-Super Admins
       if (!isSuperAdmin) {
-        const filteredData = (data || []).filter(
+        const filteredData = branchFilteredData.filter(
           (acc) => acc.accountType !== 'private'
         );
         setAccounts(filteredData);
+        // CRITICAL: Reload transactions after accounts are loaded (for branch filtering)
+        await loadTransactions(filters.accountId || null);
       } else {
-        setAccounts(data || []);
+        setAccounts(branchFilteredData);
+        // CRITICAL: Reload transactions after accounts are loaded (for branch filtering)
+        await loadTransactions(filters.accountId || null);
       }
     } catch (error) {
       console.error('Error loading accounts:', error);
@@ -289,11 +317,42 @@ const TreasuryPage: FC = () => {
     }
   }, [isSuperAdmin, allAccounts]);
 
+  // CRITICAL: Reload transactions when accounts change (for branch filtering)
+  useEffect(() => {
+    if (accounts.length > 0 && branchId) {
+      loadTransactions(filters.accountId || null);
+    }
+  }, [accounts.length, branchId]); // Reload when accounts or branch changes
+
   const loadTransactions = async (accountId: string | null = null): Promise<void> => {
     setTransactionsLoading(true);
     try {
+      // CRITICAL: Strict branch isolation - only fetch transactions for current branch accounts
+      if (!branchId) {
+        console.warn('⚠️ [TreasuryPage] No branchId, cannot load transactions');
+        setTransactions([]);
+        setTransactionsLoading(false);
+        return;
+      }
+
+      console.log('🔍 [TreasuryPage] Loading transactions for branch:', branchId, branchName);
+      
+      // Fetch transactions
       const data = await treasuryService.getTransactions(accountId);
-      setTransactions(data || []);
+      
+      // CRITICAL: Filter transactions to only include those from accounts in the current branch
+      // Get account IDs for current branch
+      const branchAccountIds = accounts.map(acc => acc.id);
+      
+      const branchFilteredTransactions = (data || []).filter((txn) => {
+        // If accountId filter is provided, it should already be in branchAccountIds
+        // Otherwise, check if the transaction's account is in the current branch
+        return branchAccountIds.includes(txn.accountId);
+      });
+      
+      console.log(`✅ [TreasuryPage] Loaded ${branchFilteredTransactions.length} transactions for branch ${branchId} (filtered from ${data?.length || 0} total)`);
+      
+      setTransactions(branchFilteredTransactions);
     } catch (error) {
       console.error('Error loading transactions:', error);
       message.error('Failed to load transactions.');
@@ -414,7 +473,7 @@ const TreasuryPage: FC = () => {
           <span
             style={{ fontWeight: 'bold', color: balance >= 0 ? '#52c41a' : '#ff4d4f' }}
           >
-            {formatCurrency(balance, record.currency || 'SAR')}
+            {formatCurrency(balance, record.currency || branchCurrency || '')}
           </span>
         ),
         sorter: (a: TreasuryAccount, b: TreasuryAccount) =>
@@ -425,7 +484,7 @@ const TreasuryPage: FC = () => {
         dataIndex: 'initialBalance',
         key: 'initialBalance',
         render: (balance: number, record: TreasuryAccount) => (
-          <span>{formatCurrency(balance, record.currency || 'SAR')}</span>
+          <span>{formatCurrency(balance, record.currency || branchCurrency || '')}</span>
         ),
       },
       {
@@ -516,7 +575,7 @@ const TreasuryPage: FC = () => {
         render: (amount: number, record: TreasuryTransaction) => {
           // Get currency from the account
           const account = accounts.find((acc) => acc.id === record.accountId);
-          const currency = account?.currency || 'SAR';
+          const currency = account?.currency || branchCurrency || '';
           return (
             <span
               style={{
@@ -572,7 +631,7 @@ const TreasuryPage: FC = () => {
     accountForm.setFieldsValue({
       type: 'bank',
       accountType: 'public',
-      currency: 'SAR',
+      currency: branchCurrency || 'SAR', // Use branch currency as default
     });
     setIsAccountModalVisible(true);
   };
@@ -583,7 +642,7 @@ const TreasuryPage: FC = () => {
       name: account.name,
       type: account.type,
       accountType: account.accountType || 'public',
-      currency: account.currency || 'SAR',
+      currency: account.currency || branchCurrency || '',
       initialBalance: account.initialBalance,
     });
     setIsAccountModalVisible(true);
@@ -591,13 +650,20 @@ const TreasuryPage: FC = () => {
 
   const handleSaveAccount = async (): Promise<void> => {
     try {
+      // CRITICAL: Ensure branchId is available (strict branch isolation)
+      if (!branchId) {
+        message.error('Cannot save account: No branch selected. Please select a branch first.');
+        console.error('❌ [TreasuryPage] Cannot save account without branchId');
+        return;
+      }
+
       const values = await accountForm.validateFields();
 
       // Ensure currency is the code (string), not an object
       // The form value should already be a string (currency code like 'SAR', 'USD', 'IQD')
       const currencyCode = typeof values.currency === 'string' 
         ? values.currency.trim() // Trim whitespace
-        : (values.currency?.code || 'SAR');
+        : (values.currency?.code || branchCurrency || '');
 
       // Validate currency code exists in our currencies list
       const currencyExists = currencies.some(c => c.code === currencyCode);
@@ -771,6 +837,17 @@ const TreasuryPage: FC = () => {
   return (
     <ConfigProvider locale={enUS}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
+        {/* CRITICAL: Alert if branch is not selected (strict branch isolation) */}
+        {!branchId && (
+          <Alert
+            type="warning"
+            message="Branch Not Selected"
+            description="Please select a branch from the header to view treasury data. All data is filtered by branch for strict isolation."
+            showIcon
+            closable={false}
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#333', margin: 0 }}>
@@ -816,7 +893,7 @@ const TreasuryPage: FC = () => {
                 value={totalCash}
                 precision={0}
                 prefix={<WalletOutlined />}
-                suffix={branchCurrency || 'SAR'}
+                suffix={branchCurrency || ''}
                 styles={{ value: { color: totalCash >= 0 ? '#52c41a' : '#ff4d4f' } }}
               />
             </Card>
@@ -828,7 +905,7 @@ const TreasuryPage: FC = () => {
                 value={totalBank}
                 precision={0}
                 prefix={<BankOutlined />}
-                suffix={branchCurrency || 'SAR'}
+                suffix={branchCurrency || ''}
                 styles={{ value: { color: totalBank >= 0 ? '#1890ff' : '#ff4d4f' } }}
               />
             </Card>
@@ -840,7 +917,7 @@ const TreasuryPage: FC = () => {
                 value={grandTotal}
                 precision={0}
                 prefix={<DollarOutlined />}
-                suffix={branchCurrency || 'SAR'}
+                suffix={branchCurrency || ''}
                 styles={{ value: { color: grandTotal >= 0 ? '#722ed1' : '#ff4d4f' } }}
               />
             </Card>
@@ -963,7 +1040,7 @@ const TreasuryPage: FC = () => {
               name="currency"
               label="Currency"
               rules={[{ required: true, message: 'Please select currency' }]}
-              initialValue="SAR"
+              initialValue={branchCurrency || 'SAR'}
             >
               <Select 
                 placeholder="Select currency" 
@@ -1079,7 +1156,7 @@ const TreasuryPage: FC = () => {
                 }}
               >
                 <div>
-                  <strong>Balance:</strong> {formatCurrency(selectedAccount.currentBalance, selectedAccount.currency || 'SAR')}
+                  <strong>Balance:</strong> {formatCurrency(selectedAccount.currentBalance, selectedAccount.currency || branchCurrency || '')}
                 </div>
                 <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
                   Balance is calculated from transactions and cannot be edited directly.

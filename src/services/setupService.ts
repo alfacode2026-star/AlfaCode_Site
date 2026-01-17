@@ -631,16 +631,24 @@ class SetupService {
       // Use finalAdminName to avoid variable collision (assign from top-level adminFullName)
       const finalAdminName = adminFullName
       
-      // CRITICAL: Hard update - use UPDATE (not upsert) to ensure it overwrites any existing values
+      // CRITICAL: Use UPSERT to recreate profile if missing (handles TRUNCATE scenario)
+      // If profile row was deleted but Auth User exists, upsert will recreate it
+      const finalLinkPayload = {
+        id: user.id,
+        email: user.email,
+        full_name: finalAdminName,
+        role: 'super_admin',
+        tenant_id: tenantId,
+        branch_id: mainBranchId
+      }
+      
+      console.log('🔥 [Setup Service] Upserting profile with payload:', JSON.stringify(finalLinkPayload, null, 2))
+      
       const { error: finalLinkError } = await supabase
         .from('profiles')
-        .update({ 
-          tenant_id: tenantId,
-          branch_id: mainBranchId,
-          role: 'super_admin',
-          full_name: finalAdminName
+        .upsert(finalLinkPayload, {
+          onConflict: 'id'
         })
-        .eq('id', user.id)
 
       if (finalLinkError) {
         console.error('❌ [Setup Service] CRITICAL: Final hard link failed:', finalLinkError)
