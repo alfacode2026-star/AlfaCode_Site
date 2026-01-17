@@ -31,7 +31,8 @@ import {
   Tag,
   Avatar,
   Popconfirm,
-  Badge
+  Badge,
+  Table
 } from 'antd'
 import {
   SaveOutlined,
@@ -78,6 +79,7 @@ const SettingsPage = () => {
   const [logoFile, setLogoFile] = useState<UploadFile | null>(null)
   const [users, setUsers] = useState<any[]>([])
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false) // Track if user is admin (or super_admin)
   const [usersLoading, setUsersLoading] = useState(false)
   const [isUserModalVisible, setIsUserModalVisible] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
@@ -165,6 +167,7 @@ const SettingsPage = () => {
     { date: '2024-02-11 02:00', size: '2.3 GB', type: 'تلقائي', status: 'failed' }
   ]
 
+  // Load tab-specific data when tab changes
   useEffect(() => {
     if (activeTab === 'company') {
       loadCompanySettings()
@@ -173,7 +176,8 @@ const SettingsPage = () => {
     } else if (activeTab === 'general') {
       loadGeneralSettings()
     }
-  }, [activeTab, currentTenantId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]) // Only depend on activeTab to prevent infinite loops
 
   // Check for financial transactions to lock currency dropdown
   useEffect(() => {
@@ -287,26 +291,78 @@ const SettingsPage = () => {
   }
 
   const checkSuperAdminAndLoadUsers = async () => {
+    // Prevent multiple simultaneous calls
+    if (usersLoading) {
+      return
+    }
+
     try {
-      const isAdmin = await userManagementService.isSuperAdmin()
-      setIsSuperAdmin(isAdmin)
-      if (isAdmin) {
+      setUsersLoading(true)
+      const profile = await userManagementService.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const isSuperAdminUser = userRole === 'super_admin'
+      const isAdminUser = userRole === 'admin' || isSuperAdminUser
+      
+      setIsSuperAdmin(isSuperAdminUser)
+      setIsAdmin(isAdminUser)
+      
+      if (isAdminUser) {
+        // Load users if user is admin or super_admin
         await loadUsers()
+      } else {
+        // If not admin, ensure users list is empty
+        setUsers([])
       }
-    } catch (error) {
-      console.error('Error checking super admin status:', error)
+    } catch (error: any) {
+      console.error('Error checking admin status:', error)
       setIsSuperAdmin(false)
+      setIsAdmin(false)
+      setUsers([])
+      // Don't show error message here - just log and set state
+    } finally {
+      setUsersLoading(false)
     }
   }
 
   const loadUsers = async () => {
-    setUsersLoading(true)
+    // Safety guard: Don't load if already loading
+    if (usersLoading) {
+      return
+    }
+
     try {
+      setUsersLoading(true)
+      
+      // Ensure we have a tenant ID before fetching
+      if (!currentTenantId) {
+        console.warn('No tenant ID available - cannot load users')
+        setUsers([])
+        return
+      }
+
       const usersList = await userManagementService.getUsers()
-      setUsers(usersList || [])
-    } catch (error) {
+      
+      // Safety: Filter out any null/undefined users and ensure all required fields exist
+      const safeUsers = (usersList || [])
+        .filter((user: any) => user && user.id) // Filter out null/undefined users
+        .map((user: any) => ({
+          ...user,
+          // Ensure all fields have safe defaults
+          email: user.email || 'N/A',
+          full_name: user.full_name || 'Unnamed User',
+          role: user.role || 'user',
+          branch_id: user.branch_id || null,
+          tenant_id: user.tenant_id || currentTenantId
+        }))
+      
+      setUsers(safeUsers)
+    } catch (error: any) {
       console.error('Error loading users:', error)
-      message.error(language === 'ar' ? 'فشل تحميل المستخدمين' : 'Failed to load users')
+      setUsers([]) // Set to empty array on error to prevent crashes
+      
+      // Show user-friendly error message
+      const errorMessage = error?.message || (language === 'ar' ? 'فشل تحميل المستخدمين' : 'Failed to load users')
+      message.error(errorMessage)
     } finally {
       setUsersLoading(false)
     }
@@ -315,7 +371,7 @@ const SettingsPage = () => {
   const handleAddUser = () => {
     setSelectedUser(null)
     userForm.resetFields()
-    userForm.setFieldsValue({ role: 'user' })
+    userForm.setFieldsValue({ role: 'manager' }) // Default to manager
     setIsUserModalVisible(true)
   }
 
@@ -332,6 +388,12 @@ const SettingsPage = () => {
   const handleSaveUser = async () => {
     try {
       const values = await userForm.validateFields()
+      
+      // Security: Admin cannot edit super_admin
+      if (selectedUser && selectedUser.role === 'super_admin' && !isSuperAdmin) {
+        message.error(language === 'ar' ? 'لا يمكن تعديل مدير النظام' : 'Cannot edit Super Admin user')
+        return
+      }
       
       if (selectedUser) {
         // Update existing user role
@@ -351,7 +413,7 @@ const SettingsPage = () => {
           email: values.email,
           password: values.password,
           full_name: values.full_name,
-          role: values.role || 'user',
+          role: values.role || 'manager', // Default to manager
           branch_id: null // Can be set later
         })
         
@@ -1592,7 +1654,7 @@ const SettingsPage = () => {
             icon: <TeamOutlined />,
             children: (
               <>
-                {!isSuperAdmin ? (
+                {!isAdmin ? (
                   <Alert
                     message={language === 'ar' ? 'غير مصرح' : 'Unauthorized'}
                     description={language === 'ar' 
@@ -1612,63 +1674,108 @@ const SettingsPage = () => {
                       }
                     >
                       <Table
-                        dataSource={users}
+                        dataSource={users || []}
                         loading={usersLoading}
-                        rowKey="id"
+                        rowKey={(record) => record?.id || `user-${Math.random()}`}
+                        locale={{
+                          emptyText: language === 'ar' ? 'لا يوجد مستخدمون' : 'No users found'
+                        }}
                         columns={[
                           {
                             title: language === 'ar' ? 'البريد الإلكتروني' : 'Email',
                             dataIndex: 'email',
-                            key: 'email'
+                            key: 'email',
+                            render: (email: string) => email || (language === 'ar' ? 'غير محدد' : 'Not Specified')
                           },
                           {
                             title: language === 'ar' ? 'الاسم الكامل' : 'Full Name',
                             dataIndex: 'full_name',
-                            key: 'full_name'
+                            key: 'full_name',
+                            render: (fullName: string) => fullName || (language === 'ar' ? 'غير محدد' : 'Not Specified')
                           },
                           {
                             title: language === 'ar' ? 'الدور' : 'Role',
                             dataIndex: 'role',
                             key: 'role',
-                            render: (role: string) => (
-                              <Tag color={role === 'super_admin' ? 'red' : role === 'admin' ? 'orange' : 'blue'}>
-                                {role === 'super_admin' ? (language === 'ar' ? 'مدير النظام' : 'Super Admin') :
-                                 role === 'admin' ? (language === 'ar' ? 'مدير' : 'Admin') :
-                                 role === 'manager' ? (language === 'ar' ? 'مدير فرع' : 'Manager') :
-                                 role === 'accountant' ? (language === 'ar' ? 'محاسب' : 'Accountant') :
-                                 role === 'engineer' ? (language === 'ar' ? 'مهندس' : 'Engineer') :
-                                 language === 'ar' ? 'مستخدم' : 'User'}
-                              </Tag>
-                            )
+                            render: (role: string | null | undefined) => {
+                              const safeRole = role || 'manager'
+                              // Standardize colors: Super Admin (Red), Admin (Gold/Amber), Manager (Blue)
+                              return (
+                                <Tag color={safeRole === 'super_admin' ? 'red' : safeRole === 'admin' ? 'gold' : 'blue'}>
+                                  {safeRole === 'super_admin' ? (language === 'ar' ? 'مدير النظام' : 'Super Admin') :
+                                   safeRole === 'admin' ? (language === 'ar' ? 'مدير' : 'Admin') :
+                                   safeRole === 'manager' ? (language === 'ar' ? 'مدير فرع' : 'Manager') :
+                                   language === 'ar' ? 'مدير فرع' : 'Manager'}
+                                </Tag>
+                              )
+                            }
                           },
                           {
                             title: language === 'ar' ? 'الإجراءات' : 'Actions',
                             key: 'actions',
-                            render: (_: any, record: any) => (
-                              <Space>
-                                <Button 
-                                  type="link" 
-                                  size="small"
-                                  icon={<EditOutlined />}
-                                  onClick={() => handleEditUser(record)}
-                                >
-                                  {language === 'ar' ? 'تعديل' : 'Edit'}
-                                </Button>
-                                <Popconfirm
-                                  title={language === 'ar' ? 'حذف المستخدم' : 'Delete User'}
-                                  description={language === 'ar' 
-                                    ? 'هل أنت متأكد من حذف هذا المستخدم؟'
-                                    : 'Are you sure you want to delete this user?'}
-                                  onConfirm={() => handleDeleteUser(record.id)}
-                                  okText={language === 'ar' ? 'نعم' : 'Yes'}
-                                  cancelText={language === 'ar' ? 'لا' : 'No'}
-                                >
-                                  <Button type="link" danger size="small" icon={<DeleteOutlined />}>
-                                    {language === 'ar' ? 'حذف' : 'Delete'}
-                                  </Button>
-                                </Popconfirm>
-                              </Space>
-                            )
+                            render: (_: any, record: any) => {
+                              // Safety check: ensure record and record.id exist
+                              if (!record || !record.id) {
+                                return null
+                              }
+                              
+                              // Security: Admin cannot edit or delete super_admin
+                              const currentUserRole = isSuperAdmin ? 'super_admin' : 'admin'
+                              const recordRole = record.role || 'manager'
+                              const canEdit = currentUserRole === 'super_admin' || recordRole !== 'super_admin'
+                              const canDelete = currentUserRole === 'super_admin' && recordRole !== 'super_admin'
+                              
+                              return (
+                                <Space>
+                                  {canEdit ? (
+                                    <Button 
+                                      type="link" 
+                                      size="small"
+                                      icon={<EditOutlined />}
+                                      onClick={() => handleEditUser(record)}
+                                    >
+                                      {language === 'ar' ? 'تعديل' : 'Edit'}
+                                    </Button>
+                                  ) : (
+                                    <Button 
+                                      type="link" 
+                                      size="small"
+                                      icon={<EditOutlined />}
+                                      disabled
+                                      title={language === 'ar' ? 'لا يمكن تعديل مدير النظام' : 'Cannot edit Super Admin'}
+                                    >
+                                      {language === 'ar' ? 'تعديل' : 'Edit'}
+                                    </Button>
+                                  )}
+                                  {canDelete ? (
+                                    <Popconfirm
+                                      title={language === 'ar' ? 'حذف المستخدم' : 'Delete User'}
+                                      description={language === 'ar' 
+                                        ? 'هل أنت متأكد من حذف هذا المستخدم؟'
+                                        : 'Are you sure you want to delete this user?'}
+                                      onConfirm={() => handleDeleteUser(record.id)}
+                                      okText={language === 'ar' ? 'نعم' : 'Yes'}
+                                      cancelText={language === 'ar' ? 'لا' : 'No'}
+                                    >
+                                      <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+                                        {language === 'ar' ? 'حذف' : 'Delete'}
+                                      </Button>
+                                    </Popconfirm>
+                                  ) : (
+                                    <Button 
+                                      type="link" 
+                                      danger 
+                                      size="small" 
+                                      icon={<DeleteOutlined />}
+                                      disabled
+                                      title={language === 'ar' ? 'لا يمكن حذف مدير النظام' : 'Cannot delete Super Admin'}
+                                    >
+                                      {language === 'ar' ? 'حذف' : 'Delete'}
+                                    </Button>
+                                  )}
+                                </Space>
+                              )
+                            }
                           }
                         ]}
                         pagination={{ pageSize: 10 }}
@@ -1730,13 +1837,14 @@ const SettingsPage = () => {
                           label={language === 'ar' ? 'الدور' : 'Role'}
                           rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار الدور' : 'Please select role' }]}
                         >
-                          <Select placeholder={language === 'ar' ? 'اختر الدور' : 'Select Role'}>
+                          <Select 
+                            placeholder={language === 'ar' ? 'اختر الدور' : 'Select Role'}
+                            disabled={selectedUser?.role === 'super_admin' && !isSuperAdmin}
+                          >
+                            {/* Only show 3 core roles */}
                             <Option value="super_admin">{language === 'ar' ? 'مدير النظام' : 'Super Admin'}</Option>
                             <Option value="admin">{language === 'ar' ? 'مدير' : 'Admin'}</Option>
                             <Option value="manager">{language === 'ar' ? 'مدير فرع' : 'Manager'}</Option>
-                            <Option value="accountant">{language === 'ar' ? 'محاسب' : 'Accountant'}</Option>
-                            <Option value="engineer">{language === 'ar' ? 'مهندس' : 'Engineer'}</Option>
-                            <Option value="user">{language === 'ar' ? 'مستخدم' : 'User'}</Option>
                           </Select>
                         </Form.Item>
                       </Form>

@@ -194,17 +194,19 @@ const Navigation = () => {
       icon: <BarChartOutlined />,
       label: t.navigation.reports,
     },
-    {
-      key: '/settings',
-      icon: <SettingOutlined />,
-      label: t.navigation.settings,
-    },
-    // Show Branches link only for super_admin - Strictly conditional
-    ...(userRole === 'super_admin' ? [{
-      key: '/settings/branches',
-      icon: <ApartmentOutlined />,
-      label: language === 'ar' ? 'الفروع' : 'Branches',
-    }] : []),
+    // Show Settings and Branches for super_admin and admin only (not for manager)
+    ...(userRole === 'super_admin' || userRole === 'admin' ? [
+      {
+        key: '/settings',
+        icon: <SettingOutlined />,
+        label: t.navigation.settings,
+      },
+      {
+        key: '/settings/branches',
+        icon: <ApartmentOutlined />,
+        label: language === 'ar' ? 'الفروع' : 'Branches',
+      }
+    ] : []),
   ]
   
   // DEBUG: Log menu items to verify Branches is included

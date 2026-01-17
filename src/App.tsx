@@ -115,24 +115,27 @@ function AppHeader() {
       setLoadingBranches(true);
       
       try {
-        // Check if user is super_admin
-        const isAdmin = await userManagementService.isSuperAdmin();
+        // Check if user is super_admin or admin (both can see all branches)
+        const profile = await userManagementService.getCurrentUserProfile();
+        const userRole = profile?.role || null;
+        const isSuperAdminUser = userRole === 'super_admin';
+        const isAdminUser = userRole === 'admin';
+        const canSeeAllBranches = isSuperAdminUser || isAdminUser;
         
         let query = supabase
           .from('branches')
           .select('*') // Get all fields
           .eq('tenant_id', currentTenantId); // Filter by tenant_id
         
-        // If user is NOT super_admin, filter by their branch_id (if available)
-        if (!isAdmin) {
-          const profile = await userManagementService.getCurrentUserProfile();
+        // If user is manager (not super_admin or admin), filter by their branch_id
+        if (!canSeeAllBranches) {
           if (profile?.branch_id) {
-            // For non-super-admin, only show their assigned branch
+            // For managers, only show their assigned branch
             query = query.eq('id', profile.branch_id);
-            console.log('🔍 [AppHeader] Non-super-admin: Filtering by branch_id:', profile.branch_id);
+            console.log('🔍 [AppHeader] Manager: Filtering by branch_id:', profile.branch_id);
           }
         } else {
-          console.log('✅ [AppHeader] Super admin: Showing ALL branches');
+          console.log('✅ [AppHeader] Super Admin/Admin: Showing ALL branches');
         }
 
         const { data, error } = await query;
@@ -261,6 +264,7 @@ function AppHeader() {
                 style={{ width: '100%' }}
                 onChange={handleBranchChange}
                 loading={loadingBranches}
+                disabled={branches.length <= 1} // Disable if only one branch (manager scenario)
                 placeholder={loadingBranches 
                   ? (language === 'ar' ? 'جاري التحميل...' : 'Loading...')
                   : (language === 'ar' ? 'اختر الفرع' : 'Select Branch')

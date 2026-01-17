@@ -51,7 +51,7 @@ class UserManagementService {
     }
   }
 
-  // Get all users for current tenant (only Super Admin can access)
+  // Get all users for current tenant (Super Admin and Admin can access)
   async getUsers() {
     try {
       const tenantId = tenantStore.getTenantId()
@@ -59,10 +59,14 @@ class UserManagementService {
         return []
       }
 
-      // Check if current user is super admin
-      const isAdmin = await this.isSuperAdmin()
-      if (!isAdmin) {
-        throw new Error('Only Super Admins can view users')
+      // Check if current user is super admin or admin
+      const profile = await this.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const isSuperAdminUser = userRole === 'super_admin'
+      const isAdminUser = userRole === 'admin'
+      
+      if (!isSuperAdminUser && !isAdminUser) {
+        throw new Error('Only Super Admins and Admins can view users')
       }
 
       const { data, error } = await supabase
@@ -79,7 +83,7 @@ class UserManagementService {
     }
   }
 
-  // Create new user account (Super Admin only)
+  // Create new user account (Super Admin and Admin can access)
   async createUser(userData) {
     try {
       const tenantId = tenantStore.getTenantId()
@@ -92,12 +96,16 @@ class UserManagementService {
         }
       }
 
-      // Check if current user is super admin
-      const isAdmin = await this.isSuperAdmin()
-      if (!isAdmin) {
+      // Check if current user is super admin or admin
+      const profile = await this.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const isSuperAdminUser = userRole === 'super_admin'
+      const isAdminUser = userRole === 'admin'
+      
+      if (!isSuperAdminUser && !isAdminUser) {
         return {
           success: false,
-          error: 'Only Super Admins can create users',
+          error: 'Only Super Admins and Admins can create users',
           errorCode: 'UNAUTHORIZED'
         }
       }
@@ -207,21 +215,42 @@ class UserManagementService {
     }
   }
 
-  // Update user role (Super Admin only)
+  // Update user role (Super Admin and Admin can access, but Admin cannot edit super_admin)
   async updateUserRole(userId, newRole) {
     try {
-      // Check if current user is super admin
-      const isAdmin = await this.isSuperAdmin()
-      if (!isAdmin) {
+      // Check if current user is super admin or admin
+      const profile = await this.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const isSuperAdminUser = userRole === 'super_admin'
+      const isAdminUser = userRole === 'admin'
+      
+      if (!isSuperAdminUser && !isAdminUser) {
         return {
           success: false,
-          error: 'Only Super Admins can update user roles',
+          error: 'Only Super Admins and Admins can update user roles',
           errorCode: 'UNAUTHORIZED'
         }
       }
 
-      // Validate role
-      const validRoles = ['super_admin', 'admin', 'manager', 'user', 'accountant', 'engineer']
+      // Security: Admin cannot edit super_admin users
+      if (isAdminUser && !isSuperAdminUser) {
+        const targetProfile = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .single()
+        
+        if (targetProfile.data?.role === 'super_admin') {
+          return {
+            success: false,
+            error: 'Admins cannot modify Super Admin users',
+            errorCode: 'FORBIDDEN'
+          }
+        }
+      }
+
+      // Validate role - only allow 3 core roles
+      const validRoles = ['super_admin', 'admin', 'manager']
       if (!validRoles.includes(newRole)) {
         return {
           success: false,
@@ -251,12 +280,12 @@ class UserManagementService {
     }
   }
 
-  // Delete user (Super Admin only) - Note: This only deletes the profile, not the auth user
+  // Delete user (Super Admin only - Admin cannot delete) - Note: This only deletes the profile, not the auth user
   async deleteUser(userId) {
     try {
-      // Check if current user is super admin
-      const isAdmin = await this.isSuperAdmin()
-      if (!isAdmin) {
+      // Only super admin can delete users
+      const isSuperAdminUser = await this.isSuperAdmin()
+      if (!isSuperAdminUser) {
         return {
           success: false,
           error: 'Only Super Admins can delete users',
@@ -271,6 +300,21 @@ class UserManagementService {
           success: false,
           error: 'Cannot delete your own account',
           errorCode: 'CANNOT_DELETE_SELF'
+        }
+      }
+
+      // Security: Prevent deleting super_admin users (only super_admin can delete, but this is an extra safety check)
+      const targetProfile = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single()
+      
+      if (targetProfile.data?.role === 'super_admin' && currentProfile?.role !== 'super_admin') {
+        return {
+          success: false,
+          error: 'Cannot delete Super Admin users',
+          errorCode: 'FORBIDDEN'
         }
       }
 
