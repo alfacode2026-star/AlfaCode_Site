@@ -859,11 +859,11 @@ const SettingsPage = () => {
         items={[
           {
             key: 'general',
-            label: 'عام',
+            label: t.settings.general,
             icon: <SettingOutlined />,
             children: (
               <>
-                <Card title="معلومات الشركة">
+                <Card title={t.settings.companyName || 'Company Information'}>
                   <Form
                     form={form}
                     layout="vertical"
@@ -873,19 +873,19 @@ const SettingsPage = () => {
                       <Col span={12}>
                         <Form.Item
                           name="name"
-                          label="اسم الشركة"
+                          label={t.settings.companyName}
                           rules={[{ required: true, message: 'يرجى إدخال اسم الشركة' }]}
                         >
                           <Input 
                             prefix={<ShopOutlined />} 
-                            placeholder="أدخل اسم الشركة" 
+                            placeholder={t.settings.companyNamePlaceholder} 
                           />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item
                           name="email"
-                          label="البريد الإلكتروني"
+                          label={t.settings.email}
                           rules={[
                             { required: true, message: 'يرجى إدخال البريد الإلكتروني' },
                             { type: 'email', message: 'يرجى إدخال بريد إلكتروني صحيح' }
@@ -893,38 +893,38 @@ const SettingsPage = () => {
                         >
                           <Input 
                             prefix={<MailOutlined />} 
-                            placeholder="البريد الإلكتروني" 
+                            placeholder={t.settings.emailPlaceholder} 
                           />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item
                           name="phone"
-                          label="رقم الهاتف"
+                          label={t.settings.phone}
                           rules={[{ required: true, message: 'يرجى إدخال رقم الهاتف' }]}
                         >
                           <Input 
                             prefix={<PhoneOutlined />} 
-                            placeholder="رقم الهاتف" 
+                            placeholder={t.settings.phonePlaceholder} 
                           />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item
                           name="taxNumber"
-                          label="الرقم الضريبي"
+                          label={t.settings.taxNumber}
                         >
-                          <Input placeholder="الرقم الضريبي (اختياري)" />
+                          <Input placeholder={t.settings.taxNumberPlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={24}>
                         <Form.Item
                           name="address"
-                          label="العنوان"
+                          label={t.settings.address}
                         >
                           <Input.TextArea 
                             rows={2} 
-                            placeholder="أدخل عنوان الشركة" 
+                            placeholder={t.settings.addressPlaceholder} 
                           />
                         </Form.Item>
                       </Col>
@@ -1176,7 +1176,7 @@ const SettingsPage = () => {
                     label="خادم SMTP"
                     rules={[{ required: true, message: 'يرجى إدخال خادم SMTP' }]}
                   >
-                    <Input placeholder="smtp.gmail.com" />
+                    <Input placeholder={t.settings.smtpHostPlaceholder} />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -1207,7 +1207,7 @@ const SettingsPage = () => {
                     label="كلمة المرور"
                     rules={[{ required: true, message: 'يرجى إدخال كلمة المرور' }]}
                   >
-                    <Input.Password placeholder="كلمة مرور البريد" />
+                    <Input.Password placeholder={t.settings.smtpPasswordPlaceholder} />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -1228,7 +1228,7 @@ const SettingsPage = () => {
                       { type: 'email', message: 'يرجى إدخال بريد إلكتروني صحيح' }
                     ]}
                   >
-                    <Input placeholder="noreply@company.com" />
+                    <Input placeholder={t.settings.fromEmailPlaceholder} />
                   </Form.Item>
                 </Col>
                 <Col span={24}>
@@ -1237,7 +1237,7 @@ const SettingsPage = () => {
                     label="اسم المرسل"
                     rules={[{ required: true, message: 'يرجى إدخال اسم المرسل' }]}
                   >
-                    <Input placeholder="نظام ERP" />
+                    <Input placeholder={t.settings.fromNamePlaceholder} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -1369,118 +1369,114 @@ const SettingsPage = () => {
           },
           {
             key: 'company',
-            label: language === 'ar' ? 'إعدادات الشركة' : 'Company Settings',
+            label: t.settings.companySettings,
             icon: <ShopOutlined />,
             children: (
               <>
                 <Alert
-                  message={language === 'ar' ? 'تعليمات الورقة الرسمية' : 'Full-Page Letterhead Instructions'}
-                  description={language === 'ar' 
-                    ? 'قم برفع صورة عالية الدقة PNG/JPG لصفحة A4 كاملة تتضمن الرأس والتذييل والعلامة المائية. سيستخدم النظام هذا كطبقة خلفية، وسيتدفق محتوى العرض فوقها.'
-                    : 'Upload a high-resolution PNG/JPG image of your entire A4 page including header, footer, and watermark. The system will use this as a background layer, and quotation content will flow over it.'}
+                  message={t.settings.letterheadInstructions}
+                  description={t.settings.letterheadInstructionsDescription}
                   type="info"
                   showIcon
                   style={{ marginBottom: 16 }}
                 />
                 <Form form={companyForm} layout="vertical">
-                  <Card title={language === 'ar' ? 'معلومات الشركة' : 'Company Information'} style={{ marginBottom: 16 }}>
+                  <Card title={t.settings.companyInformation} style={{ marginBottom: 16 }}>
                     <Row gutter={[24, 16]}>
                       <Col span={12}>
                         <Form.Item
                           name="companyName"
-                          label={language === 'ar' ? 'اسم الشركة' : 'Company Name'}
-                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال اسم الشركة' : 'Please enter company name' }]}
+                          label={t.settings.companyName}
+                          rules={[{ required: true, message: t.settings.pleaseEnterCompanyName }]}
                         >
-                          <Input prefix={<ShopOutlined />} placeholder={language === 'ar' ? 'اسم الشركة' : 'Company Name'} />
+                          <Input prefix={<ShopOutlined />} placeholder={t.settings.companyNamePlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item
                           name="authorizedManagerName"
-                          label={language === 'ar' ? 'اسم المدير المصرح' : 'Authorized Manager Name'}
-                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال اسم المدير' : 'Please enter manager name' }]}
+                          label={t.settings.authorizedManagerName}
+                          rules={[{ required: true, message: t.settings.pleaseEnterManagerName }]}
                         >
-                          <Input prefix={<UserOutlined />} placeholder={language === 'ar' ? 'اسم المدير' : 'Manager Name'} />
+                          <Input prefix={<UserOutlined />} placeholder={t.settings.managerNamePlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item
                           name="authorizedManagerTitle"
-                          label={language === 'ar' ? 'منصب المدير' : 'Manager Title/Position'}
-                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال منصب المدير' : 'Please enter manager title' }]}
+                          label={t.settings.managerTitle}
+                          rules={[{ required: true, message: t.settings.pleaseEnterManagerTitle }]}
                         >
-                          <Input placeholder={language === 'ar' ? 'مثل: المدير العام' : 'e.g., General Manager'} />
+                          <Input placeholder={t.settings.managerTitlePlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item name="companyPhone" label={language === 'ar' ? 'هاتف الشركة' : 'Company Phone'}>
-                          <Input placeholder={language === 'ar' ? 'رقم الهاتف' : 'Phone Number'} />
+                        <Form.Item name="companyPhone" label={t.settings.companyPhone}>
+                          <Input placeholder={t.settings.phonePlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item name="companyEmail" label={language === 'ar' ? 'بريد الشركة' : 'Company Email'}>
-                          <Input placeholder={language === 'ar' ? 'البريد الإلكتروني' : 'Email Address'} />
+                        <Form.Item name="companyEmail" label={t.settings.companyEmail}>
+                          <Input placeholder={t.settings.emailPlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item name="companyWebsite" label={language === 'ar' ? 'موقع الشركة' : 'Company Website'}>
-                          <Input placeholder={language === 'ar' ? 'رابط الموقع' : 'Website URL'} />
+                        <Form.Item name="companyWebsite" label={t.settings.companyWebsite}>
+                          <Input placeholder={t.settings.websiteUrlPlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={24}>
-                        <Form.Item name="companyAddress" label={language === 'ar' ? 'عنوان الشركة' : 'Company Address'}>
-                          <Input.TextArea rows={2} placeholder={language === 'ar' ? 'العنوان الكامل' : 'Full Address'} />
+                        <Form.Item name="companyAddress" label={t.settings.companyAddress}>
+                          <Input.TextArea rows={2} placeholder={t.settings.addressPlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item name="taxNumber" label={language === 'ar' ? 'الرقم الضريبي' : 'Tax Number'}>
-                          <Input placeholder={language === 'ar' ? 'الرقم الضريبي (اختياري)' : 'Tax Number (Optional)'} />
+                        <Form.Item name="taxNumber" label={t.settings.taxNumber}>
+                          <Input placeholder={t.settings.taxNumberPlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item name="commercialRegister" label={language === 'ar' ? 'السجل التجاري' : 'Commercial Register'}>
-                          <Input placeholder={language === 'ar' ? 'رقم السجل التجاري' : 'Commercial Register Number'} />
+                        <Form.Item name="commercialRegister" label={t.settings.commercialRegister}>
+                          <Input placeholder={t.settings.commercialRegisterPlaceholder} />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item 
                           name="vatPercentage" 
-                          label={language === 'ar' ? 'نسبة ضريبة القيمة المضافة (%)' : 'VAT Percentage (%)'}
-                          extra={language === 'ar' ? 'اتركه فارغاً أو 0 لإلغاء ضريبة القيمة المضافة' : 'Leave empty or 0 to disable VAT'}
+                          label={t.settings.vatPercentage}
+                          extra={t.settings.vatPercentageExtra}
                         >
                           <InputNumber 
                             min={0} 
                             max={100} 
                             step={0.1}
                             style={{ width: '100%' }} 
-                            placeholder={language === 'ar' ? 'مثال: 15' : 'e.g., 15'} 
+                            placeholder={t.settings.vatPercentageExample} 
                           />
                         </Form.Item>
                       </Col>
                       <Col span={12}>
                         <Form.Item 
                           name="vatEnabled" 
-                          label={language === 'ar' ? 'تفعيل ضريبة القيمة المضافة' : 'Enable VAT'}
+                          label={t.settings.enableVAT}
                           valuePropName="checked"
                         >
                           <Switch 
-                            checkedChildren={language === 'ar' ? 'مفعل' : 'Enabled'} 
-                            unCheckedChildren={language === 'ar' ? 'معطل' : 'Disabled'} 
+                            checkedChildren={t.settings.enabled} 
+                            unCheckedChildren={t.settings.disabled} 
                           />
                         </Form.Item>
                       </Col>
                     </Row>
                   </Card>
 
-                  <Card title={language === 'ar' ? 'العلامة التجارية والوسائط' : 'Branding & Media'} style={{ marginBottom: 16 }}>
+                  <Card title={t.settings.brandingAndMedia} style={{ marginBottom: 16 }}>
                     <Row gutter={[24, 24]}>
                       <Col span={24}>
-                        <Divider orientation="left">{language === 'ar' ? 'الورقة الرسمية الكاملة (خلفية A4)' : 'Full-Page Letterhead (A4 Background)'}</Divider>
+                        <Divider orientation="left">{t.settings.fullPageLetterhead}</Divider>
                         <Form.Item
-                          label={language === 'ar' ? 'صورة الورقة الرسمية' : 'Letterhead Image'}
-                          extra={language === 'ar' 
-                            ? 'قم برفع صورة عالية الدقة PNG/JPG للصفحة الكاملة (210mm x 297mm) تتضمن الرأس والتذييل والعلامة المائية. الموصى به: 2480x3508 بكسل بدقة 300 DPI.'
-                            : 'Upload a high-resolution PNG/JPG of the entire A4 page (210mm x 297mm) including header, footer, and watermark. Recommended: 2480x3508 pixels at 300 DPI.'}
+                          label={t.settings.letterheadImage}
+                          extra={t.settings.letterheadImageExtra}
                         >
                           <Upload
                             customRequest={handleLetterheadUpload}
@@ -1492,13 +1488,13 @@ const SettingsPage = () => {
                             {(!letterheadFile && !companySettings?.letterheadUrl) && (
                               <div>
                                 <UploadOutlined />
-                                <div style={{ marginTop: 8 }}>{language === 'ar' ? 'رفع الورقة الرسمية' : 'Upload Letterhead'}</div>
+                                <div style={{ marginTop: 8 }}>{t.settings.uploadLetterhead}</div>
                               </div>
                             )}
                           </Upload>
                           {companySettings?.letterheadUrl && !letterheadFile && (
                             <div style={{ marginTop: 16 }}>
-                              <Text type="secondary">{language === 'ar' ? 'الورقة الرسمية الحالية:' : 'Current letterhead:'}</Text>
+                              <Text type="secondary">{t.settings.currentLetterhead}</Text>
                               <div style={{ marginTop: 8 }}>
                                 <img
                                   src={companySettings.letterheadUrl}
@@ -1510,7 +1506,7 @@ const SettingsPage = () => {
                           )}
                           {letterheadFile?.url && (
                             <div style={{ marginTop: 16 }}>
-                              <Text type="success">{language === 'ar' ? 'معاينة الورقة الرسمية الجديدة:' : 'New letterhead preview:'}</Text>
+                              <Text type="success">{t.settings.newLetterheadPreview}</Text>
                               <div style={{ marginTop: 8 }}>
                                 <img
                                   src={letterheadFile.url}
@@ -1524,10 +1520,10 @@ const SettingsPage = () => {
                       </Col>
 
                       <Col span={12}>
-                        <Divider orientation="left">{language === 'ar' ? 'الختم الرقمي' : 'Digital Stamp'}</Divider>
+                        <Divider orientation="left">{t.settings.digitalStamp}</Divider>
                         <Form.Item
-                          label={language === 'ar' ? 'الختم الرقمي (PNG شفاف)' : 'Digital Stamp (Transparent PNG)'}
-                          extra={language === 'ar' ? 'قم برفع PNG شفاف لختم الشركة/التوقيع. الموصى به: 300x300 بكسل.' : 'Upload a transparent PNG of your company stamp/signature. Recommended: 300x300 pixels.'}
+                          label={t.settings.digitalStamp}
+                          extra={t.settings.digitalStampExtra}
                         >
                           <Upload
                             customRequest={handleStampUpload}
@@ -1539,7 +1535,7 @@ const SettingsPage = () => {
                             {(!stampFile && !companySettings?.digitalStampUrl) && (
                               <div>
                                 <FileImageOutlined />
-                                <div style={{ marginTop: 8 }}>{language === 'ar' ? 'رفع الختم' : 'Upload Stamp'}</div>
+                                <div style={{ marginTop: 8 }}>{t.settings.uploadStamp}</div>
                               </div>
                             )}
                           </Upload>
@@ -1565,10 +1561,10 @@ const SettingsPage = () => {
                       </Col>
 
                       <Col span={12}>
-                        <Divider orientation="left">{language === 'ar' ? 'شعار الشركة' : 'Company Logo'}</Divider>
+                        <Divider orientation="left">{t.settings.companyLogo}</Divider>
                         <Form.Item
-                          label={language === 'ar' ? 'شعار الشركة (اختياري)' : 'Company Logo (Optional)'}
-                          extra={language === 'ar' ? 'قم برفع شعار الشركة. الموصى به: 300x100 بكسل.' : 'Upload your company logo. Recommended: 300x100 pixels.'}
+                          label={t.settings.companyLogo}
+                          extra={t.settings.companyLogoExtra}
                         >
                           <Upload
                             customRequest={handleLogoUpload}
@@ -1580,7 +1576,7 @@ const SettingsPage = () => {
                             {(!logoFile && !companySettings?.logoUrl) && (
                               <div>
                                 <FileImageOutlined />
-                                <div style={{ marginTop: 8 }}>{language === 'ar' ? 'رفع الشعار' : 'Upload Logo'}</div>
+                                <div style={{ marginTop: 8 }}>{t.settings.uploadLogo}</div>
                               </div>
                             )}
                           </Upload>
@@ -1607,14 +1603,14 @@ const SettingsPage = () => {
                     </Row>
                   </Card>
 
-                  <Card title={language === 'ar' ? 'هوامش المحتوى' : 'Content Margins'}>
+                  <Card title={t.settings.contentMargins}>
                     <Row gutter={[24, 16]}>
                       <Col span={12}>
                         <Form.Item
                           name="topMargin"
-                          label={language === 'ar' ? 'الهامش العلوي (سم)' : 'Top Margin (cm)'}
-                          extra={language === 'ar' ? 'المسافة من أعلى الورقة الرسمية إلى بداية المحتوى. الافتراضي: 4سم' : 'Distance from top of letterhead to start of content. Default: 4cm'}
-                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال الهامش العلوي' : 'Please enter top margin' }]}
+                          label={t.settings.topMargin}
+                          extra={t.settings.topMarginExtra}
+                          rules={[{ required: true, message: t.settings.pleaseEnterTopMargin }]}
                           initialValue={4}
                         >
                           <InputNumber type="number" min={1} max={10} step={0.5} style={{ width: '100%' }} />
@@ -1623,9 +1619,9 @@ const SettingsPage = () => {
                       <Col span={12}>
                         <Form.Item
                           name="bottomMargin"
-                          label={language === 'ar' ? 'الهامش السفلي (سم)' : 'Bottom Margin (cm)'}
-                          extra={language === 'ar' ? 'المسافة من أسفل الورقة الرسمية إلى نهاية المحتوى. الافتراضي: 3سم' : 'Distance from bottom of letterhead to end of content. Default: 3cm'}
-                          rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال الهامش السفلي' : 'Please enter bottom margin' }]}
+                          label={t.settings.bottomMargin}
+                          extra={t.settings.bottomMarginExtra}
+                          rules={[{ required: true, message: t.settings.pleaseEnterBottomMargin }]}
                           initialValue={3}
                         >
                           <InputNumber type="number" min={1} max={10} step={0.5} style={{ width: '100%' }} />
@@ -1642,7 +1638,7 @@ const SettingsPage = () => {
                     loading={companyLoading}
                     size="large"
                   >
-                    {language === 'ar' ? 'حفظ إعدادات الشركة' : 'Save Company Settings'}
+                    {t.settings.saveCompanySettings}
                   </Button>
                 </div>
               </>
@@ -1650,7 +1646,7 @@ const SettingsPage = () => {
           },
           {
             key: 'users',
-            label: language === 'ar' ? 'إدارة المستخدمين' : 'User Management',
+            label: t.settings.userManagement,
             icon: <TeamOutlined />,
             children: (
               <>
@@ -1807,7 +1803,7 @@ const SettingsPage = () => {
                         >
                           <Input 
                             disabled={!!selectedUser}
-                            placeholder={language === 'ar' ? 'البريد الإلكتروني' : 'Email Address'} 
+                            placeholder={t.settings.emailPlaceholder} 
                           />
                         </Form.Item>
 
@@ -1820,7 +1816,7 @@ const SettingsPage = () => {
                               { min: 8, message: language === 'ar' ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must be at least 8 characters' }
                             ]}
                           >
-                            <Input.Password placeholder={language === 'ar' ? 'كلمة المرور (8 أحرف على الأقل)' : 'Password (min 8 characters)'} />
+                            <Input.Password placeholder={t.settings.passwordPlaceholder} />
                           </Form.Item>
                         )}
 
@@ -1829,7 +1825,7 @@ const SettingsPage = () => {
                           label={language === 'ar' ? 'الاسم الكامل' : 'Full Name'}
                           rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال الاسم الكامل' : 'Please enter full name' }]}
                         >
-                          <Input placeholder={language === 'ar' ? 'الاسم الكامل' : 'Full Name'} />
+                          <Input placeholder={t.settings.fullNamePlaceholder} />
                         </Form.Item>
 
                         <Form.Item
@@ -1838,7 +1834,7 @@ const SettingsPage = () => {
                           rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار الدور' : 'Please select role' }]}
                         >
                           <Select 
-                            placeholder={language === 'ar' ? 'اختر الدور' : 'Select Role'}
+                            placeholder={t.settings.selectRolePlaceholder}
                             disabled={selectedUser?.role === 'super_admin' && !isSuperAdmin}
                           >
                             {/* Only show 3 core roles */}

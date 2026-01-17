@@ -529,7 +529,7 @@ const ProjectsPage = () => {
             label="اسم المشروع"
             rules={[{ required: true, message: 'يرجى إدخال اسم المشروع' }]}
           >
-            <Input placeholder="أدخل اسم المشروع" />
+            <Input placeholder={t.projects.projectNameLabel} />
           </Form.Item>
 
           <Form.Item
@@ -538,7 +538,7 @@ const ProjectsPage = () => {
             rules={[{ required: true, message: 'يرجى اختيار العميل' }]}
           >
             <Select
-              placeholder="اختر العميل"
+              placeholder={t.projects.selectClient}
               showSearch
               filterOption={(input, option) =>
                 (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
@@ -576,7 +576,7 @@ const ProjectsPage = () => {
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.contracts.amountPlaceholder || '0'}
                 />
               </Form.Item>
             </Col>
@@ -599,7 +599,7 @@ const ProjectsPage = () => {
             name="notes"
             label="ملاحظات (اختياري)"
           >
-            <Input.TextArea rows={3} placeholder="ملاحظات إضافية..." />
+            <Input.TextArea rows={3} placeholder={t.contracts.additionalNotesPlaceholder || t.projects.notesOptional} />
           </Form.Item>
         </Form>
       </Modal>

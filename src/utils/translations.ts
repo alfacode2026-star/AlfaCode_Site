@@ -130,6 +130,18 @@ export interface Translations {
     selectTreasuryAccountRequired: string
     // Work types (will be populated dynamically)
     workTypes: Record<string, string>
+    searchByContractNumberPlaceholder: string
+    searchForClientPlaceholder: string
+    clientNamePlaceholder: string
+    phoneNumberPlaceholder: string
+    projectNamePlaceholder: string
+    selectProjectPlaceholder: string
+    selectWorkScopePlaceholder: string
+    additionalNotesPlaceholder: string
+    currencyAutoSetPlaceholder: string
+    amountPlaceholder: string
+    selectStartDatePlaceholder: string
+    selectEndDatePlaceholder: string
   }
   
   // Labor
@@ -402,6 +414,7 @@ export interface Translations {
     selectTreasuryAccount: string
     notesOptional: string
     notesPlaceholder: string
+    shippingAddressPlaceholder: string
     failedToLoadCustomers: string
     failedToAddSupplier: string
     supplierAddedSuccessfully: string
@@ -653,6 +666,17 @@ export interface Translations {
     transactionCreated: string
     transactionType: string
     transactions: string
+    filterByAccountPlaceholder: string
+    searchTransactionsPlaceholder: string
+    accountNamePlaceholder: string
+    selectAccountTypePlaceholder: string
+    selectVisibilityPlaceholder: string
+    selectCurrencyPlaceholder: string
+    initialBalancePlaceholder: string
+    visibility: string
+    initialBalance: string
+    mainCurrenciesLabel: string
+    otherCurrenciesLabel: string
   }
   
   // Settings
@@ -686,6 +710,67 @@ export interface Translations {
     timezone: string
     title: string
     users: string
+    companyNamePlaceholder: string
+    emailPlaceholder: string
+    phonePlaceholder: string
+    taxNumberPlaceholder: string
+    addressPlaceholder: string
+    smtpHostPlaceholder: string
+    smtpPortPlaceholder: string
+    smtpUserPlaceholder: string
+    smtpPasswordPlaceholder: string
+    fromEmailPlaceholder: string
+    fromNamePlaceholder: string
+    managerNamePlaceholder: string
+    managerTitlePlaceholder: string
+    websiteUrlPlaceholder: string
+    commercialRegisterPlaceholder: string
+    passwordPlaceholder: string
+    fullNamePlaceholder: string
+    selectRolePlaceholder: string
+    branches: string
+    companySettings: string
+    userManagement: string
+    companyInformation: string
+    authorizedManagerName: string
+    managerTitle: string
+    companyPhone: string
+    companyEmail: string
+    companyWebsite: string
+    companyAddress: string
+    vatPercentage: string
+    enableVAT: string
+    brandingAndMedia: string
+    fullPageLetterhead: string
+    letterheadImage: string
+    digitalStamp: string
+    companyLogo: string
+    contentMargins: string
+    topMargin: string
+    bottomMargin: string
+    saveCompanySettings: string
+    logoAndBranding: string
+    vatPercentageExample: string
+    vatPercentageExtra: string
+    enabled: string
+    disabled: string
+    uploadLetterhead: string
+    currentLetterhead: string
+    newLetterheadPreview: string
+    uploadStamp: string
+    uploadLogo: string
+    letterheadInstructions: string
+    letterheadInstructionsDescription: string
+    letterheadImageExtra: string
+    digitalStampExtra: string
+    companyLogoExtra: string
+    topMarginExtra: string
+    bottomMarginExtra: string
+    pleaseEnterCompanyName: string
+    pleaseEnterManagerName: string
+    pleaseEnterManagerTitle: string
+    pleaseEnterTopMargin: string
+    pleaseEnterBottomMargin: string
   }
   
   // General Expenses
@@ -714,6 +799,62 @@ export interface Translations {
     title: string
     totalExpenses: string
     treasuryAccount: string
+    searchExpensePlaceholder: string
+    searchAdvanceSettlement: string
+    selectEmployee: string
+    enterVendorRepresentativeName: string
+    selectOpenAdvanceApproved: string
+    selectWorkScopeOptional: string
+    searchSupplierCustomer: string
+    supplierNamePlaceholder: string
+    phoneNumberPlaceholder: string
+    emailPlaceholder: string
+    itemDescriptionPlaceholder: string
+    quantityPlaceholder: string
+    unitPricePlaceholder: string
+    selectProjectOptional: string
+    amountPlaceholder: string
+    selectTreasuryAccountPlaceholder: string
+    referenceNumberPlaceholder: string
+    selectCategoryPlaceholder: string
+    newCategoryNamePlaceholder: string
+    expenseDescriptionPlaceholder: string
+    enterExternalRecipientName: string
+    selectDatePlaceholder: string
+    expenseNumberPlaceholder: string
+    selectProjectPlaceholder: string
+    additionalNotesPlaceholder: string
+    selectNewProjectPlaceholder: string
+    workScopeLabel: string
+    vendorRecipientLabel: string
+    supplierNameLabel: string
+    phoneOptionalLabel: string
+    emailOptionalLabel: string
+    purchaseOrderItemsLabel: string
+    addItemButton: string
+    addedItemsLabel: string
+    itemDescriptionColumn: string
+    quantityColumn: string
+    unitPriceColumn: string
+    totalColumn: string
+    deleteColumn: string
+    totalAmountLabel: string
+    exceedsRemainingLabel: string
+    projectOptionalLabel: string
+    treasuryAccountLabel: string
+    recipientTypeLabel: string
+    recipientNameLabel: string
+    dateLabel: string
+    statusLabel: string
+    referenceNumberLabel: string
+    referenceNumberOptionalLabel: string
+    purchaseOrderStatusLabel: string
+    settlementPoDivider: string
+    projectLabel: string
+    workScopeBoldLabel: string
+    purchaseItemsDivider: string
+    settlementAdvanceNote: string
+    autoGeneratedReference: string
   }
   
   // Quotations
@@ -828,9 +969,12 @@ export interface Translations {
     selectContractType: string
     convert: string
     cannotConvertNonApproved: string
-    quotationDetails: string
-    close: string
-  }
+      quotationDetails: string
+      close: string
+      addNewWorkCategory: string
+      enterCustomWorkType: string
+      amountPlaceholder: string
+    }
 }
 
 const translations: Record<Language, Translations> = {
@@ -957,7 +1101,19 @@ const translations: Record<Language, Translations> = {
       fillRequiredFields: 'Please fill all required fields correctly',
       selectContract: 'Please select a contract',
       selectTreasuryAccountRequired: 'Please select a treasury account',
-      workTypes: {} // Will be populated dynamically
+      workTypes: {}, // Will be populated dynamically
+      searchByContractNumberPlaceholder: 'Search by contract number or client name...',
+      searchForClientPlaceholder: 'Search for client by name or phone...',
+      clientNamePlaceholder: 'Client name',
+      phoneNumberPlaceholder: 'Phone number',
+      projectNamePlaceholder: 'Project name',
+      selectProjectPlaceholder: 'Select project',
+      selectWorkScopePlaceholder: 'Select work scope',
+      additionalNotesPlaceholder: 'Additional notes...',
+      currencyAutoSetPlaceholder: 'Currency will be set automatically',
+      amountPlaceholder: '0',
+      selectStartDatePlaceholder: 'Select start date',
+      selectEndDatePlaceholder: 'Select end date'
     },
     labor: {
       title: 'Labor & Staff Management',
@@ -1485,7 +1641,18 @@ const translations: Record<Language, Translations> = {
       totalCash: 'Total Cash',
       transactionCreated: 'Transaction created successfully!',
       transactionType: 'Transaction Type',
-      transactions: 'Transactions'
+      transactions: 'Transactions',
+      filterByAccountPlaceholder: 'Filter by account',
+      searchTransactionsPlaceholder: 'Search transactions',
+      accountNamePlaceholder: 'Account name',
+      selectAccountTypePlaceholder: 'Select account type',
+      selectVisibilityPlaceholder: 'Select visibility',
+      selectCurrencyPlaceholder: 'Select currency',
+      initialBalancePlaceholder: '0',
+      visibility: 'Visibility',
+      initialBalance: 'Initial Balance',
+      mainCurrenciesLabel: 'Main Currencies',
+      otherCurrenciesLabel: 'Other Global Currencies'
     },
     settings: {
       address: 'Address',
@@ -1516,7 +1683,70 @@ const translations: Record<Language, Translations> = {
       taxNumber: 'Tax Number',
       timezone: 'Timezone',
       title: 'Settings',
-      users: 'Users'
+      users: 'Users',
+      companyNamePlaceholder: 'Company Name',
+      emailPlaceholder: 'Email Address',
+      phonePlaceholder: 'Phone Number',
+      taxNumberPlaceholder: 'Tax Number (Optional)',
+      addressPlaceholder: 'Full Address',
+      smtpHostPlaceholder: 'smtp.gmail.com',
+      smtpPortPlaceholder: '587',
+      smtpUserPlaceholder: 'Email Address',
+      smtpPasswordPlaceholder: 'Email Password',
+      fromEmailPlaceholder: 'noreply@company.com',
+      fromNamePlaceholder: 'ERP System',
+      managerNamePlaceholder: 'Manager Name',
+      managerTitlePlaceholder: 'e.g., General Manager',
+      websiteUrlPlaceholder: 'Website URL',
+      commercialRegisterPlaceholder: 'Commercial Register Number',
+      passwordPlaceholder: 'Password (min 8 characters)',
+      fullNamePlaceholder: 'Full Name',
+      selectRolePlaceholder: 'Select Role',
+      branchNamePlaceholder: 'Enter branch name',
+      selectCurrencyPlaceholder: 'Select currency',
+      branches: 'Branches',
+      companySettings: 'Company Settings',
+      userManagement: 'User Management',
+      companyInformation: 'Company Information',
+      authorizedManagerName: 'Authorized Manager Name',
+      managerTitle: 'Manager Title/Position',
+      companyPhone: 'Company Phone',
+      companyEmail: 'Company Email',
+      companyWebsite: 'Company Website',
+      companyAddress: 'Company Address',
+      vatPercentage: 'VAT Percentage (%)',
+      enableVAT: 'Enable VAT',
+      brandingAndMedia: 'Branding & Media',
+      fullPageLetterhead: 'Full-Page Letterhead (A4 Background)',
+      letterheadImage: 'Letterhead Image',
+      digitalStamp: 'Digital Stamp (Transparent PNG)',
+      companyLogo: 'Company Logo (Optional)',
+      contentMargins: 'Content Margins',
+      topMargin: 'Top Margin (cm)',
+      bottomMargin: 'Bottom Margin (cm)',
+      saveCompanySettings: 'Save Company Settings',
+      logoAndBranding: 'Logo & Branding',
+      vatPercentageExample: 'e.g., 15',
+      vatPercentageExtra: 'Leave empty or 0 to disable VAT',
+      enabled: 'Enabled',
+      disabled: 'Disabled',
+      uploadLetterhead: 'Upload Letterhead',
+      currentLetterhead: 'Current letterhead:',
+      newLetterheadPreview: 'New letterhead preview:',
+      uploadStamp: 'Upload Stamp',
+      uploadLogo: 'Upload Logo',
+      letterheadInstructions: 'Full-Page Letterhead Instructions',
+      letterheadInstructionsDescription: 'Upload a high-resolution PNG/JPG image of your entire A4 page including header, footer, and watermark. The system will use this as a background layer, and quotation content will flow over it.',
+      letterheadImageExtra: 'Upload a high-resolution PNG/JPG of the entire A4 page (210mm x 297mm) including header, footer, and watermark. Recommended: 2480x3508 pixels at 300 DPI.',
+      digitalStampExtra: 'Upload a transparent PNG of your company stamp/signature. Recommended: 300x300 pixels.',
+      companyLogoExtra: 'Upload your company logo. Recommended: 300x100 pixels.',
+      topMarginExtra: 'Distance from top of letterhead to start of content. Default: 4cm',
+      bottomMarginExtra: 'Distance from bottom of letterhead to end of content. Default: 3cm',
+      pleaseEnterCompanyName: 'Please enter company name',
+      pleaseEnterManagerName: 'Please enter manager name',
+      pleaseEnterManagerTitle: 'Please enter manager title',
+      pleaseEnterTopMargin: 'Please enter top margin',
+      pleaseEnterBottomMargin: 'Please enter bottom margin'
     },
     generalExpenses: {
       amount: 'Amount',
@@ -1542,6 +1772,62 @@ const translations: Record<Language, Translations> = {
       title: 'General Expenses',
       totalExpenses: 'Total Expenses',
       treasuryAccount: 'Treasury Account',
+      searchExpensePlaceholder: 'Search expenses...',
+      searchAdvanceSettlement: 'Search advance or settlement...',
+      selectEmployee: 'Select Employee',
+      enterVendorRepresentativeName: 'Enter vendor/representative name',
+      selectOpenAdvanceApproved: 'Select open advance (approved only)',
+      selectWorkScopeOptional: 'Select work scope (Optional)',
+      searchSupplierCustomer: 'Search for supplier or customer by name or phone...',
+      supplierNamePlaceholder: 'Supplier Name',
+      phoneNumberPlaceholder: 'Phone Number',
+      emailPlaceholder: 'Email Address',
+      itemDescriptionPlaceholder: 'Item/Material description',
+      quantityPlaceholder: 'Quantity',
+      unitPricePlaceholder: 'Unit Price',
+      selectProjectOptional: 'Select Project (Optional)',
+      amountPlaceholder: '0.00',
+      selectTreasuryAccountPlaceholder: 'Select Treasury Account',
+      referenceNumberPlaceholder: 'Reference Number',
+      selectCategoryPlaceholder: 'Select Category',
+      newCategoryNamePlaceholder: 'New Category Name',
+      expenseDescriptionPlaceholder: 'Expense description (Optional)',
+      enterExternalRecipientName: 'Enter external recipient name',
+      selectDatePlaceholder: 'Select date (default: today)',
+      expenseNumberPlaceholder: 'EXP-001 (will be auto-generated if empty)',
+      selectProjectPlaceholder: 'Select Project',
+      additionalNotesPlaceholder: 'Any additional notes...',
+      selectNewProjectPlaceholder: 'Select New Project',
+      workScopeLabel: 'Work Scope (Optional)',
+      vendorRecipientLabel: 'Vendor/Recipient',
+      supplierNameLabel: 'Supplier Name',
+      phoneOptionalLabel: 'Phone Number (Optional)',
+      emailOptionalLabel: 'Email Address (Optional)',
+      purchaseOrderItemsLabel: 'Purchase Order Items',
+      addItemButton: 'Add Item',
+      addedItemsLabel: 'Added Items',
+      itemDescriptionColumn: 'Item/Material Description',
+      quantityColumn: 'Quantity',
+      unitPriceColumn: 'Unit Price',
+      totalColumn: 'Total',
+      deleteColumn: 'Delete',
+      totalAmountLabel: 'Total Amount:',
+      exceedsRemainingLabel: 'Exceeds remaining amount',
+      projectOptionalLabel: 'Project (Optional)',
+      treasuryAccountLabel: 'Treasury Account',
+      recipientTypeLabel: 'Recipient Type',
+      recipientNameLabel: 'Recipient Name',
+      dateLabel: 'Date',
+      statusLabel: 'Status',
+      referenceNumberLabel: 'Reference Number',
+      referenceNumberOptionalLabel: 'Reference Number (Optional)',
+      purchaseOrderStatusLabel: 'Purchase Order Status',
+      settlementPoDivider: 'Create Purchase Order (PO) for Settlement',
+      projectLabel: 'Project',
+      workScopeBoldLabel: 'Work Scope',
+      purchaseItemsDivider: 'Purchase Items',
+      settlementAdvanceNote: 'Note: Payment method for this settlement is "Settlement Advance" (settlement) - automatically set and cannot be modified.',
+      autoGeneratedReference: 'Will be auto-generated',
       amountExceedsAdvance: 'Amount exceeds available advance balance',
       categoryNameRequired: 'Please enter category name',
       categoryAdded: 'Category added successfully',
@@ -1570,7 +1856,6 @@ const translations: Record<Language, Translations> = {
       selectEmployeeRequired: 'Please select employee (Project manager required when linking project)',
       employeeNotFound: 'Selected employee not found',
       employeeLabel: 'Employee',
-      selectEmployee: 'Select Employee',
       verifyEmployeeSelection: 'Please verify employee selection is correct',
       enterManagerNameOrSelectEmployee: 'Please enter project manager name or select employee',
       enterValidAmount: 'Please enter a valid amount',
@@ -1788,7 +2073,19 @@ const translations: Record<Language, Translations> = {
       fillRequiredFields: 'يرجى ملء جميع الحقول المطلوبة بشكل صحيح',
       selectContract: 'يرجى اختيار عقد',
       selectTreasuryAccountRequired: 'يرجى اختيار حساب الخزينة',
-      workTypes: {} // Will be populated dynamically
+      workTypes: {}, // Will be populated dynamically
+      searchByContractNumberPlaceholder: 'البحث برقم العقد أو اسم العميل...',
+      searchForClientPlaceholder: 'البحث عن العميل بالاسم أو الهاتف...',
+      clientNamePlaceholder: 'اسم العميل',
+      phoneNumberPlaceholder: 'رقم الهاتف',
+      projectNamePlaceholder: 'اسم المشروع',
+      selectProjectPlaceholder: 'اختر المشروع',
+      selectWorkScopePlaceholder: 'اختر نطاق العمل',
+      additionalNotesPlaceholder: 'ملاحظات إضافية...',
+      currencyAutoSetPlaceholder: 'سيتم تعيين العملة تلقائياً',
+      amountPlaceholder: '0',
+      selectStartDatePlaceholder: 'اختر تاريخ البدء',
+      selectEndDatePlaceholder: 'اختر تاريخ الانتهاء'
     },
     labor: {
       title: 'إدارة الموظفين والعمالة اليومية',
@@ -2102,7 +2399,18 @@ const translations: Record<Language, Translations> = {
       totalCash: 'إجمالي النقد',
       transactionCreated: 'تم إنشاء المعاملة بنجاح!',
       transactionType: 'نوع المعاملة',
-      transactions: 'المعاملات'
+      transactions: 'المعاملات',
+      filterByAccountPlaceholder: 'تصفية حسب الحساب',
+      searchTransactionsPlaceholder: 'بحث في المعاملات',
+      accountNamePlaceholder: 'اسم الحساب',
+      selectAccountTypePlaceholder: 'اختر نوع الحساب',
+      selectVisibilityPlaceholder: 'اختر الرؤية',
+      selectCurrencyPlaceholder: 'اختر العملة',
+      initialBalancePlaceholder: '0',
+      visibility: 'الرؤية',
+      initialBalance: 'الرصيد الأولي',
+      mainCurrenciesLabel: 'العملات الأساسية',
+      otherCurrenciesLabel: 'باقي العملات العالمية'
     },
     settings: {
       address: 'العنوان',
@@ -2133,7 +2441,70 @@ const translations: Record<Language, Translations> = {
       taxNumber: 'الرقم الضريبي',
       timezone: 'المنطقة الزمنية',
       title: 'الإعدادات',
-      users: 'المستخدمون'
+      users: 'المستخدمون',
+      companyNamePlaceholder: 'اسم الشركة',
+      emailPlaceholder: 'البريد الإلكتروني',
+      phonePlaceholder: 'رقم الهاتف',
+      taxNumberPlaceholder: 'الرقم الضريبي (اختياري)',
+      addressPlaceholder: 'العنوان الكامل',
+      smtpHostPlaceholder: 'smtp.gmail.com',
+      smtpPortPlaceholder: '587',
+      smtpUserPlaceholder: 'البريد الإلكتروني',
+      smtpPasswordPlaceholder: 'كلمة مرور البريد',
+      fromEmailPlaceholder: 'noreply@company.com',
+      fromNamePlaceholder: 'نظام ERP',
+      managerNamePlaceholder: 'اسم المدير',
+      managerTitlePlaceholder: 'مثل: المدير العام',
+      websiteUrlPlaceholder: 'رابط الموقع',
+      commercialRegisterPlaceholder: 'رقم السجل التجاري',
+      passwordPlaceholder: 'كلمة المرور (8 أحرف على الأقل)',
+      fullNamePlaceholder: 'الاسم الكامل',
+      selectRolePlaceholder: 'اختر الدور',
+      branchNamePlaceholder: 'أدخل اسم الفرع',
+      selectCurrencyPlaceholder: 'اختر العملة',
+      branches: 'الفروع',
+      companySettings: 'إعدادات الشركة',
+      userManagement: 'إدارة المستخدمين',
+      companyInformation: 'معلومات الشركة',
+      authorizedManagerName: 'اسم المدير المصرح',
+      managerTitle: 'منصب المدير',
+      companyPhone: 'هاتف الشركة',
+      companyEmail: 'بريد الشركة',
+      companyWebsite: 'موقع الشركة',
+      companyAddress: 'عنوان الشركة',
+      vatPercentage: 'نسبة ضريبة القيمة المضافة (%)',
+      enableVAT: 'تفعيل ضريبة القيمة المضافة',
+      brandingAndMedia: 'العلامة التجارية والوسائط',
+      fullPageLetterhead: 'الورقة الرسمية الكاملة (خلفية A4)',
+      letterheadImage: 'صورة الورقة الرسمية',
+      digitalStamp: 'الختم الرقمي (PNG شفاف)',
+      companyLogo: 'شعار الشركة (اختياري)',
+      contentMargins: 'هوامش المحتوى',
+      topMargin: 'الهامش العلوي (سم)',
+      bottomMargin: 'الهامش السفلي (سم)',
+      saveCompanySettings: 'حفظ إعدادات الشركة',
+      logoAndBranding: 'الشعار والعلامة التجارية',
+      vatPercentageExample: 'مثال: 15',
+      vatPercentageExtra: 'اتركه فارغاً أو 0 لإلغاء ضريبة القيمة المضافة',
+      enabled: 'مفعل',
+      disabled: 'معطل',
+      uploadLetterhead: 'رفع الورقة الرسمية',
+      currentLetterhead: 'الورقة الرسمية الحالية:',
+      newLetterheadPreview: 'معاينة الورقة الرسمية الجديدة:',
+      uploadStamp: 'رفع الختم',
+      uploadLogo: 'رفع الشعار',
+      letterheadInstructions: 'تعليمات الورقة الرسمية',
+      letterheadInstructionsDescription: 'قم برفع صورة عالية الدقة PNG/JPG لصفحة A4 كاملة تتضمن الرأس والتذييل والعلامة المائية. سيستخدم النظام هذا كطبقة خلفية، وسيتدفق محتوى العرض فوقها.',
+      letterheadImageExtra: 'قم برفع صورة عالية الدقة PNG/JPG للصفحة الكاملة (210mm x 297mm) تتضمن الرأس والتذييل والعلامة المائية. الموصى به: 2480x3508 بكسل بدقة 300 DPI.',
+      digitalStampExtra: 'قم برفع PNG شفاف لختم الشركة/التوقيع. الموصى به: 300x300 بكسل.',
+      companyLogoExtra: 'قم برفع شعار الشركة. الموصى به: 300x100 بكسل.',
+      topMarginExtra: 'المسافة من أعلى الورقة الرسمية إلى بداية المحتوى. الافتراضي: 4سم',
+      bottomMarginExtra: 'المسافة من أسفل الورقة الرسمية إلى نهاية المحتوى. الافتراضي: 3سم',
+      pleaseEnterCompanyName: 'يرجى إدخال اسم الشركة',
+      pleaseEnterManagerName: 'يرجى إدخال اسم المدير',
+      pleaseEnterManagerTitle: 'يرجى إدخال منصب المدير',
+      pleaseEnterTopMargin: 'يرجى إدخال الهامش العلوي',
+      pleaseEnterBottomMargin: 'يرجى إدخال الهامش السفلي'
     },
     generalExpenses: {
       amount: 'المبلغ',
@@ -2159,6 +2530,62 @@ const translations: Record<Language, Translations> = {
       title: 'المصاريف العامة',
       totalExpenses: 'إجمالي المصاريف',
       treasuryAccount: 'حساب الخزينة',
+      searchExpensePlaceholder: 'البحث في المصاريف...',
+      searchAdvanceSettlement: 'البحث في العهدة أو التسوية...',
+      selectEmployee: 'اختر الموظف',
+      enterVendorRepresentativeName: 'أدخل اسم المورد/الممثل',
+      selectOpenAdvanceApproved: 'اختر العهدة المفتوحة (معتمدة فقط)',
+      selectWorkScopeOptional: 'اختر نطاق العمل (اختياري)',
+      searchSupplierCustomer: 'ابحث عن مورد أو عميل بالاسم أو الهاتف...',
+      supplierNamePlaceholder: 'اسم المورد',
+      phoneNumberPlaceholder: 'رقم الهاتف',
+      emailPlaceholder: 'البريد الإلكتروني',
+      itemDescriptionPlaceholder: 'وصف البند/المادة',
+      quantityPlaceholder: 'الكمية',
+      unitPricePlaceholder: 'سعر الوحدة',
+      selectProjectOptional: 'اختر المشروع (اختياري)',
+      amountPlaceholder: '0.00',
+      selectTreasuryAccountPlaceholder: 'اختر حساب الخزينة',
+      referenceNumberPlaceholder: 'رقم المرجع',
+      selectCategoryPlaceholder: 'اختر الفئة',
+      newCategoryNamePlaceholder: 'اسم الفئة الجديدة',
+      expenseDescriptionPlaceholder: 'وصف المصروف (اختياري)',
+      enterExternalRecipientName: 'أدخل اسم المستلم الخارجي',
+      selectDatePlaceholder: 'اختر التاريخ (افتراضي: اليوم)',
+      expenseNumberPlaceholder: 'EXP-001 (سيتم توليده تلقائياً إذا كان فارغاً)',
+      selectProjectPlaceholder: 'اختر المشروع',
+      additionalNotesPlaceholder: 'أي ملاحظات إضافية...',
+      selectNewProjectPlaceholder: 'اختر المشروع الجديد',
+      workScopeLabel: 'نطاق العمل (اختياري)',
+      vendorRecipientLabel: 'المورد/المستلم',
+      supplierNameLabel: 'اسم المورد',
+      phoneOptionalLabel: 'رقم الهاتف (اختياري)',
+      emailOptionalLabel: 'البريد الإلكتروني (اختياري)',
+      purchaseOrderItemsLabel: 'بنود أمر الشراء',
+      addItemButton: 'إضافة بند',
+      addedItemsLabel: 'البنود المضافة',
+      itemDescriptionColumn: 'وصف البند/المادة',
+      quantityColumn: 'الكمية',
+      unitPriceColumn: 'سعر الوحدة',
+      totalColumn: 'الإجمالي',
+      deleteColumn: 'حذف',
+      totalAmountLabel: 'المبلغ الإجمالي:',
+      exceedsRemainingLabel: 'يتجاوز المبلغ المتبقي',
+      projectOptionalLabel: 'المشروع (اختياري)',
+      treasuryAccountLabel: 'حساب الخزينة',
+      recipientTypeLabel: 'نوع المستلم',
+      recipientNameLabel: 'اسم المستلم',
+      dateLabel: 'التاريخ',
+      statusLabel: 'الحالة',
+      referenceNumberLabel: 'رقم المرجع',
+      referenceNumberOptionalLabel: 'رقم المرجع (اختياري)',
+      purchaseOrderStatusLabel: 'حالة أمر الشراء',
+      settlementPoDivider: 'إنشاء أمر شراء (Purchase Order) للتسوية',
+      projectLabel: 'المشروع',
+      workScopeBoldLabel: 'نطاق العمل',
+      purchaseItemsDivider: 'بنود الشراء',
+      settlementAdvanceNote: 'ملاحظة: طريقة الدفع لهذه التسوية هي "تسوية عهدة" (settlement) - يتم تعيينها تلقائياً ولا يمكن تعديلها.',
+      autoGeneratedReference: 'سيتم توليد الرقم تلقائياً',
       amountExceedsAdvance: 'المبلغ المدخل أكبر من الرصيد المتاح في العهدة',
       categoryNameRequired: 'يرجى إدخال اسم الفئة',
       categoryAdded: 'تم إضافة الفئة بنجاح',
@@ -2187,7 +2614,6 @@ const translations: Record<Language, Translations> = {
       selectEmployeeRequired: 'يرجى اختيار الموظف (مدير المشروع مطلوب عند ربط المشروع)',
       employeeNotFound: 'الموظف المحدد غير موجود',
       employeeLabel: 'الموظف',
-      selectEmployee: 'اختر الموظف',
       verifyEmployeeSelection: 'يرجى التأكد من اختيار الموظف بشكل صحيح',
       enterManagerNameOrSelectEmployee: 'يرجى إدخال اسم مدير المشروع أو اختيار الموظف',
       enterValidAmount: 'يرجى إدخال مبلغ صحيح',

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import moment from 'moment'
 import { useBranch } from '../contexts/BranchContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 import customersService from '../services/customersService'
 import ordersService from '../services/ordersService'
 import paymentsService from '../services/paymentsService'
@@ -48,6 +50,8 @@ const { Option } = Select
 
 const SuppliersPage = () => {
   const { branchCurrency } = useBranch()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchText, setSearchText] = useState('')
@@ -484,7 +488,7 @@ const SuppliersPage = () => {
       <Card>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <Input
-            placeholder="ابحث باسم المورد أو البريد أو الهاتف..."
+            placeholder={t.orders.searchSupplierCustomer}
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -494,7 +498,7 @@ const SuppliersPage = () => {
             value={statusFilter}
             onChange={setStatusFilter}
             style={{ width: 150 }}
-            placeholder="حالة المورد"
+            placeholder={t.common.status || t.customers.statusFilter}
           >
             <Option value="all">الكل</Option>
             <Option value="active">نشط</Option>
@@ -558,7 +562,7 @@ const SuppliersPage = () => {
                 label="اسم المورد"
                 rules={[{ required: true, message: 'يرجى إدخال اسم المورد' }]}
               >
-                <Input placeholder="أدخل اسم المورد" prefix={<UserOutlined />} />
+                <Input placeholder={t.orders.supplierNamePlaceholder} prefix={<UserOutlined />} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -570,7 +574,7 @@ const SuppliersPage = () => {
                   { type: 'email', message: 'يرجى إدخال بريد إلكتروني صحيح' }
                 ]}
               >
-                <Input placeholder="أدخل البريد الإلكتروني" prefix={<MailOutlined />} />
+                <Input placeholder={t.orders.emailPlaceholder} prefix={<MailOutlined />} />
               </Form.Item>
             </Col>
           </Row>
@@ -588,7 +592,7 @@ const SuppliersPage = () => {
                   }
                 ]}
               >
-                <Input placeholder="أدخل رقم الهاتف" prefix={<PhoneOutlined />} />
+                <Input placeholder={t.orders.phonePlaceholder} prefix={<PhoneOutlined />} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -596,7 +600,7 @@ const SuppliersPage = () => {
                 name="company"
                 label="اسم الشركة (اختياري)"
               >
-                <Input placeholder="أدخل اسم الشركة" />
+                <Input placeholder={t.customers.company || t.settings.companyNamePlaceholder} />
               </Form.Item>
             </Col>
           </Row>
@@ -607,7 +611,7 @@ const SuppliersPage = () => {
           >
             <Input.TextArea
               rows={2}
-              placeholder="أدخل العنوان"
+              placeholder={t.settings.addressPlaceholder || t.customers.address}
               prefix={<EnvironmentOutlined />}
             />
           </Form.Item>
@@ -627,7 +631,7 @@ const SuppliersPage = () => {
             name="notes"
             label="ملاحظات (اختياري)"
           >
-            <Input.TextArea rows={3} placeholder="ملاحظات إضافية عن المورد..." />
+            <Input.TextArea rows={3} placeholder={t.orders.notesPlaceholder || t.contracts.additionalNotesPlaceholder} />
           </Form.Item>
         </Form>
       </Modal>

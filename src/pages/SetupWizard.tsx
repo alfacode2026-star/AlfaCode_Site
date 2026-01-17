@@ -27,6 +27,8 @@ import {
   ShopOutlined
 } from '@ant-design/icons'
 import setupService from '../services/setupService'
+import { useLanguage } from '../contexts/LanguageContext'
+import { getTranslations } from '../utils/translations'
 
 const { Title, Paragraph } = Typography
 const { Option } = Select
@@ -39,6 +41,8 @@ interface BranchConfig {
 
 const SetupWizard = () => {
   const navigate = useNavigate()
+  const { language } = useLanguage()
+  const t = getTranslations(language)
   const [currentStep, setCurrentStep] = useState(0)
   const [form] = Form.useForm()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -92,7 +96,7 @@ const SetupWizard = () => {
               min={1}
               max={50}
               style={{ width: '100%' }}
-              placeholder="Enter number of branches"
+              placeholder={t.settings.branchNamePlaceholder || 'Enter number of branches'}
               prefix={<ShopOutlined />}
             />
           </Form.Item>
@@ -131,7 +135,7 @@ const SetupWizard = () => {
                 >
                   <Input
                     size="large"
-                    placeholder={`Enter branch ${index + 1} name`}
+                    placeholder={t.settings.branchNamePlaceholder || `Enter branch ${index + 1} name`}
                     value={branch.name || ''}
                     onChange={(e) => {
                       const newValue = e.target.value
@@ -200,7 +204,7 @@ const SetupWizard = () => {
               name="superAdminName"
               rules={[{ required: true, message: 'Please enter super admin name' }]}
             >
-              <Input size="large" placeholder="Enter super admin full name" prefix={<UserOutlined />} />
+              <Input size="large" placeholder={t.settings.fullNamePlaceholder} prefix={<UserOutlined />} />
             </Form.Item>
 
             <Form.Item
@@ -211,7 +215,7 @@ const SetupWizard = () => {
                 { type: 'email', message: 'Please enter a valid email' }
               ]}
             >
-              <Input size="large" type="email" placeholder="Enter super admin email" />
+              <Input size="large" type="email" placeholder={t.settings.emailPlaceholder} />
             </Form.Item>
 
             <Form.Item
@@ -222,7 +226,7 @@ const SetupWizard = () => {
                 { min: 8, message: 'Password must be at least 8 characters' }
               ]}
             >
-              <Input.Password size="large" placeholder="Enter password (min 8 characters)" />
+              <Input.Password size="large" placeholder={t.settings.passwordPlaceholder} />
             </Form.Item>
           </Card>
         </Form>

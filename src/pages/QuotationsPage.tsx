@@ -115,7 +115,7 @@ const QuotationsPage = () => {
   // Use language context to display correct labels
   const allWorkScopeCategories = useMemo(() => {
     const getLabel = (ar: string, en: string) => language === 'ar' ? ar : en
-    const getItemLabel = (ar: string, en: string) => language === 'ar' ? ar : `${en} (${ar})`
+    const getItemLabel = (ar: string, en: string) => language === 'ar' ? ar : en
     
     return {
       civil_works: {
@@ -955,7 +955,9 @@ const QuotationsPage = () => {
                     <Checkbox.Group
                       options={catData.items.map(item => ({
                         ...item,
-                        label: language === 'en' ? item.label.split('(')[1]?.replace(')', '').trim() || item.label : item.label
+                        label: language === 'en' 
+                          ? (item.label.split('(')[0]?.trim() || translateWorkType(item.value, language))
+                          : item.label
                       }))}
                       value={catSelection.selectedItems || []}
                       onChange={(checkedValues) => updateCategorySelection(index, checkedValues)}

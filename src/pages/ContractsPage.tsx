@@ -1149,7 +1149,7 @@ const ContractsPage = () => {
       <Card>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <Input
-            placeholder="Search by contract number or client name..."
+            placeholder={t.contracts.searchByContractNumberPlaceholder}
             prefix={<SearchOutlined />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -1286,7 +1286,7 @@ const ContractsPage = () => {
               onSearch={handleCustomerSearch}
               onSelect={handleCustomerSelect}
               onChange={handleCustomerChange}
-              placeholder="Search for client by name or phone..."
+              placeholder={t.contracts.searchForClientPlaceholder}
               style={{ width: '100%' }}
               filterOption={false}
               disabled={!!selectedContract && !!selectedContract.quotationId}
@@ -1300,7 +1300,7 @@ const ContractsPage = () => {
                 label={t.contracts.customerName}
                 rules={[{ required: true, message: 'Please enter the name' }]}
               >
-                <Input placeholder="Client name" disabled={!!selectedCustomer} />
+                <Input placeholder={t.contracts.clientNamePlaceholder} disabled={!!selectedCustomer} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -1309,7 +1309,7 @@ const ContractsPage = () => {
                 label={t.contracts.customerPhone}
                 rules={[{ required: true, message: 'Please enter phone number' }]}
               >
-                <Input placeholder="Phone number" disabled={!!selectedCustomer} />
+                <Input placeholder={t.contracts.phoneNumberPlaceholder} disabled={!!selectedCustomer} />
               </Form.Item>
             </Col>
           </Row>
@@ -1395,7 +1395,7 @@ const ContractsPage = () => {
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.contracts.amountPlaceholder}
                   formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 />
               </Form.Item>
@@ -1460,13 +1460,13 @@ const ContractsPage = () => {
             label={t.contracts.projectNameLabel}
             rules={[{ required: true, message: 'Please enter project name' }]}
           >
-            <Input placeholder="Project name" />
+            <Input placeholder={t.contracts.projectNamePlaceholder} />
           </Form.Item>
 
           {industryType === 'engineering' && (
             <Form.Item name="projectId" label={`${t.contracts.projectName} ${t.common.optional}`}>
               <Select
-                placeholder="Select project"
+                placeholder={t.contracts.selectProjectPlaceholder}
                 allowClear
                 showSearch
                 filterOption={(input, option) =>
@@ -1483,7 +1483,7 @@ const ContractsPage = () => {
           )}
 
           <Form.Item name="notes" label={t.contracts.notesLabel}>
-            <Input.TextArea rows={3} placeholder="Additional notes..." />
+            <Input.TextArea rows={3} placeholder={t.contracts.additionalNotesPlaceholder} />
           </Form.Item>
         </Form>
       </Modal>
@@ -1752,7 +1752,7 @@ const ContractsPage = () => {
                 label={`${t.contracts.projectName} ${t.common.optional}`}
               >
                 <Select
-                  placeholder="Select project"
+                  placeholder={t.contracts.selectProjectPlaceholder}
                   allowClear
                   showSearch
                   onChange={handlePaymentProjectChange}
@@ -1774,7 +1774,7 @@ const ContractsPage = () => {
                   label={`Work Scope ${t.common.optional}`}
                 >
                   <Select
-                    placeholder="Select work scope"
+                    placeholder={t.contracts.selectWorkScopePlaceholder}
                     allowClear
                     showSearch
                     filterOption={(input, option) =>
@@ -1800,7 +1800,7 @@ const ContractsPage = () => {
             <InputNumber
               min={0}
               style={{ width: '100%' }}
-              placeholder="0"
+              placeholder={t.contracts.amountPlaceholder}
               formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             />
           </Form.Item>
@@ -1908,14 +1908,14 @@ const ContractsPage = () => {
           >
             <Select
               disabled={true} // Lock currency field - it's synced from treasury
-              placeholder="Currency will be set automatically"
+              placeholder={t.contracts.currencyAutoSetPlaceholder}
             >
               <Option value={selectedCurrency}>{selectedCurrency}</Option>
             </Select>
           </Form.Item>
 
           <Form.Item name="notes" label={t.contracts.notesLabel}>
-            <Input.TextArea rows={3} placeholder="Additional notes..." />
+            <Input.TextArea rows={3} placeholder={t.contracts.additionalNotesPlaceholder} />
           </Form.Item>
         </Form>
       </Modal>
@@ -1956,7 +1956,7 @@ const ContractsPage = () => {
                   type="date"
                   className="ant-input"
                   style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
-                  placeholder="Select start date"
+                  placeholder={t.contracts.selectStartDatePlaceholder}
                   disabled
                   readOnly
                 />
@@ -1975,7 +1975,7 @@ const ContractsPage = () => {
                   type="date"
                   className="ant-input"
                   style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
-                  placeholder="Select end date"
+                  placeholder={t.contracts.selectEndDatePlaceholder}
                   disabled
                   readOnly
                 />

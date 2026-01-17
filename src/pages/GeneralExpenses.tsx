@@ -2814,11 +2814,11 @@ const GeneralExpenses = () => {
                   {isEngineering && selectedLinkedAdvance?.projectId && availableWorkScopes.length > 0 && settlementType === 'expense' && (
                     <Form.Item
                       name="workScope"
-                      label="نطاق العمل (اختياري)"
+                      label={t.generalExpenses.workScopeLabel}
                       tooltip="نطاق العمل للمشروع"
                     >
                       <Select
-                        placeholder="اختر نطاق العمل (اختياري)"
+                        placeholder={t.generalExpenses.selectWorkScopeOptional}
                         showSearch
                         filterOption={(input, option) =>
                           (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
@@ -2843,7 +2843,7 @@ const GeneralExpenses = () => {
                       {/* Vendor/Recipient Selection */}
                       <Form.Item
                         name="settlementPoVendor"
-                        label="المورد/المستلم"
+                        label={t.generalExpenses.vendorRecipientLabel}
                         rules={[
                           {
                             validator: (_, value) => {
@@ -2867,7 +2867,7 @@ const GeneralExpenses = () => {
                             }
                           }}
                           value={settlementPoVendorSearch}
-                          placeholder="ابحث عن مورد أو عميل بالاسم أو الهاتف..."
+                          placeholder={t.generalExpenses.searchSupplierCustomer}
                           style={{ width: '100%' }}
                           filterOption={false}
                           notFoundContent={settlementPoVendorOptions.length === 0 && settlementPoVendorSearch ? 'لا توجد نتائج - يمكنك إضافة مورد جديد' : null}
@@ -2884,12 +2884,12 @@ const GeneralExpenses = () => {
                           <Row gutter={16}>
                             <Col span={24}>
                               <Form.Item
-                                label="اسم المورد"
+                                label={t.generalExpenses.supplierNameLabel}
                                 required
                                 tooltip="اسم المورد مطلوب"
                               >
                                 <Input
-                                  placeholder="اسم المورد"
+                                  placeholder={t.generalExpenses.supplierNamePlaceholder}
                                   value={settlementPoNewVendorName}
                                   onChange={(e) => {
                                     const value = e.target.value
@@ -2901,9 +2901,9 @@ const GeneralExpenses = () => {
                               </Form.Item>
                             </Col>
                             <Col span={12}>
-                              <Form.Item label="رقم الهاتف (اختياري)">
+                              <Form.Item label={t.generalExpenses.phoneOptionalLabel}>
                                 <Input
-                                  placeholder="رقم الهاتف"
+                                  placeholder={t.generalExpenses.phoneNumberPlaceholder}
                                   value={settlementPoNewVendorPhone}
                                   onChange={(e) => setSettlementPoNewVendorPhone(e.target.value)}
                                   size="large"
@@ -2911,9 +2911,9 @@ const GeneralExpenses = () => {
                               </Form.Item>
                             </Col>
                             <Col span={12}>
-                              <Form.Item label="البريد الإلكتروني (اختياري)">
+                              <Form.Item label={t.generalExpenses.emailOptionalLabel}>
                                 <Input
-                                  placeholder="البريد الإلكتروني"
+                                  placeholder={t.generalExpenses.emailPlaceholder}
                                   value={settlementPoNewVendorEmail}
                                   onChange={(e) => setSettlementPoNewVendorEmail(e.target.value)}
                                   size="large"
@@ -2925,17 +2925,17 @@ const GeneralExpenses = () => {
                       )}
 
                       {/* Settlement PO Items */}
-                      <Form.Item label="بنود أمر الشراء" required>
+                      <Form.Item label={t.generalExpenses.purchaseOrderItemsLabel} required>
                         <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
                           <Col span={12}>
                             <Form.Item name="settlementPoItemDescription" noStyle>
-                              <Input placeholder="وصف البند/المادة" size="large" />
+                              <Input placeholder={t.generalExpenses.itemDescriptionPlaceholder} size="large" />
                             </Form.Item>
                           </Col>
                           <Col span={6}>
                             <Form.Item name="settlementPoQuantity" noStyle>
                               <InputNumber
-                                placeholder="الكمية"
+                                placeholder={t.generalExpenses.quantityPlaceholder}
                                 min={0.01}
                                 step={1}
                                 style={{ width: '100%' }}
@@ -2946,7 +2946,7 @@ const GeneralExpenses = () => {
                           <Col span={6}>
                             <Form.Item name="settlementPoUnitPrice" noStyle>
                               <InputNumber
-                                placeholder="سعر الوحدة"
+                                placeholder={t.generalExpenses.unitPricePlaceholder}
                                 min={0}
                                 step={0.01}
                                 style={{ width: '100%' }}
@@ -3052,11 +3052,11 @@ const GeneralExpenses = () => {
               {isEngineering && transactionType !== 'settlement' && (
                 <Form.Item
                   name="projectId"
-                  label="المشروع (اختياري)"
+                  label={t.generalExpenses.projectOptionalLabel}
                   tooltip="يمكن تركها فارغة للمهام العامة للشركة"
                 >
                   <Select
-                    placeholder="اختر المشروع (اختياري)"
+                    placeholder={t.generalExpenses.selectProjectOptional}
                     showSearch
                     onChange={(value) => {
                       // Use handleProjectChange to maintain managerName sync
@@ -3154,7 +3154,7 @@ const GeneralExpenses = () => {
                   <InputNumber
                     min={0.01}
                     step={0.01}
-                    placeholder="0.00"
+                    placeholder={t.generalExpenses.amountPlaceholder}
                     size="large"
                     style={{ width: '100%' }}
                     formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
@@ -3203,13 +3203,13 @@ const GeneralExpenses = () => {
 
                   <Form.Item
                     name="treasuryAccountId"
-                    label="حساب الخزينة"
+                    label={t.generalExpenses.treasuryAccountLabel}
                     rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة للإرجاع' }]}
                     tooltip="اختر الحساب الذي سيتم إرجاع المبلغ إليه"
                   >
                     <Select 
                       size="large" 
-                      placeholder="اختر حساب الخزينة" 
+                      placeholder={t.generalExpenses.selectTreasuryAccountPlaceholder} 
                       disabled={treasuryAccounts.length === 0}
                       notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
                     >
@@ -3224,9 +3224,9 @@ const GeneralExpenses = () => {
                   {/* Reference Number for Settlements */}
                   <Form.Item
                     name="referenceNumber"
-                    label="رقم المرجع (اختياري)"
+                    label={t.generalExpenses.referenceNumberOptionalLabel}
                   >
-                    <Input placeholder="رقم المرجع" size="large" />
+                    <Input placeholder={t.generalExpenses.referenceNumberPlaceholder} size="large" />
                   </Form.Item>
                 </>
               )}
@@ -3251,7 +3251,7 @@ const GeneralExpenses = () => {
                 rules={[{ required: true, message: 'يرجى اختيار الفئة' }]}
               >
                 <Select
-                  placeholder="اختر الفئة"
+                  placeholder={t.generalExpenses.selectCategoryPlaceholder}
                   size="large"
                   popupRender={(menu) => (
                     <div>
@@ -3270,7 +3270,7 @@ const GeneralExpenses = () => {
                         ) : (
                           <Space orientation="vertical" style={{ width: '100%' }}>
                             <Input
-                              placeholder="اسم الفئة الجديدة"
+                              placeholder={t.generalExpenses.newCategoryNamePlaceholder}
                               value={newCategoryName}
                               onChange={(e) => setNewCategoryName(e.target.value)}
                               onPressEnter={handleAddCategory}
@@ -3450,7 +3450,7 @@ const GeneralExpenses = () => {
                           <InputNumber
                             min={0}
                             style={{ width: '100%' }}
-                            placeholder="0.00"
+                            placeholder={t.generalExpenses.amountPlaceholder}
                             size="large"
                             disabled
                             formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
@@ -3467,11 +3467,11 @@ const GeneralExpenses = () => {
               {/* Description */}
               <Form.Item
                 name="notes"
-                label="الوصف / Description"
+                label={`${t.generalExpenses.description} / Description`}
               >
                 <Input.TextArea
                   rows={3}
-                  placeholder="وصف المصروف (اختياري)"
+                  placeholder={t.generalExpenses.expenseDescriptionPlaceholder}
                   size="large"
                 />
               </Form.Item>
@@ -3479,7 +3479,7 @@ const GeneralExpenses = () => {
               {/* Recipient Type Toggle */}
               <Form.Item
                 name="recipientType"
-                label="نوع المستلم / Recipient Type"
+                label={`${t.generalExpenses.recipientTypeLabel} / Recipient Type`}
                 rules={[{ required: true, message: 'يرجى اختيار نوع المستلم' }]}
                 initialValue="external"
               >
@@ -3506,7 +3506,7 @@ const GeneralExpenses = () => {
               {/* Recipient Name - Conditional based on type */}
               <Form.Item
                 name={recipientType === 'internal' ? 'employeeId' : 'recipientName'}
-                label="اسم المستلم / Recipient Name"
+                label={`${t.generalExpenses.recipientNameLabel} / Recipient Name`}
                 rules={[
                   { 
                     required: true, 
@@ -3530,7 +3530,7 @@ const GeneralExpenses = () => {
               >
                 {recipientType === 'internal' ? (
                   <Select
-                    placeholder="اختر الموظف"
+                    placeholder={t.generalExpenses.selectEmployee}
                     showSearch
                     size="large"
                     value={selectedEmployeeId}
@@ -3557,7 +3557,7 @@ const GeneralExpenses = () => {
                   </Select>
                 ) : (
                   <Input
-                    placeholder="أدخل اسم المستلم الخارجي"
+                    placeholder={t.generalExpenses.enterExternalRecipientName}
                     size="large"
                   />
                 )}
@@ -3566,14 +3566,14 @@ const GeneralExpenses = () => {
               {/* Date - Single field for administrative expenses, defaults to today */}
               <Form.Item
                 name="date"
-                label="التاريخ / Date"
+                label={`${t.generalExpenses.dateLabel} / Date`}
                 rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
               >
                 <input
                   type="date"
                   className="ant-input"
                   style={{ width: '100%', padding: '6px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '40px', fontSize: '16px' }}
-                  placeholder="اختر التاريخ (افتراضي: اليوم)"
+                  placeholder={t.generalExpenses.selectDatePlaceholder}
                   onChange={(e) => {
                     if (e.target.value) {
                       form.setFieldsValue({ date: e.target.value })
@@ -3585,7 +3585,7 @@ const GeneralExpenses = () => {
               {/* Status - Allow users to set paid status for immediate treasury deduction */}
               <Form.Item
                 name="status"
-                label="الحالة / Status"
+                label={`${t.generalExpenses.statusLabel} / Status`}
                 initialValue="pending"
                 tooltip="اختر 'مدفوع' لخصم المبلغ من الخزينة فوراً، أو 'قيد الانتظار' للموافقة لاحقاً"
               >
@@ -3598,10 +3598,10 @@ const GeneralExpenses = () => {
               {/* Reference Number - Auto-generated if empty (optional field) */}
               <Form.Item
                 name="referenceNumber"
-                label="رقم المرجع (اختياري) / Reference Number (optional)"
+                label={`${t.generalExpenses.referenceNumberOptionalLabel} / Reference Number (optional)`}
                 tooltip="إذا تركته فارغاً، سيتم توليد رقم مرجع تلقائياً (EXP-001, EXP-002, إلخ)"
               >
-                <Input placeholder="EXP-001 (سيتم توليده تلقائياً إذا كان فارغاً)" size="large" />
+                <Input placeholder={t.generalExpenses.expenseNumberPlaceholder} size="large" />
               </Form.Item>
             </>
           )}
@@ -3615,11 +3615,11 @@ const GeneralExpenses = () => {
                     <Col span={12}>
                       <Form.Item
                         name="projectId"
-                        label={<span style={{ fontWeight: 'bold' }}>المشروع</span>}
+                        label={<span style={{ fontWeight: 'bold' }}>{t.generalExpenses.projectLabel}</span>}
                         rules={[{ required: true, message: 'يرجى اختيار المشروع' }]}
                       >
                         <Select
-                          placeholder="اختر المشروع"
+                          placeholder={t.generalExpenses.selectProjectPlaceholder}
                           showSearch
                           onChange={handleProjectChange}
                           filterOption={(input, option) =>
@@ -3639,11 +3639,11 @@ const GeneralExpenses = () => {
                       {selectedProject && availableWorkScopes.length > 0 && (
                         <Form.Item
                           name="workScope"
-                          label={<span style={{ fontWeight: 'bold' }}>نطاق العمل</span>}
+                          label={<span style={{ fontWeight: 'bold' }}>{t.generalExpenses.workScopeBoldLabel}</span>}
                           rules={[{ required: true, message: 'يرجى اختيار نطاق العمل' }]}
                         >
                           <Select
-                            placeholder="اختر نطاق العمل"
+                            placeholder={t.generalExpenses.selectWorkScopeOptional}
                             showSearch
                             filterOption={(input, option) =>
                               (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
@@ -3667,7 +3667,7 @@ const GeneralExpenses = () => {
 
               <Form.Item
                 name="customerSearch"
-                label="المورد/العميل"
+                label={t.orders.supplierCustomer || t.generalExpenses.vendorRecipientLabel}
                 rules={[
                   {
                     validator: (_, value) => {
@@ -3706,7 +3706,7 @@ const GeneralExpenses = () => {
                   <Row gutter={16}>
                     <Col span={24}>
                       <Form.Item
-                        label="اسم المورد"
+                        label={t.generalExpenses.supplierNameLabel}
                         required
                         tooltip="اسم المورد مطلوب"
                       >
@@ -3754,7 +3754,7 @@ const GeneralExpenses = () => {
                 </Card>
               )}
 
-              <Form.Item label="البنود" required>
+              <Form.Item label={t.generalExpenses.purchaseOrderItemsLabel} required>
                 <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
                   <Col span={12}>
                     <Form.Item name="itemDescription" noStyle>
@@ -3764,7 +3764,7 @@ const GeneralExpenses = () => {
                   <Col span={6}>
                     <Form.Item 
                       name="quantity" 
-                      label="الكمية"
+                      label={t.generalExpenses.quantityColumn}
                       style={{ marginBottom: 0 }}
                     >
                       <InputNumber
@@ -3778,7 +3778,7 @@ const GeneralExpenses = () => {
                   <Col span={6}>
                     <Form.Item 
                       name="unitPrice" 
-                      label="سعر الوحدة"
+                      label={t.generalExpenses.unitPriceColumn}
                       style={{ marginBottom: 0 }}
                     >
                       <InputNumber
@@ -3872,7 +3872,7 @@ const GeneralExpenses = () => {
               {/* Single Date field - defaults to today */}
               <Form.Item
                 name="date"
-                label="التاريخ"
+                label={t.generalExpenses.dateLabel}
                 rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
                 initialValue={dayjs().format('YYYY-MM-DD')}
                 getValueFromEvent={(e) => e.target.value}
@@ -3884,7 +3884,7 @@ const GeneralExpenses = () => {
                   type="date"
                   className="ant-input"
                   style={{ width: '100%', padding: '6px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '40px', fontSize: '16px' }}
-                  placeholder="اختر التاريخ (افتراضي: اليوم)"
+                  placeholder={t.generalExpenses.selectDatePlaceholder}
                 />
               </Form.Item>
 
@@ -3892,7 +3892,7 @@ const GeneralExpenses = () => {
               {transactionType !== 'settlement' && (
                 <Form.Item
                   name="status"
-                  label="الحالة"
+                  label={t.generalExpenses.statusLabel}
                   initialValue="pending"
                 >
                   <Select 
@@ -3924,13 +3924,13 @@ const GeneralExpenses = () => {
                     <Col xs={24} sm={12}>
                       <Form.Item
                         name="treasuryAccountId"
-                        label="حساب الخزينة"
+                        label={t.generalExpenses.treasuryAccountLabel}
                         rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة/البنك للصرف' }]}
                         tooltip="اختر الحساب الذي سيتم خصم مبلغ العهدة منه"
                       >
                         <Select 
                           size="large" 
-                          placeholder="اختر حساب الخزينة" 
+                          placeholder={t.generalExpenses.selectTreasuryAccountPlaceholder} 
                           disabled={treasuryAccounts.length === 0}
                           notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
                         >
@@ -3945,7 +3945,7 @@ const GeneralExpenses = () => {
                     <Col xs={24} sm={12}>
                       <Form.Item
                         name="referenceNumber"
-                        label="رقم المرجع"
+                        label={t.generalExpenses.referenceNumberLabel}
                         tooltip={transactionType === 'advance' && !editingExpense ? "سيتم توليد الرقم تلقائياً" : undefined}
                       >
                         <Input 
@@ -3978,7 +3978,7 @@ const GeneralExpenses = () => {
                   <Col xs={24} sm={12}>
                     <Form.Item
                       name="referenceNumber"
-                      label="رقم المرجع (اختياري)"
+                      label={t.generalExpenses.referenceNumberOptionalLabel}
                     >
                       <Input 
                         placeholder="رقم المرجع أو رقم الفاتورة" 
@@ -4000,7 +4000,7 @@ const GeneralExpenses = () => {
                 <Col xs={24} sm={12}>
                   <Form.Item
                     name="status"
-                    label="حالة أمر الشراء"
+                    label={t.generalExpenses.purchaseOrderStatusLabel}
                     initialValue="pending"
                   >
                     <Select size="large">
@@ -4013,13 +4013,13 @@ const GeneralExpenses = () => {
                 <Col xs={24} sm={12}>
                   <Form.Item
                     name="treasuryAccountId"
-                    label="حساب الخزينة"
+                    label={t.generalExpenses.treasuryAccountLabel}
                     rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة/البنك للصرف' }]}
                     tooltip="اختر الحساب الذي سيتم خصم قيمة أمر الشراء منه"
                   >
                     <Select 
                       size="large"
-                      placeholder="اختر حساب الخزينة" 
+                      placeholder={t.generalExpenses.selectTreasuryAccountPlaceholder} 
                       disabled={treasuryAccounts.length === 0}
                       notFoundContent={treasuryAccounts.length === 0 ? "لا توجد حسابات خزينة" : null}
                     >
@@ -4043,7 +4043,7 @@ const GeneralExpenses = () => {
             >
               <Input.TextArea
                 rows={3}
-                placeholder="أي ملاحظات إضافية..."
+                placeholder={t.generalExpenses.additionalNotesPlaceholder}
                 size="large"
               />
             </Form.Item>
@@ -4145,7 +4145,7 @@ const GeneralExpenses = () => {
               rules={[{ required: true, message: 'يرجى اختيار المشروع الجديد' }]}
             >
               <Select
-                placeholder="اختر المشروع الجديد"
+                placeholder={t.generalExpenses.selectNewProjectPlaceholder}
                 showSearch
                 filterOption={(input, option) =>
                   (option?.children ?? '').toLowerCase().includes(input.toLowerCase())

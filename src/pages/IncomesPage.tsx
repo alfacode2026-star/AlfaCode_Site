@@ -32,6 +32,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { useTenant } from '../contexts/TenantContext';
 import { useBranch } from '../contexts/BranchContext';
+import { getTranslations } from '../utils/translations';
 import incomesService from '../services/incomesService';
 import projectsService from '../services/projectsService';
 import treasuryService from '../services/treasuryService';
@@ -92,9 +93,10 @@ const formatCurrency = (value: number, currency: string = 'SAR'): string => {
 ======================= */
 
 const IncomesPage: FC = () => {
-  const { setLanguage } = useLanguage();
+  const { language, setLanguage } = useLanguage();
   const { industryType } = useTenant();
   const { branchCurrency } = useBranch(); // Get branch currency from context
+  const t = getTranslations(language);
 
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -518,7 +520,7 @@ const IncomesPage: FC = () => {
       >
         <Space style={{ marginBottom: 16 }} wrap>
           <Input
-            placeholder="Search by project name, description, or reference number"
+            placeholder={t.contracts.searchByContractNumberPlaceholder || 'Search by project name, description, or reference number'}
             prefix={<SearchOutlined />}
             value={filters.searchText}
             onChange={(e) =>
@@ -612,7 +614,7 @@ const IncomesPage: FC = () => {
               rules={[{ required: true, message: 'Please select a project' }]}
             >
               <Select
-                placeholder="Select Project"
+                placeholder={t.contracts.selectProjectPlaceholder || t.orders.selectProject}
                 showSearch
                 loading={loadingProjectIncomes}
                 filterOption={(input, option) =>
@@ -632,7 +634,7 @@ const IncomesPage: FC = () => {
           {isEngineering && availableWorkScopes.length > 0 && (
             <Form.Item name="workScope" label="Work Scope (Optional)">
               <Select
-                placeholder="Select Work Scope"
+                placeholder={t.contracts.selectWorkScopePlaceholder || t.orders.selectWorkScope}
                 allowClear
                 showSearch
                 filterOption={(input, option) =>
@@ -678,7 +680,7 @@ const IncomesPage: FC = () => {
                   <InputNumber
                     min={0}
                     style={{ flex: 1 }}
-                    placeholder="0"
+                    placeholder={t.contracts.amountPlaceholder || '0'}
                     formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                     parser={(value) => value!.replace(/\$\s?|(,*)/g, '')}
                   />
@@ -706,7 +708,7 @@ const IncomesPage: FC = () => {
                 initialValue="down_payment"
               >
                 <Select
-                  placeholder="Select Income Type"
+                  placeholder={t.common.select + ' ' + 'Income Type' || 'Select Income Type'}
                   disabled={selectedProjectId ? (hasExistingIncomes ? false : true) : false}
                   onChange={(value) => {
                     if (value !== 'advance') {
@@ -734,7 +736,7 @@ const IncomesPage: FC = () => {
             </Col>
             <Col span={12}>
               <Form.Item name="referenceNumber" label="Reference Number (Optional)">
-                <Input placeholder="Reference number or receipt number" />
+                <Input placeholder={t.contracts.additionalNotesPlaceholder || 'Reference number or receipt number'} />
               </Form.Item>
             </Col>
           </Row>
@@ -770,7 +772,7 @@ const IncomesPage: FC = () => {
                       min={0}
                       max={100}
                       style={{ width: '100%' }}
-                      placeholder="0"
+                      placeholder={t.contracts.amountPlaceholder || '0'}
                       formatter={(value) => `${value}%`}
                       parser={(value) => value!.replace('%', '')}
                     />
@@ -797,7 +799,7 @@ const IncomesPage: FC = () => {
             tooltip="Select the account where the amount will be deposited"
           >
             <Select
-              placeholder="Select Treasury Account"
+              placeholder={t.contracts.selectTreasuryAccount || t.treasury.selectAccount}
               disabled={treasuryAccounts.length === 0}
               notFoundContent={
                 treasuryAccounts.length === 0 ? 'No treasury accounts found' : null
@@ -836,7 +838,7 @@ const IncomesPage: FC = () => {
             label="Description"
             rules={[{ required: true, message: 'Please enter a description' }]}
           >
-            <Input.TextArea rows={3} placeholder="Description of income/advance" />
+            <Input.TextArea rows={3} placeholder={t.common.description || 'Description of income/advance'} />
           </Form.Item>
         </Form>
       </Modal>

@@ -126,7 +126,7 @@ const AuthPage = () => {
           >
             <Input
               prefix={<MailOutlined />}
-              placeholder={language === 'ar' ? 'البريد الإلكتروني' : 'Email'}
+              placeholder={t.settings.emailPlaceholder}
               autoComplete="email"
             />
           </Form.Item>
@@ -139,7 +139,7 @@ const AuthPage = () => {
           >
             <Input.Password
               prefix={<LockOutlined />}
-              placeholder={language === 'ar' ? 'كلمة المرور' : 'Password'}
+              placeholder={t.settings.passwordPlaceholder}
               autoComplete="current-password"
             />
           </Form.Item>

@@ -1356,7 +1356,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
             <InputNumber
               min={0}
               style={{ width: '100%' }}
-              placeholder="0"
+              placeholder={t.labor.amountPlaceholder || '0'}
               formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
             />
           </Form.Item>
@@ -1584,7 +1584,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.labor.amountPlaceholder || '0'}
                 />
               </Form.Item>
             </Col>
@@ -1597,7 +1597,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.labor.amountPlaceholder || '0'}
                   formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 />
               </Form.Item>
@@ -1613,7 +1613,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.labor.amountPlaceholder || '0'}
                 />
               </Form.Item>
             </Col>
@@ -1625,7 +1625,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.labor.amountPlaceholder || '0'}
                   formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 />
               </Form.Item>
@@ -1850,7 +1850,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.labor.amountPlaceholder || '0'}
                   formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 />
               </Form.Item>
@@ -1863,7 +1863,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                 <InputNumber
                   min={0}
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.labor.amountPlaceholder || '0'}
                   formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 />
               </Form.Item>
@@ -2128,7 +2128,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
               rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة' }]}
             >
               <Select
-                placeholder="اختر حساب الخزينة"
+                placeholder={t.labor.selectTreasuryAccountPlaceholder || t.generalExpenses.selectTreasuryAccountPlaceholder}
                 showSearch
                 filterOption={(input, option) =>
                   (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
@@ -2160,7 +2160,7 @@ ${overtimeLine}${deductionsLine}• ${t.labor.finalTotalAmount || 'Final Total A
                   rules={[{ required: true, message: 'يرجى اختيار العهدة' }]}
                 >
                   <Select
-                    placeholder="اختر العهدة"
+                    placeholder={t.labor.selectAdvancePlaceholder || t.generalExpenses.selectAdvance}
                     showSearch
                     filterOption={(input, option) =>
                       (option?.children ?? '').toLowerCase().includes(input.toLowerCase())

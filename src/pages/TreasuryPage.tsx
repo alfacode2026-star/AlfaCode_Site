@@ -36,6 +36,7 @@ import {
 } from '@ant-design/icons';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useBranch } from '../contexts/BranchContext';
+import { getTranslations } from '../utils/translations';
 import treasuryService from '../services/treasuryService';
 import userManagementService from '../services/userManagementService';
 
@@ -103,6 +104,7 @@ const formatNumber = (value: number): string => {
 const TreasuryPage: FC = () => {
   const { language } = useLanguage();
   const { branchCurrency, branchId, branchName } = useBranch(); // CRITICAL: Get branchId for strict isolation
+  const t = getTranslations(language);
 
   const [accounts, setAccounts] = useState<TreasuryAccount[]>([]);
   const [allAccounts, setAllAccounts] = useState<TreasuryAccount[]>([]); // Store all accounts before filtering
@@ -946,7 +948,7 @@ const TreasuryPage: FC = () => {
           extra={
             <Space>
               <Select
-                placeholder="Filter by account"
+                placeholder={t.treasury.filterByAccountPlaceholder}
                 allowClear
                 style={{ width: 200 }}
                 value={filters.accountId}
@@ -959,7 +961,7 @@ const TreasuryPage: FC = () => {
                 ))}
               </Select>
               <Input
-                placeholder="Search transactions"
+                placeholder={t.treasury.searchTransactionsPlaceholder}
                 prefix={<SearchOutlined />}
                 value={filters.searchText}
                 onChange={(e) =>
@@ -1005,7 +1007,7 @@ const TreasuryPage: FC = () => {
               label="Account Name"
               rules={[{ required: true, message: 'Please enter account name' }]}
             >
-              <Input placeholder="Account name" />
+              <Input placeholder={t.treasury.accountNamePlaceholder} />
             </Form.Item>
 
             <Row gutter={16}>
@@ -1015,7 +1017,7 @@ const TreasuryPage: FC = () => {
                   label="Account Type"
                   rules={[{ required: true, message: 'Please select account type' }]}
                 >
-                  <Select placeholder="Select account type">
+                  <Select placeholder={t.treasury.selectAccountTypePlaceholder}>
                     <Option value="bank">Bank</Option>
                     <Option value="cash_box">Cash Box</Option>
                   </Select>
@@ -1028,7 +1030,7 @@ const TreasuryPage: FC = () => {
                   rules={[{ required: true, message: 'Please select visibility' }]}
                   initialValue="public"
                 >
-                  <Select placeholder="Select visibility">
+                  <Select placeholder={t.treasury.selectVisibilityPlaceholder}>
                     <Option value="public">Public</Option>
                     <Option value="private">Private (Super Admin Only)</Option>
                   </Select>
@@ -1043,7 +1045,7 @@ const TreasuryPage: FC = () => {
               initialValue={branchCurrency || 'SAR'}
             >
               <Select 
-                placeholder="Select currency" 
+                placeholder={t.treasury.selectCurrencyPlaceholder} 
                 showSearch 
                 filterOption={(input, option) => {
                   const label = option?.label as string;
@@ -1051,7 +1053,7 @@ const TreasuryPage: FC = () => {
                 }}
               >
                 {/* First Group: Common Currencies (العملات الأساسية) */}
-                <Select.OptGroup label="العملات الأساسية">
+                <Select.OptGroup label={t.treasury.mainCurrenciesLabel}>
                   {(() => {
                     // Define the 5 main currencies in the desired order
                     const mainCurrencies = ['IQD', 'AED', 'USD', 'SAR', 'EUR'];
@@ -1096,7 +1098,7 @@ const TreasuryPage: FC = () => {
                 </Select.OptGroup>
                 
                 {/* Second Group: Other Global Currencies (باقي العملات العالمية) */}
-                <Select.OptGroup label="باقي العملات العالمية">
+                <Select.OptGroup label={t.treasury.otherCurrenciesLabel}>
                   {(() => {
                     // Define the 5 main currencies to exclude
                     const mainCurrencies = ['IQD', 'AED', 'USD', 'SAR', 'EUR'];
@@ -1138,7 +1140,7 @@ const TreasuryPage: FC = () => {
               >
                 <InputNumber
                   style={{ width: '100%' }}
-                  placeholder="0"
+                  placeholder={t.treasury.initialBalancePlaceholder}
                   formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                   parser={(value) => value!.replace(/\$\s?|(,*)/g, '')}
                   min={0}

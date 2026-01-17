@@ -368,7 +368,7 @@ const BranchesSettings = () => {
               { required: true, message: language === 'ar' ? 'اسم الفرع مطلوب' : 'Branch name is required' }
             ]}
           >
-            <Input placeholder={language === 'ar' ? 'أدخل اسم الفرع' : 'Enter branch name'} />
+            <Input placeholder={t.settings.branchNamePlaceholder} />
           </Form.Item>
 
           <Form.Item
@@ -378,7 +378,7 @@ const BranchesSettings = () => {
               { required: true, message: language === 'ar' ? 'العملة مطلوبة' : 'Currency is required' }
             ]}
           >
-            <Select placeholder={language === 'ar' ? 'اختر العملة' : 'Select currency'}>
+            <Select placeholder={t.settings.selectCurrencyPlaceholder}>
               <Option value="AED">AED</Option>
               <Option value="IQD">IQD</Option>
               <Option value="SAR">SAR</Option>
