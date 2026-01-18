@@ -1,7 +1,9 @@
 import { supabase } from './supabaseClient'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import treasuryService from './treasuryService'
+import userManagementService from './userManagementService'
 
 class IncomesService {
   // Get all incomes (received payments/advances per project)
@@ -16,9 +18,17 @@ class IncomesService {
       // Get all payments that are income-type (have contract_id or payment_type = 'income')
       // EXCLUDE advances (transaction_type = 'advance') and settlements (transaction_type = 'settlement')
       // Only show real Revenues/Income (Invoices/Receipts from clients)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch incomes.')
+        return []
+      }
+      
       // CRITICAL: Include ALL income payments (contract_id OR payment_type='income'), even if project_id is null
       // This ensures contract payments from Contract Details appear in the main Revenue list
-      const { data: payments, error } = await supabase
+      let query = supabase
         .from('payments')
         .select(`
           *,
@@ -28,11 +38,13 @@ class IncomesService {
           )
         `)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .or('contract_id.not.is.null,payment_type.eq.income')
         // REMOVED: .not('project_id', 'is', null) - Allow payments without project_id (contract payments may not have project_id)
         .neq('transaction_type', 'advance') // EXCLUDE advances (Custody)
         .neq('transaction_type', 'settlement') // EXCLUDE internal transfers/settlements
-        .order('due_date', { ascending: false })
+
+      const { data: payments, error } = await query.order('due_date', { ascending: false })
 
       if (error) throw error
 
@@ -106,7 +118,15 @@ class IncomesService {
         return null
       }
 
-      const { data: payment, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch income.')
+        return null
+      }
+      
+      let query = supabase
         .from('payments')
         .select(`
           *,
@@ -117,7 +137,9 @@ class IncomesService {
         `)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: payment, error } = await query.single()
 
       if (error) throw error
 
@@ -206,6 +228,9 @@ class IncomesService {
       // Get currency from treasury account if provided, otherwise default to SAR
       const currency = incomeData.currency || 'SAR'
 
+      // AUTOMATIC BRANCH INJECTION: Get from branchStore
+      const branchId = branchStore.getBranchId()
+
       // Create payment record
       // CRITICAL: Ensure amount is always positive for incomes
       const positiveAmount = Math.abs(amount)
@@ -236,6 +261,16 @@ class IncomesService {
         currency: currency, // Currency from treasury account
         created_by: 'user'
       }
+      
+      // MANDATORY BRANCH INJECTION: Always include branch_id (required)
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create income.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+      newPayment.branch_id = branchId
 
       const { data: insertedPayment, error: paymentError } = await supabase
         .from('payments')
@@ -332,13 +367,21 @@ class IncomesService {
       if (incomeData.workScope !== undefined) updateData.work_scope = incomeData.workScope
       if (incomeData.completionPercentage !== undefined) updateData.completion_percentage = incomeData.completionPercentage
 
-      const { data: updatedPayment, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('payments')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: updatedPayment, error } = await query.select().single()
 
       if (error) throw error
 
@@ -363,8 +406,8 @@ class IncomesService {
     }
   }
 
-  // Delete income
-  async deleteIncome(id) {
+  // Delete income (3-Layer Security Protocol)
+  async deleteIncome(id, password, deletionReason) {
     try {
       if (!id) {
         return {
@@ -383,19 +426,116 @@ class IncomesService {
         }
       }
 
-      // Get income to find treasury transaction
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      // 🟢 LAYER 1: AUTHORIZATION - Check user role (Permission Check)
+      const profile = await userManagementService.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const allowedRoles = ['super_admin', 'admin', 'manager', 'owner']
+      
+      if (!userRole || !allowedRoles.includes(userRole)) {
+        return {
+          success: false,
+          error: 'Access Denied: You do not have permission to delete records.',
+          errorCode: 'UNAUTHORIZED'
+        }
+      }
+
+      // Step 1: Get current user and income info
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user || !user.email) {
+        return {
+          success: false,
+          error: 'Authentication required',
+          errorCode: 'AUTH_REQUIRED'
+        }
+      }
+
+      // 🟡 LAYER 2: AUTHENTICATION - Verify password (Identity Check)
+      if (!password) {
+        return {
+          success: false,
+          error: 'Password is required for deletion',
+          errorCode: 'PASSWORD_REQUIRED'
+        }
+      }
+
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password
+      })
+
+      if (authError) {
+        return {
+          success: false,
+          error: 'Security Alert: Incorrect Password.',
+          errorCode: 'INVALID_PASSWORD'
+        }
+      }
+
+      // Step 3: Get income to find treasury transaction and for audit log
       const income = await this.getIncome(id)
+      if (!income) {
+        return {
+          success: false,
+          error: 'Income not found',
+          errorCode: 'INCOME_NOT_FOUND'
+        }
+      }
+
+      // Note: Deleting treasury transactions is complex - for now, we'll just delete the payment
+      // In a production system, you might want to reverse the treasury transaction
       if (income) {
-        // Note: Deleting treasury transactions is complex - for now, we'll just delete the payment
-        // In a production system, you might want to reverse the treasury transaction
         console.warn('Treasury transaction reversal not implemented - income deletion requires manual treasury adjustment')
       }
 
-      const { error } = await supabase
+      // 🔴 LAYER 3: DOCUMENTATION - Audit Logging (MANDATORY - Abort if fails)
+      if (!deletionReason || deletionReason.trim() === '') {
+        return {
+          success: false,
+          error: 'Deletion reason is required for audit purposes',
+          errorCode: 'REASON_REQUIRED'
+        }
+      }
+
+      const deletionLog = {
+        table_name: 'payments',
+        record_ref_number: income.paymentNumber || income.id,
+        record_id: id,
+        deletion_reason: deletionReason.trim(),
+        deleted_by: user.id,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        deleted_data: JSON.stringify(income) // Store snapshot of deleted record
+      }
+
+      const { error: logError } = await supabase
+        .from('deletion_logs')
+        .insert([deletionLog])
+
+      if (logError) {
+        console.error('Error logging deletion:', logError)
+        return {
+          success: false,
+          error: 'Deletion aborted: Failed to create audit log. Please contact support.',
+          errorCode: 'AUDIT_LOG_FAILED'
+        }
+      }
+
+      // 🏁 EXECUTION - Only after Layers 1, 2, and 3 pass successfully
+      let query = supabase
         .from('payments')
         .delete()
         .eq('id', id)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
@@ -421,13 +561,22 @@ class IncomesService {
       }
 
       // Check if there are any income payments for this project
-      const { data: payments, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return false
+      }
+
+      let query = supabase
         .from('payments')
         .select('id')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .or('contract_id.not.is.null,payment_type.eq.income,transaction_type.eq.advance')
-        .limit(1)
+
+      const { data: payments, error } = await query.limit(1)
 
       if (error) {
         console.error('Error checking existing incomes:', error)

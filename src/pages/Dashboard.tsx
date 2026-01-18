@@ -22,11 +22,13 @@ import customersService from '../services/customersService'
 import { useTenant } from '../contexts/TenantContext'
 import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import { getCurrencySymbol } from '../utils/currencyUtils'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { supabase } from '../services/supabaseClient'
 import tenantStore from '../services/tenantStore'
+import branchStore from '../services/branchStore'
 import userManagementService from '../services/userManagementService'
 
 const { Text } = Typography
@@ -36,6 +38,7 @@ const Dashboard = () => {
   const { industryType, currentTenantId } = useTenant()
   const { branchCurrency, branchName } = useBranch()
   const { language } = useLanguage()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   
   // Debug currency value
@@ -83,6 +86,7 @@ const Dashboard = () => {
     const fetchData = async () => {
       try {
         setLoading(true)
+        updateStatus('loading', language === 'ar' ? 'جاري تحديث لوحة المعلومات...' : 'Loading dashboard metrics...', branchName)
         const [productsData, ordersData, customersData] = await Promise.all([
           inventoryService.getProducts(),
           ordersService.getOrders(),
@@ -95,28 +99,35 @@ const Dashboard = () => {
         // Check if this is first run (no transactions/orders) and show currency warning
         if (currentTenantId) {
           try {
-            const [ordersCheck, paymentsCheck] = await Promise.all([
-              supabase
-                .from('orders')
-                .select('id')
-                .eq('tenant_id', currentTenantId)
-                .limit(1),
-              supabase
-                .from('payments')
-                .select('id')
-                .eq('tenant_id', currentTenantId)
-                .limit(1)
-            ])
+            const branchId = branchStore.getBranchId()
+            
+            // Only check if branch is selected (mandatory branch isolation)
+            if (branchId) {
+              const [ordersCheck, paymentsCheck] = await Promise.all([
+                supabase
+                  .from('orders')
+                  .select('id')
+                  .eq('tenant_id', currentTenantId)
+                  .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+                  .limit(1),
+                supabase
+                  .from('payments')
+                  .select('id')
+                  .eq('tenant_id', currentTenantId)
+                  .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+                  .limit(1)
+              ])
 
-            const hasOrders = ordersCheck.data && ordersCheck.data.length > 0
-            const hasPayments = paymentsCheck.data && paymentsCheck.data.length > 0
+              const hasOrders = ordersCheck.data && ordersCheck.data.length > 0
+              const hasPayments = paymentsCheck.data && paymentsCheck.data.length > 0
 
-            // Show warning only if NO transactions exist
-            if (!hasOrders && !hasPayments) {
-              // Check if user has dismissed this warning
-              const dismissed = localStorage.getItem('currency_warning_dismissed')
-              if (!dismissed) {
-                setShowCurrencyWarning(true)
+              // Show warning only if NO transactions exist
+              if (!hasOrders && !hasPayments) {
+                // Check if user has dismissed this warning
+                const dismissed = localStorage.getItem('currency_warning_dismissed')
+                if (!dismissed) {
+                  setShowCurrencyWarning(true)
+                }
               }
             }
           } catch (error) {
@@ -165,15 +176,20 @@ const Dashboard = () => {
             netCompanyProfit
           })
         }
+        
+        // Update sync status - Dashboard updated successfully
+        updateStatus('success', language === 'ar' ? 'تم تحديث لوحة المعلومات' : 'Dashboard updated', branchName)
       } catch (error) {
         console.error('Error fetching data:', error)
+        const errorMsg = language === 'ar' ? 'تعذر تحديث لوحة المعلومات' : 'Failed to update dashboard'
+        updateStatus('error', errorMsg, branchName)
         setProducts([])
       } finally {
         setLoading(false)
       }
     }
     fetchData()
-  }, [industryType])
+  }, [industryType, updateStatus, language, branchName])
 
   // Calculate stats dynamically from real data
   const totalProducts = products.length

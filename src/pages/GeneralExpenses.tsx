@@ -50,6 +50,7 @@ import tenantStore from '../services/tenantStore'
 import { useTenant } from '../contexts/TenantContext'
 import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils'
 import dayjs from 'dayjs'
@@ -62,8 +63,9 @@ type TransactionType = 'regular' | 'advance' | 'settlement'
 
 const GeneralExpenses = () => {
   const { industryType } = useTenant()
-  const { branchCurrency } = useBranch() // Get branch currency from context
+  const { branchCurrency, branchName } = useBranch() // Get branch currency from context
   const { language } = useLanguage()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const [expenses, setExpenses] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -96,6 +98,9 @@ const GeneralExpenses = () => {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [settlementType, setSettlementType] = useState<string>('expense') // 'expense' or 'return'
   const [settlementPoItems, setSettlementPoItems] = useState<any[]>([]) // Items for settlement PO
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false)
+  const [expenseToDelete, setExpenseToDelete] = useState<any>(null)
+  const [deleteForm] = Form.useForm()
   const [settlementPoVendor, setSettlementPoVendor] = useState<any>(null) // Vendor/Recipient for settlement PO
   const [settlementPoVendorSearch, setSettlementPoVendorSearch] = useState('')
   const [settlementPoVendorOptions, setSettlementPoVendorOptions] = useState<any[]>([])
@@ -266,6 +271,7 @@ const GeneralExpenses = () => {
 
   const loadExpenses = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل المصروفات...' : 'Fetching expenses...', branchName)
     try {
       const expensePayments = await paymentsService.getAllExpenses()
 
@@ -296,8 +302,16 @@ const GeneralExpenses = () => {
       })
 
       setExpenses(expensesWithProjects)
+      
+      if (expensesWithProjects.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا توجد مصروفات' : 'No expenses found', branchName)
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${expensesWithProjects.length} مصروف` : `Loaded ${expensesWithProjects.length} expenses`, branchName)
+      }
     } catch (error) {
       console.error('Error loading expenses:', error)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
       message.error(t.generalExpenses.failedToLoad)
       setExpenses([])
     } finally {
@@ -498,7 +512,7 @@ const GeneralExpenses = () => {
     setIsModalVisible(true)
   }
 
-  const handleDeleteExpense = async (id: string) => {
+  const handleDeleteExpense = async (id: string, password?: string, deletionReason?: string) => {
     try {
       // First, find and reverse any associated treasury transactions
       try {
@@ -511,8 +525,8 @@ const GeneralExpenses = () => {
         // Continue with deletion even if reversal fails
       }
 
-      // Delete the expense payment
-      const result = await paymentsService.deletePayment(id)
+      // Delete the expense payment with secure deletion protocol
+      const result = await paymentsService.deletePayment(id, password, deletionReason)
       if (result.success) {
         message.success(t.generalExpenses.expenseDeleted)
         loadExpenses()
@@ -2042,23 +2056,20 @@ const GeneralExpenses = () => {
             >
               {t.common.edit}
             </Button>
-            <Popconfirm
-              title={t.generalExpenses.deleteExpenseConfirm || 'Are you sure you want to delete this expense?'}
-              onConfirm={() => handleDeleteExpense(record.id)}
-              okText={t.common.yes}
-              cancelText={t.common.no}
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              size="small"
+              disabled={isApproved}
+              title={isApproved ? (t.generalExpenses.cannotDeleteApprovedAdvance || 'Cannot delete approved advance') : undefined}
+              onClick={() => {
+                setExpenseToDelete(record)
+                setDeleteModalVisible(true)
+              }}
             >
-              <Button
-                type="link"
-                danger
-                icon={<DeleteOutlined />}
-                size="small"
-                disabled={isApproved}
-                title={isApproved ? (t.generalExpenses.cannotDeleteApprovedAdvance || 'Cannot delete approved advance') : undefined}
-              >
-                {t.common.delete}
-              </Button>
-            </Popconfirm>
+              {t.common.delete}
+            </Button>
           </Space>
         )
       }
@@ -4173,6 +4184,75 @@ const GeneralExpenses = () => {
             </div>
           </Form>
         )}
+      </Modal>
+
+      {/* Secure Deletion Modal (3-Layer Security Protocol) */}
+      <Modal
+        title={language === 'ar' ? `حذف المصروف - ${expenseToDelete?.paymentNumber || expenseToDelete?.id}` : `Delete Expense - ${expenseToDelete?.paymentNumber || expenseToDelete?.id}`}
+        open={deleteModalVisible}
+        onOk={async () => {
+          try {
+            const values = await deleteForm.validateFields()
+            
+            if (!expenseToDelete) {
+              message.error('No expense selected for deletion')
+              return
+            }
+
+            await handleDeleteExpense(expenseToDelete.id, values.password, values.deletionReason)
+            
+            setDeleteModalVisible(false)
+            setExpenseToDelete(null)
+            deleteForm.resetFields()
+          } catch (error) {
+            console.error('Error validating deletion form:', error)
+            if (error.errorFields) {
+              message.error(language === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill all required fields')
+            }
+          }
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false)
+          setExpenseToDelete(null)
+          deleteForm.resetFields()
+        }}
+        okText={language === 'ar' ? 'حذف' : 'Delete'}
+        cancelText={language === 'ar' ? 'إلغاء' : 'Cancel'}
+        okButtonProps={{ danger: true }}
+        width={600}
+      >
+        <Alert
+          type="warning"
+          message={language === 'ar' ? 'تحذير: هذا الإجراء لا يمكن التراجع عنه' : 'Warning: This action cannot be undone'}
+          description={language === 'ar' ? 'سيتم حذف المصروف وجميع بياناته المرتبطة. يرجى إدخال كلمة المرور للتأكيد.' : 'This will permanently delete the expense and all associated data. Please enter your password to confirm.'}
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={deleteForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Form.Item
+            name="password"
+            label={language === 'ar' ? 'كلمة المرور' : 'Password'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال كلمة المرور' : 'Please enter your password' }]}
+          >
+            <Input.Password
+              placeholder={language === 'ar' ? 'أدخل كلمة المرور للتأكيد' : 'Enter password to confirm'}
+              autoComplete="current-password"
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="deletionReason"
+            label={language === 'ar' ? 'سبب الحذف' : 'Deletion Reason'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال سبب الحذف' : 'Please provide a reason for deletion' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder={language === 'ar' ? 'اشرح سبب حذف هذا المصروف...' : 'Explain why you are deleting this expense...'}
+              maxLength={500}
+              showCount
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )

@@ -5,6 +5,8 @@ import { useSearchParams } from 'react-router-dom'
 import moment from 'moment'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import companySettingsService from '../services/companySettingsService'
 import quotationDraftsService from '../services/quotationDraftsService'
@@ -60,6 +62,8 @@ const QuotationBuilder = () => {
   const [searchParams] = useSearchParams()
   const { currentTenantId } = useTenant()
   const { language } = useLanguage()
+  const { branchName } = useBranch()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const [form] = Form.useForm()
   const previewRef = useRef<HTMLDivElement>(null)
@@ -148,14 +152,20 @@ const QuotationBuilder = () => {
 
   const loadInitialData = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل متطلبات البناء...' : 'Loading builder dependencies...', branchName || null)
     try {
       await Promise.all([
         loadCompanySettings(),
         loadSmartDefaults(),
         loadTemplates()
       ])
+      
+      // Builder is ready once dependencies are loaded
+      updateStatus('success', language === 'ar' ? 'جاهز للبناء (تم تحميل العملاء والمنتجات)' : 'Builder Ready (Customers & Products loaded)', branchName || null)
     } catch (error) {
       console.error('Error loading initial data:', error)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName || null)
     } finally {
       setLoading(false)
     }

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useTenant } from '../contexts/TenantContext'
 import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import companySettingsService from '../services/companySettingsService'
 import userManagementService from '../services/userManagementService'
@@ -64,8 +65,9 @@ const { Title, Text } = Typography
 
 const SettingsPage = () => {
   const { currentTenantId } = useTenant()
-  const { branchCurrency, branchId, refreshBranchData } = useBranch()
+  const { branchCurrency, branchId, refreshBranchData, branchName } = useBranch()
   const { language } = useLanguage()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const [form] = Form.useForm()
   const [companyForm] = Form.useForm()
@@ -230,6 +232,7 @@ const SettingsPage = () => {
   }, [currentTenantId])
 
   const loadGeneralSettings = async () => {
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل الإعدادات...' : 'Loading configurations...', branchName || null)
     try {
       const settings = await companySettingsService.getCompanySettings()
       
@@ -285,8 +288,13 @@ const SettingsPage = () => {
           console.error('Error fetching tenant name for general tab:', fetchError)
         }
       }
+      
+      // Settings loaded successfully
+      updateStatus('success', language === 'ar' ? 'تم تحميل إعدادات النظام' : 'System Settings Loaded', branchName || null)
     } catch (error) {
       console.error('Error loading general settings:', error)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName || null)
     }
   }
 

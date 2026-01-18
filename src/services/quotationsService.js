@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient'
 import customersService from './customersService'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import projectsService from './projectsService'
 import contractsService from './contractsService'
@@ -14,20 +15,33 @@ class QuotationsService {
     return `${prefix}-${year}-${random}`
   }
 
-  // Get all quotations (filtered by current tenant)
-  async getQuotations() {
+  // Get all quotations (filtered by current tenant and branch)
+  async getQuotations(branchId = null) {
     try {
       const tenantId = tenantStore.getTenantId()
+      // MANDATORY BRANCH ID: Get from branchStore if not provided
+      const effectiveBranchId = branchId || branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch quotations.')
         return []
       }
 
-      const { data: quotations, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!effectiveBranchId) {
+        console.warn('No branch ID set. Cannot fetch quotations.')
+        return []
+      }
+
+      let query = supabase
         .from('quotations')
         .select('*')
         .eq('tenant_id', tenantId)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', effectiveBranchId) // MANDATORY: Always filter by branch_id
+      
+      query = query.order('created_at', { ascending: false })
+
+      const { data: quotations, error } = await query
 
       if (error) throw error
 
@@ -44,17 +58,27 @@ class QuotationsService {
       if (!id) return null
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch quotation.')
         return null
       }
 
-      const { data: quotation, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch quotation.')
+        return null
+      }
+
+      let query = supabase
         .from('quotations')
         .select('*')
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: quotation, error } = await query.single()
 
       if (error) throw error
 
@@ -184,7 +208,19 @@ class QuotationsService {
         createdBy = await this.getCurrentUserId()
       }
       
-      // Build quotation object - tenant_id and created_by are optional
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create quotation.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+      
+      // Build quotation object - tenant_id, branch_id, and created_by are optional
       const newQuotation = {
         quote_number: quoteNumber,
         customer_id: customerId,
@@ -198,8 +234,20 @@ class QuotationsService {
         total_amount: quotationData.totalAmount || 0,
         status: quotationData.status || 'draft',
         valid_until: quotationData.validUntil || null,
-        notes: quotationData.notes || null
+        notes: quotationData.notes || null,
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       }
+      
+      // If a manual date is provided, override created_at (otherwise database will use NOW() default)
+      if (quotationData.date) {
+        // Convert YYYY-MM-DD to ISO timestamp (set to midnight UTC)
+        const dateStr = quotationData.date
+        // Create date object at midnight UTC
+        const dateObj = new Date(dateStr + 'T00:00:00.000Z')
+        // Set created_at explicitly to override database default
+        newQuotation.created_at = dateObj.toISOString()
+      }
+      // If no date provided, created_at will use database default (NOW())
       
       // Only add tenant_id if we have a valid one (optional)
       if (tenantId && validateTenantId(tenantId).valid) {
@@ -306,14 +354,30 @@ class QuotationsService {
       if (quotationData.status !== undefined) updateData.status = quotationData.status
       if (quotationData.validUntil !== undefined) updateData.valid_until = quotationData.validUntil || null
       if (quotationData.notes !== undefined) updateData.notes = quotationData.notes || null
+      
+      // Handle date update (created_at override)
+      if (quotationData.date) {
+        // Convert YYYY-MM-DD to ISO timestamp (set to midnight UTC)
+        const dateStr = quotationData.date
+        const dateObj = new Date(dateStr + 'T00:00:00.000Z')
+        updateData.created_at = dateObj.toISOString()
+      }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('quotations')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) throw error
 
@@ -471,11 +535,21 @@ class QuotationsService {
         }
       }
 
-      const { error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('quotations')
         .delete()
         .eq('id', id)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
@@ -494,17 +568,27 @@ class QuotationsService {
   async getQuotationsByStatus(status) {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch quotations.')
         return []
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch quotations.')
+        return []
+      }
+
+      let query = supabase
         .from('quotations')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('status', status)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
 

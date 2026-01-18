@@ -2,7 +2,9 @@ import { supabase } from './supabaseClient'
 import customersService from './customersService'
 import quotationsService from './quotationsService'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
+import userManagementService from './userManagementService'
 
 class ContractsService {
   // Generate contract number
@@ -126,6 +128,18 @@ class ContractsService {
         quotationId
       )
       
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create contract.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+      
       const newContract = {
         tenant_id: tenantId,
         contract_number: contractNumber,
@@ -137,10 +151,11 @@ class ContractsService {
         work_type: quotation.workType,
         total_amount: quotation.totalAmount,
         project_name: quotation.projectName || null,
-        work_start_date: workStartDate || null, // Include work_start_date from project
+        start_date: workStartDate || null, // CRITICAL: Use user-selected contract start date from modal, NOT quotation date
         status: 'in_progress',
         notes: `تم إنشاء هذا العقد من العرض ${quotation.quoteNumber}`,
-        created_by: 'user'
+        created_by: 'user',
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       }
       
       // Only include customer_email if it exists and is not empty
@@ -170,20 +185,30 @@ class ContractsService {
     }
   }
 
-  // Get all contracts (filtered by current tenant)
+  // Get all contracts (filtered by current tenant and branch)
   async getContracts() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch contracts.')
         return []
       }
 
-      const { data: contracts, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch contracts.')
+        return []
+      }
+
+      let query = supabase
         .from('contracts')
         .select('*')
         .eq('tenant_id', tenantId)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: contracts, error } = await query.order('created_at', { ascending: false })
       if (error) {
         console.error('[contractsService] Supabase error:', error)
         throw error
@@ -225,12 +250,22 @@ class ContractsService {
         return null
       }
 
-      const { data: contract, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch contract.')
+        return null
+      }
+
+      let query = supabase
         .from('contracts')
         .select('*')
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: contract, error } = await query.single()
 
       if (error) throw error
 
@@ -286,6 +321,18 @@ class ContractsService {
         }, 0)
       }
 
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create contract.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+      
       const newContract = {
         tenant_id: tenantId,
         contract_number: contractNumber,
@@ -303,7 +350,8 @@ class ContractsService {
         project_id: contractData.projectId || null,
         project_name: contractData.projectName || null,
         notes: contractData.notes || null,
-        created_by: contractData.createdBy || 'user'
+        created_by: contractData.createdBy || 'user',
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       }
       
       // Only include customer_email if it exists and is not empty
@@ -451,13 +499,21 @@ class ContractsService {
       if (contractData.notes !== undefined) dbPayload.notes = contractData.notes
 
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('contracts')
         .update(dbPayload)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) {
         console.error('Error updating contract:', error)
@@ -478,8 +534,8 @@ class ContractsService {
     }
   }
 
-  // Delete contract
-  async deleteContract(id) {
+  // Delete contract (3-Layer Security Protocol)
+  async deleteContract(id, password, deletionReason) {
     try {
       if (!id) {
         return {
@@ -499,21 +555,203 @@ class ContractsService {
         }
       }
 
-      // Delete contract items first (cascade should handle this, but being explicit)
+      // 🟢 LAYER 1: AUTHORIZATION - Check user role (Permission Check)
+      const profile = await userManagementService.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const allowedRoles = ['super_admin', 'admin', 'manager', 'owner']
+      
+      if (!userRole || !allowedRoles.includes(userRole)) {
+        return {
+          success: false,
+          error: 'Access Denied: You do not have permission to delete records.',
+          errorCode: 'UNAUTHORIZED'
+        }
+      }
+
+      // Step 1: Get current user and contract info
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user || !user.email) {
+        return {
+          success: false,
+          error: 'Authentication required',
+          errorCode: 'AUTH_REQUIRED'
+        }
+      }
+
+      // 🟡 LAYER 2: AUTHENTICATION - Verify password (Identity Check)
+      if (!password) {
+        return {
+          success: false,
+          error: 'Password is required for deletion',
+          errorCode: 'PASSWORD_REQUIRED'
+        }
+      }
+
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password
+      })
+
+      if (authError) {
+        return {
+          success: false,
+          error: 'Security Alert: Incorrect Password.',
+          errorCode: 'INVALID_PASSWORD'
+        }
+      }
+
+      // Step 3: Get contract info for audit log and financial checks
+      const contract = await this.getContract(id)
+      if (!contract) {
+        return {
+          success: false,
+          error: 'Contract not found',
+          errorCode: 'CONTRACT_NOT_FOUND'
+        }
+      }
+
+      // Step 4: Financial Guard - Check for active financial records (payments)
+      const branchId = branchStore.getBranchId()
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      const { count: paymentsCount, error: paymentsError } = await supabase
+        .from('payments')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
+        .eq('contract_id', id)
+
+      if (paymentsError) {
+        console.error('Error checking payments:', paymentsError)
+      }
+
+      if (paymentsCount && paymentsCount > 0) {
+        return {
+          success: false,
+          error: 'Cannot delete: Active financial records exist for this contract. Please remove all payments first.',
+          errorCode: 'FINANCIAL_RECORDS_EXIST',
+          paymentsCount: paymentsCount
+        }
+      }
+
+      // 🔴 LAYER 3: DOCUMENTATION - Audit Logging (MANDATORY - Abort if fails)
+      if (!deletionReason || deletionReason.trim() === '') {
+        return {
+          success: false,
+          error: 'Deletion reason is required for audit purposes',
+          errorCode: 'REASON_REQUIRED'
+        }
+      }
+
+      const deletionLog = {
+        table_name: 'contracts',
+        record_ref_number: contract.contractNumber || id,
+        record_id: id,
+        deletion_reason: deletionReason.trim(),
+        deleted_by: user.id,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        deleted_data: JSON.stringify(contract) // Store snapshot of deleted record
+      }
+
+      const { error: logError } = await supabase
+        .from('deletion_logs')
+        .insert([deletionLog])
+
+      if (logError) {
+        console.error('Error logging deletion:', logError)
+        return {
+          success: false,
+          error: 'Deletion aborted: Failed to create audit log. Please contact support.',
+          errorCode: 'AUDIT_LOG_FAILED'
+        }
+      }
+
+      // 🏁 EXECUTION - Only after Layers 1, 2, and 3 pass successfully
+      
+      // Step 6A: Find Linked Project (Cascade Cleanup)
+      let linkedProjectId = null
+      let linkedProjectSnapshot = null
+      if (contract.projectId) {
+        // Contract has a project_id - check if project exists and is linked to this contract
+        const { data: linkedProject, error: projectCheckError } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', contract.projectId)
+          .eq('tenant_id', tenantId)
+          .eq('branch_id', branchId)
+          .single()
+
+        if (!projectCheckError && linkedProject) {
+          linkedProjectId = linkedProject.id
+          linkedProjectSnapshot = linkedProject
+          console.log(`[Cascade Delete] Found linked project: ${linkedProjectId} for contract: ${id}`)
+        }
+      }
+
+      // Step 6B: Delete contract items first (cascade should handle this, but being explicit)
       await supabase
         .from('contract_items')
         .delete()
         .eq('contract_id', id)
 
-      const { error } = await supabase
+      // Step 6C: Delete linked project if exists (BEFORE deleting contract to avoid FK issues)
+      if (linkedProjectId && linkedProjectSnapshot) {
+        try {
+          const { error: projectDeleteError } = await supabase
+            .from('projects')
+            .delete()
+            .eq('id', linkedProjectId)
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId)
+
+          if (projectDeleteError) {
+            console.error('Error deleting linked project:', projectDeleteError)
+            // Log error but continue with contract deletion (non-blocking)
+          } else {
+            console.log(`[Cascade Delete] Successfully deleted linked project: ${linkedProjectId}`)
+            
+            // Update audit log deleted_data to include cascade metadata
+            try {
+              const enhancedDeletedData = {
+                ...contract,
+                cascade_metadata: {
+                  linked_project_deleted: true,
+                  project_id: linkedProjectId,
+                  project_snapshot: linkedProjectSnapshot
+                }
+              }
+              await supabase
+                .from('deletion_logs')
+                .update({ deleted_data: JSON.stringify(enhancedDeletedData) })
+                .eq('record_id', id)
+                .eq('table_name', 'contracts')
+            } catch (updateError) {
+              console.error('Error updating audit log with cascade metadata:', updateError)
+              // Non-blocking - log already created with original data
+            }
+          }
+        } catch (cascadeError) {
+          console.error('Error during cascade project deletion:', cascadeError)
+          // Continue with contract deletion even if project deletion fails
+        }
+      }
+
+      // Step 7: Delete contract
+      let query = supabase
         .from('contracts')
         .delete()
         .eq('id', id)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
-      return { success: true }
+      return { success: true, linkedProjectDeleted: linkedProjectId !== null, linkedProjectId: linkedProjectId }
     } catch (error) {
       console.error('Error deleting contract:', error.message)
       return {
@@ -532,11 +770,22 @@ class ContractsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch contracts.')
+        return []
+      }
+
+      let query = supabase
         .from('contracts')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('quotation_id', quotationId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query
 
       if (error) throw error
 
@@ -553,12 +802,22 @@ class ContractsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch contracts.')
+        return []
+      }
+
+      let query = supabase
         .from('contracts')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('status', status)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
 
@@ -577,12 +836,22 @@ class ContractsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch contracts.')
+        return []
+      }
+
+      let query = supabase
         .from('contracts')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
 

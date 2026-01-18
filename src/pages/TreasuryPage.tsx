@@ -36,6 +36,7 @@ import {
 } from '@ant-design/icons';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useBranch } from '../contexts/BranchContext';
+import { useSyncStatus } from '../contexts/SyncStatusContext';
 import { getTranslations } from '../utils/translations';
 import treasuryService from '../services/treasuryService';
 import userManagementService from '../services/userManagementService';
@@ -104,6 +105,7 @@ const formatNumber = (value: number): string => {
 const TreasuryPage: FC = () => {
   const { language } = useLanguage();
   const { branchCurrency, branchId, branchName } = useBranch(); // CRITICAL: Get branchId for strict isolation
+  const { updateStatus } = useSyncStatus();
   const t = getTranslations(language);
 
   const [accounts, setAccounts] = useState<TreasuryAccount[]>([]);
@@ -262,12 +264,14 @@ const TreasuryPage: FC = () => {
   };
 
   const loadAccounts = async (): Promise<void> => {
+    updateStatus('loading', language === 'ar' ? 'جاري التحقق من أرصدة الخزينة...' : 'Checking treasury balances...', branchName || null);
     try {
       // CRITICAL: Strict branch isolation - only fetch accounts for current branch
       if (!branchId) {
         console.warn('⚠️ [TreasuryPage] No branchId, cannot load accounts');
         setAccounts([]);
         setAllAccounts([]);
+        updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
         return;
       }
 
@@ -292,15 +296,29 @@ const TreasuryPage: FC = () => {
           (acc) => acc.accountType !== 'private'
         );
         setAccounts(filteredData);
+        // Update status with filtered count
+        if (filteredData.length === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
+        } else {
+          updateStatus('success', language === 'ar' ? `تم تحميل ${filteredData.length} حساب خزينة نشط` : `Treasury accounts active (${filteredData.length})`, branchName || null);
+        }
         // CRITICAL: Reload transactions after accounts are loaded (for branch filtering)
         await loadTransactions(filters.accountId || null);
       } else {
         setAccounts(branchFilteredData);
+        // Update status with all accounts count
+        if (branchFilteredData.length === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
+        } else {
+          updateStatus('success', language === 'ar' ? `تم تحميل ${branchFilteredData.length} حساب خزينة نشط` : `Treasury accounts active (${branchFilteredData.length})`, branchName || null);
+        }
         // CRITICAL: Reload transactions after accounts are loaded (for branch filtering)
         await loadTransactions(filters.accountId || null);
       }
     } catch (error) {
       console.error('Error loading accounts:', error);
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database';
+      updateStatus('error', errorMsg, branchName || null);
       message.error('Failed to load accounts.');
     }
   };

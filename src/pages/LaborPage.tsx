@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import employeesService from '../services/employeesService'
 import laborGroupsService from '../services/laborGroupsService'
@@ -61,7 +62,8 @@ const { TextArea } = Input
 
 const LaborPage = () => {
   const { language } = useLanguage()
-  const { branchCurrency } = useBranch()
+  const { branchCurrency, branchName } = useBranch()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   
   // Tab state
@@ -153,11 +155,21 @@ const LaborPage = () => {
   // ========== Internal Staff Functions ==========
   const loadEmployees = async () => {
     setEmployeesLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل بيانات الموظفين...' : 'Fetching staff data...', branchName)
     try {
       const data = await employeesService.getEmployees()
-      setEmployees(data || [])
+      const employeesData = data || []
+      setEmployees(employeesData)
+      
+      if (employeesData.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا يوجد موظفين' : 'No workers found', branchName)
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${employeesData.length} موظف` : `Loaded ${employeesData.length} workers`, branchName)
+      }
     } catch (error) {
       console.error('Error loading employees:', error)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
       message.error(t.labor.failedToLoadEmployees)
     } finally {
       setEmployeesLoading(false)
@@ -230,11 +242,21 @@ const LaborPage = () => {
   // ========== External Labor Groups Functions ==========
   const loadLaborGroups = async () => {
     setLaborGroupsLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل بيانات العمال...' : 'Fetching staff data...', branchName)
     try {
       const data = await laborGroupsService.getLaborGroups()
-      setLaborGroups(data || [])
+      const groupsData = data || []
+      setLaborGroups(groupsData)
+      
+      if (groupsData.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا يوجد عمال' : 'No workers found', branchName)
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${groupsData.length} مجموعة عمل` : `Loaded ${groupsData.length} labor groups`, branchName)
+      }
     } catch (error) {
       console.error('Error loading labor groups:', error)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
       message.error(t.labor.failedToLoadGroups)
     } finally {
       setLaborGroupsLoading(false)

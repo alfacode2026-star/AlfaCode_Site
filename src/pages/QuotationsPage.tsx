@@ -10,6 +10,7 @@ import userManagementService from '../services/userManagementService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
 import {
@@ -27,13 +28,16 @@ import {
   Statistic,
   Popconfirm,
   message,
+  notification,
   Descriptions,
   Divider,
   InputNumber,
   AutoComplete,
   Checkbox,
   Collapse,
-  Alert
+  Alert,
+  Spin,
+  Empty
 } from 'antd'
 import {
   SearchOutlined,
@@ -55,7 +59,8 @@ const { Option } = Select
 const QuotationsPage = () => {
   const { currentTenantId } = useTenant()
   const { language } = useLanguage()
-  const { branchCurrency } = useBranch()
+  const { branchCurrency, branchId, branchName } = useBranch() // Get branchId for filtering
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const [quotations, setQuotations] = useState([])
   const [loading, setLoading] = useState(true)
@@ -77,7 +82,7 @@ const QuotationsPage = () => {
   useEffect(() => {
     loadQuotations()
     loadCustomers()
-  }, [])
+  }, [branchId]) // Reload quotations when branch changes
 
   const loadCustomers = async () => {
     try {
@@ -91,12 +96,26 @@ const QuotationsPage = () => {
 
   const loadQuotations = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل العروض...' : 'Loading quotations...', branchName)
     try {
-      const data = await quotationsService.getQuotations()
-      setQuotations(data.map(q => ({ ...q, key: q.id || q.updatedAt || `quote-${Date.now()}` })))
+      // Pass branchId for strict branch isolation
+      const data = await quotationsService.getQuotations(branchId)
+      const mappedQuotations = data.map(q => ({ ...q, key: q.id || q.updatedAt || `quote-${Date.now()}` }))
+      setQuotations(mappedQuotations)
+      
+      if (mappedQuotations.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا توجد عروض' : 'No quotations found', branchName)
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${mappedQuotations.length} عرض` : `Loaded ${mappedQuotations.length} quotations`, branchName)
+      }
     } catch (error) {
       console.error('Error loading quotations:', error)
-      message.error(t.quotations.failedToLoad)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
+      notification.error({
+        message: language === 'ar' ? 'خطأ في الاتصال' : 'Connection error',
+        description: errorMsg
+      })
       setQuotations([])
     } finally {
       setLoading(false)
@@ -219,6 +238,14 @@ const QuotationsPage = () => {
       render: (quoteNumber) => <span style={{ fontWeight: 500 }}>{quoteNumber}</span>
     },
     {
+      title: language === 'ar' ? 'تاريخ العرض' : 'Quotation Date',
+      dataIndex: 'createdAt',
+      key: 'date',
+      render: (date) => (
+        <span>{date ? moment(date).format('DD-MMM-YYYY') : '-'}</span>
+      )
+    },
+    {
       title: t.quotations.documentType || 'Document Type',
       dataIndex: 'documentType',
       key: 'documentType',
@@ -275,7 +302,7 @@ const QuotationsPage = () => {
       key: 'totalAmount',
       render: (amount) => (
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-          {amount?.toLocaleString() || 0} {t.common.sar}
+          {amount?.toLocaleString() || 0} {branchCurrency || 'SAR'}
         </span>
       )
     },
@@ -305,115 +332,89 @@ const QuotationsPage = () => {
           </Button>
           {record.status !== 'accepted' && record.status !== 'converted' && (
             <>
-              <Popconfirm
-                title={t.quotations.approveQuotation}
-                description={t.quotations.approveQuotationDescription}
-                onConfirm={async () => {
-                  try {
-                    // Use 'converted' status - this will trigger Project and Contract creation in one transaction
-                    const result = await quotationsService.updateQuotation(record.id, {
-                      status: 'converted'
-                    })
-                    if (result.success) {
-                      if (result.projectCreated && result.contractCreated) {
-                        message.success(t.quotations.quotationApprovedAndConverted)
-                      } else if (result.projectCreated) {
-                        message.success(t.quotations.quotationApprovedAndProjectCreated)
-                        if (result.contractError) {
-                          message.warning(`${t.quotations.projectCreatedButContractFailed}: ${result.contractError}`)
-                        }
-                      } else {
-                        message.success(t.quotations.quotationApproved)
-                      }
-                      loadQuotations()
-                    } else {
-                      message.error(result.error || t.quotations.failedToApprove)
-                    }
-                  } catch (error) {
-                    console.error('Error approving quotation:', error)
-                    message.error(t.quotations.errorApprovingQuotation)
-                  }
+              <Button
+                type="link"
+                icon={<CheckCircleOutlined />}
+                style={{ color: '#52c41a' }}
+                title={language === 'ar' ? 'اعتماد وتحويل لمشروع' : 'Approve and Create Project'}
+                onClick={() => {
+                  setSelectedQuotation(record)
+                  convertForm.resetFields()
+                  setConvertModalVisible(true)
                 }}
-                okText={t.quotations.yes}
-                cancelText={t.quotations.no}
               >
-                <Button
-                  type="link"
-                  icon={<CheckCircleOutlined />}
-                  style={{ color: '#52c41a' }}
-                >
-                  {t.quotations.approve}
-                </Button>
-              </Popconfirm>
+                {t.quotations.approve}
+              </Button>
               <Button
                 type="link"
                 icon={<EditOutlined />}
                 onClick={async () => {
-                setSelectedQuotation(record)
-                // Try to find the customer by ID or name to set the display value
-                let customer = null
-                if (record.customerId) {
-                  try {
-                    customer = await customersService.getCustomer(record.customerId)
-                  } catch (error) {
-                    console.error('Error loading customer:', error)
-                  }
-                }
-                if (!customer && record.customerName) {
-                  // Try to find by name from the loaded customers list
-                  customer = customers.find(c => c.name === record.customerName)
-                }
-                
-                setSelectedCustomer(customer)
-                // Parse work_scopes if it exists
-                const workScopes = record.workScopes || []
-                // Group work scopes by category
-                const categoryMap = {}
-                const customScopes = []
-                
-                workScopes.forEach(scope => {
-                  let found = false
-                  for (const [catKey, catData] of Object.entries(allWorkScopeCategories)) {
-                    if (catData.items.some(item => item.value === scope)) {
-                      if (!categoryMap[catKey]) {
-                        categoryMap[catKey] = []
-                      }
-                      categoryMap[catKey].push(scope)
-                      found = true
-                      break
+                  setSelectedQuotation(record)
+                  // Try to find the customer by ID or name to set the display value
+                  let customer = null
+                  if (record.customerId) {
+                    try {
+                      customer = await customersService.getCustomer(record.customerId)
+                    } catch (error) {
+                      console.error('Error loading customer:', error)
                     }
                   }
-                  if (!found) {
-                    customScopes.push(scope)
+                  if (!customer && record.customerName) {
+                    // Try to find by name from the loaded customers list
+                    customer = customers.find(c => c.name === record.customerName)
                   }
-                })
-                
-                // Convert to array format
-                const categoriesArray = Object.keys(categoryMap).map(catKey => ({
-                  category: catKey,
-                  selectedItems: categoryMap[catKey]
-                }))
-                
-                setWorkScopeCategories(categoriesArray)
-                setCustomWorkScopes(customScopes)
-                
-                form.setFieldsValue({
-                  customerSearch: customer?.name || record.customerName || '',
-                  customerName: record.customerName,
-                  customerPhone: record.customerPhone,
-                  customerEmail: record.customerEmail,
-                  projectName: record.projectName || '',
-                  documentType: record.documentType || 'original',
-                  totalAmount: record.totalAmount,
-                  status: record.status,
-                  validUntil: record.validUntil ? moment(record.validUntil) : null,
-                  notes: record.notes
-                })
-                setIsModalVisible(true)
-              }}
-            >
-              {t.quotations.editQuotation || t.common.edit}
-            </Button>
+                  
+                  setSelectedCustomer(customer)
+                  // Parse work_scopes if it exists
+                  const workScopes = record.workScopes || []
+                  // Group work scopes by category
+                  const categoryMap = {}
+                  const customScopes = []
+                  
+                  workScopes.forEach(scope => {
+                    let found = false
+                    for (const [catKey, catData] of Object.entries(allWorkScopeCategories)) {
+                      if (catData.items.some(item => item.value === scope)) {
+                        if (!categoryMap[catKey]) {
+                          categoryMap[catKey] = []
+                        }
+                        categoryMap[catKey].push(scope)
+                        found = true
+                        break
+                      }
+                    }
+                    if (!found) {
+                      customScopes.push(scope)
+                    }
+                  })
+                  
+                  // Convert to array format
+                  const categoriesArray = Object.keys(categoryMap).map(catKey => ({
+                    category: catKey,
+                    selectedItems: categoryMap[catKey]
+                  }))
+                  
+                  setWorkScopeCategories(categoriesArray)
+                  setCustomWorkScopes(customScopes)
+                  
+                  form.setFieldsValue({
+                    customerSearch: customer?.name || record.customerName || '',
+                    customerName: record.customerName,
+                    customerPhone: record.customerPhone,
+                    customerEmail: record.customerEmail,
+                    projectName: record.projectName || '',
+                    documentType: record.documentType || 'original',
+                    totalAmount: record.totalAmount,
+                    status: record.status,
+                    date: record.createdAt ? moment(record.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'), // Use createdAt as quotation date
+                    validUntil: record.validUntil ? moment(record.validUntil) : null,
+                    notes: record.notes
+                  })
+                  setIsModalVisible(true)
+                }}
+              >
+                {t.quotations.editQuotation || t.common.edit}
+              </Button>
             </>
           )}
           <Popconfirm
@@ -443,7 +444,7 @@ const QuotationsPage = () => {
         </Space>
       )
     }
-  ], [t, language, statusLabels])
+  ], [t, language, statusLabels, branchCurrency])
 
   const filteredQuotations = quotations.filter(quotation => {
     const matchesSearch =
@@ -605,6 +606,7 @@ const QuotationsPage = () => {
         workScopes: allWorkScopes,
         totalAmount: values.totalAmount || 0,
         status: values.status || 'draft',
+        date: values.date ? moment(values.date).format('YYYY-MM-DD') : null, // Pass quotation date
         validUntil: values.validUntil ? moment(values.validUntil).format('YYYY-MM-DD') : null,
         notes: values.notes || ''
       }
@@ -660,6 +662,8 @@ const QuotationsPage = () => {
     setCustomWorkScopes([])
     setCategorySelectValue(null)
     form.resetFields()
+    // Set default date to today (YYYY-MM-DD format for native date input)
+    form.setFieldsValue({ date: moment().format('YYYY-MM-DD') })
     setIsModalVisible(true)
   }
 
@@ -812,13 +816,22 @@ const QuotationsPage = () => {
       </Card>
 
       <Card>
-        <Table
-          columns={columns}
-          dataSource={filteredQuotations}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          rowKey={(record) => record.id || record.updatedAt || `quote-${Date.now()}`}
-        />
+        <Spin spinning={loading}>
+          <Table
+            columns={columns}
+            dataSource={filteredQuotations}
+            loading={false}
+            pagination={{ pageSize: 10 }}
+            rowKey={(record) => record.id || record.updatedAt || `quote-${Date.now()}`}
+            locale={{
+              emptyText: (
+                <Empty
+                  description={language === 'ar' ? 'لا توجد سجلات لهذا الفرع' : 'No records found for this branch'}
+                />
+              )
+            }}
+          />
+        </Spin>
       </Card>
 
       <Modal
@@ -902,6 +915,52 @@ const QuotationsPage = () => {
                 <Select placeholder={t.quotations.selectDocumentType}>
                   <Option value="original">{t.contracts.originalContract}</Option>
                   <Option value="addendum">{t.contracts.amendment}</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="date"
+                label={t.quotations?.date || 'Quotation Date'}
+                rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار تاريخ العرض' : 'Please select quotation date' }]}
+                initialValue={moment().format('YYYY-MM-DD')}
+                getValueFromEvent={(e) => e.target.value || moment().format('YYYY-MM-DD')}
+                normalize={(value) => {
+                  // Normalize to YYYY-MM-DD string format for native date input
+                  if (!value) return moment().format('YYYY-MM-DD')
+                  if (moment.isMoment(value)) return value.format('YYYY-MM-DD')
+                  if (typeof value === 'string') {
+                    // If it's already in YYYY-MM-DD format, return as-is
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+                    // Otherwise, try to parse it
+                    const parsed = moment(value)
+                    return parsed.isValid() ? parsed.format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')
+                  }
+                  return moment(value).format('YYYY-MM-DD')
+                }}
+              >
+                <input
+                  type="date"
+                  className="ant-input"
+                  style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="status"
+                label={t.quotations?.statusLabel || t.quotations?.status || 'Status'}
+                initialValue="draft"
+              >
+                <Select>
+                  <Option value="draft">{t.quotations.draft}</Option>
+                  <Option value="sent">{t.quotations.sent}</Option>
+                  <Option value="approved">{t.quotations.accepted}</Option>
+                  <Option value="rejected">{t.quotations.rejected}</Option>
+                  <Option value="converted">{t.quotations.converted}</Option>
                 </Select>
               </Form.Item>
             </Col>
@@ -1032,33 +1091,18 @@ const QuotationsPage = () => {
             {t.quotations.addCustomWork}
           </Button>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="totalAmount"
-                label={t.quotations?.totalAmountLabelForm || t.quotations?.totalAmount || 'Total Amount'}
-                rules={[{ required: true, message: t.quotations?.totalAmountRequired || 'Please enter total amount' }]}
-              >
-                <InputNumber
-                  min={0}
-                  style={{ width: '100%' }}
-                  placeholder="0"
-                  formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="status" label={t.quotations?.statusLabel || t.quotations?.status || 'Status'} initialValue="draft">
-                <Select>
-                  <Option value="draft">{t.quotations.draft}</Option>
-                  <Option value="sent">{t.quotations.sent}</Option>
-                  <Option value="approved">{t.quotations.accepted}</Option>
-                  <Option value="rejected">{t.quotations.rejected}</Option>
-                  <Option value="converted">{t.quotations.converted}</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="totalAmount"
+            label={t.quotations?.totalAmountLabelForm || t.quotations?.totalAmount || 'Total Amount'}
+            rules={[{ required: true, message: t.quotations?.totalAmountRequired || 'Please enter total amount' }]}
+          >
+            <InputNumber
+              min={0}
+              style={{ width: '100%' }}
+              placeholder="0"
+              formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+            />
+          </Form.Item>
 
           <Form.Item 
             name="validUntil" 
@@ -1173,9 +1217,9 @@ const QuotationsPage = () => {
         )}
       </Modal>
 
-      {/* Convert to Contract Modal */}
+      {/* Approve and Create Project Modal */}
       <Modal
-        title={`${t.quotations.convertToContractTitle || 'Convert to Contract'} ${selectedQuotation?.quoteNumber}`}
+        title={language === 'ar' ? `اعتماد وتحويل لمشروع - ${selectedQuotation?.quoteNumber}` : `Approve and Create Project - ${selectedQuotation?.quoteNumber}`}
         open={convertModalVisible}
         onOk={async () => {
           try {
@@ -1240,7 +1284,7 @@ const QuotationsPage = () => {
             // Format work start date
             const workStartDate = values.workStartDate ? moment(values.workStartDate).format('YYYY-MM-DD') : null
             
-            // Create project with work start date and appropriate status
+            // Create project with work start date, branch_id, and appropriate status
             const projectData = {
               name: updatedQuotation.projectName || `Project from ${updatedQuotation.quoteNumber}`,
               clientId: customerIdToUse || updatedQuotation.customerId,
@@ -1249,7 +1293,8 @@ const QuotationsPage = () => {
               quotationId: updatedQuotation.id,
               status: projectStatus,
               completionPercentage: 0,
-              workStartDate: workStartDate
+              workStartDate: workStartDate,
+              branchId: branchId // Pass branch_id to ensure project is linked to correct branch
             }
             
             const projectResult = await projectsService.addProject(projectData)
@@ -1303,7 +1348,7 @@ const QuotationsPage = () => {
         width={600}
       >
         <Alert
-          message={t.quotations?.convertToProjectConfirmation || 'Do you want to convert this to a project? Please select Work Start Date before proceeding.'}
+          message={language === 'ar' ? 'سيتم إنشاء مشروع وعقد جديد من هذا العرض. يرجى اختيار تاريخ بدء العمل قبل المتابعة.' : 'This quotation will be converted to a project and contract. Please select Contract Start Date before proceeding.'}
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
@@ -1323,8 +1368,8 @@ const QuotationsPage = () => {
           
           <Form.Item
             name="workStartDate"
-            label={t.quotations?.workStartDateLabel || 'Work Start Date'}
-            rules={[{ required: true, message: t.quotations?.workStartDateRequired || 'Please select work start date' }]}
+            label={language === 'ar' ? 'تاريخ بدء العقد' : 'Contract Start Date'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار تاريخ بدء العقد' : 'Please select contract start date' }]}
           >
             <input
               type="date"
@@ -1344,7 +1389,7 @@ const QuotationsPage = () => {
             {selectedQuotation?.workScopes && selectedQuotation.workScopes.length > 0 && (
               <p style={{ margin: '4px 0 0 0' }}>{t.quotations.workScope}: {translateWorkScopes(selectedQuotation.workScopes.slice(0, 3), language).join(', ')}{selectedQuotation.workScopes.length > 3 ? ` ${t.common.and || 'and'} ${selectedQuotation.workScopes.length - 3} ${t.common.more || 'more'}...` : ''}</p>
             )}
-            <p style={{ margin: '4px 0 0 0' }}>{t.quotations.totalAmount}: {selectedQuotation?.totalAmount?.toLocaleString()} {t.common.sar}</p>
+            <p style={{ margin: '4px 0 0 0' }}>{t.quotations.totalAmount}: {selectedQuotation?.totalAmount?.toLocaleString()} {selectedQuotation?.currency || branchCurrency || 'SAR'}</p>
           </div>
         </Form>
       </Modal>

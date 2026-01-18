@@ -2,7 +2,9 @@ import { supabase } from './supabaseClient'
 import inventoryService from './inventoryService'
 import customersService from './customersService'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
+import userManagementService from './userManagementService'
 
 class OrdersService {
   // Generate PO number in format PO-YYYY-XXXX
@@ -20,12 +22,24 @@ class OrdersService {
       const year = new Date().getFullYear()
       const prefix = `PO-${year}-`
 
-      // Get all orders for this tenant in the current year
-      const { data: orders, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return fallback if branchId is null (for PO number generation)
+      if (!branchId) {
+        // Fallback to timestamp-based when no branch ID
+        const timestamp = Date.now().toString().slice(-4)
+        return `${prefix}${timestamp}`
+      }
+      
+      // Get all orders for this tenant (and branch) in the current year
+      let query = supabase
         .from('orders')
         .select('id')
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .like('id', `${prefix}%`)
+
+      const { data: orders, error } = await query
 
       if (error) {
         console.error('Error fetching orders for PO number generation:', error)
@@ -60,20 +74,30 @@ class OrdersService {
     }
   }
 
-  // Get all orders with their items (filtered by current tenant)
+  // Get all orders with their items (filtered by current tenant and branch)
   async getOrders() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch orders.')
         return []
       }
 
-      const { data: orders, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch orders.')
+        return []
+      }
+
+      let query = supabase
         .from('orders')
         .select('*')
-        .eq('tenant_id', tenantId) // Filter by tenant
-        .order('created_at', { ascending: false })
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: orders, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
 
@@ -102,23 +126,33 @@ class OrdersService {
     }
   }
 
-  // Get order by ID (with tenant check)
+  // Get order by ID (with tenant and branch check)
   async getOrder(id) {
     try {
       if (!id) return null
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch order.')
         return null
       }
 
-      const { data: order, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch order.')
+        return null
+      }
+
+      let query = supabase
         .from('orders')
         .select('*')
         .eq('id', id)
-        .eq('tenant_id', tenantId) // Filter by tenant
-        .single()
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: order, error } = await query.single()
 
       if (error) throw error
 
@@ -189,24 +223,33 @@ class OrdersService {
         }
       }
 
+      const branchId = branchStore.getBranchId()
+      
       // Check if order ID already exists (prevent duplicate key errors)
       if (orderId) {
-        const { data: existingOrder, error: checkError } = await supabase
-          .from('orders')
-          .select('id')
-          .eq('id', orderId)
-          .eq('tenant_id', tenantId)
-          .maybeSingle()
+        // MANDATORY BRANCH ISOLATION: Return fallback if branchId is null (for duplicate check)
+        if (!branchId) {
+          // If no branch ID, skip duplicate check and proceed
+        } else {
+          let checkQuery = supabase
+            .from('orders')
+            .select('id')
+            .eq('id', orderId)
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
-        if (checkError && checkError.code !== 'PGRST116') {
-          // PGRST116 = no rows returned, which is fine
-          console.error('Error checking existing order:', checkError)
-        }
+          const { data: existingOrder, error: checkError } = await checkQuery.maybeSingle()
 
-        if (existingOrder) {
-          // Generate a new ID if the provided one exists
-          orderId = await this.generateOrderNumber()
-          console.warn(`Order ID ${orderData.id} already exists, using new ID: ${orderId}`)
+          if (checkError && checkError.code !== 'PGRST116') {
+            // PGRST116 = no rows returned, which is fine
+            console.error('Error checking existing order:', checkError)
+          }
+
+          if (existingOrder) {
+            // Generate a new ID if the provided one exists
+            orderId = await this.generateOrderNumber()
+            console.warn(`Order ID ${orderData.id} already exists, using new ID: ${orderId}`)
+          }
         }
       }
 
@@ -226,7 +269,7 @@ class OrdersService {
       // Prepare order data
       const newOrder = {
         id: orderId,
-        tenant_id: tenantId, // Include tenant_id
+        tenant_id: tenantId,
         customer_id: customerId,
         customer_name: orderData.customerName,
         customer_phone: orderData.customerPhone,
@@ -247,6 +290,16 @@ class OrdersService {
         created_by: orderData.createdBy || 'user',
         currency: currency // Currency from treasury account
       }
+      
+      // MANDATORY BRANCH INJECTION: Explicitly set from branchStore (ignore frontend)
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create order.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+      newOrder.branch_id = branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
 
       // Prepare order items
       const orderItems = orderData.items.map(item => ({
@@ -396,13 +449,21 @@ class OrdersService {
         }
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('orders')
         .update(updateData)
         .eq('id', id)
-        .eq('tenant_id', tenantId) // Ensure tenant match
-        .select()
-        .single()
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) throw error
 
@@ -423,8 +484,8 @@ class OrdersService {
     }
   }
 
-  // Delete order with inventory restoration (with tenant check)
-  async deleteOrder(id) {
+  // Delete order (3-Layer Security Protocol)
+  async deleteOrder(id, password, deletionReason) {
     try {
       if (!id) {
         return {
@@ -444,7 +505,59 @@ class OrdersService {
         }
       }
 
-      // Get order to restore inventory
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      // 🟢 LAYER 1: AUTHORIZATION - Check user role (Permission Check)
+      const profile = await userManagementService.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const allowedRoles = ['super_admin', 'admin', 'manager', 'owner']
+      
+      if (!userRole || !allowedRoles.includes(userRole)) {
+        return {
+          success: false,
+          error: 'Access Denied: You do not have permission to delete records.',
+          errorCode: 'UNAUTHORIZED'
+        }
+      }
+
+      // Step 1: Get current user and order info
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user || !user.email) {
+        return {
+          success: false,
+          error: 'Authentication required',
+          errorCode: 'AUTH_REQUIRED'
+        }
+      }
+
+      // 🟡 LAYER 2: AUTHENTICATION - Verify password (Identity Check)
+      if (!password) {
+        return {
+          success: false,
+          error: 'Password is required for deletion',
+          errorCode: 'PASSWORD_REQUIRED'
+        }
+      }
+
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password
+      })
+
+      if (authError) {
+        return {
+          success: false,
+          error: 'Security Alert: Incorrect Password.',
+          errorCode: 'INVALID_PASSWORD'
+        }
+      }
+
+      // Step 3: Get order to restore inventory and for audit log
       const order = await this.getOrder(id)
       if (!order) {
         return {
@@ -454,6 +567,40 @@ class OrdersService {
         }
       }
 
+      // 🔴 LAYER 3: DOCUMENTATION - Audit Logging (MANDATORY - Abort if fails)
+      if (!deletionReason || deletionReason.trim() === '') {
+        return {
+          success: false,
+          error: 'Deletion reason is required for audit purposes',
+          errorCode: 'REASON_REQUIRED'
+        }
+      }
+
+      const deletionLog = {
+        table_name: 'orders',
+        record_ref_number: order.orderNumber || `PO-${id}`,
+        record_id: id,
+        deletion_reason: deletionReason.trim(),
+        deleted_by: user.id,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        deleted_data: JSON.stringify(order) // Store snapshot of deleted record
+      }
+
+      const { error: logError } = await supabase
+        .from('deletion_logs')
+        .insert([deletionLog])
+
+      if (logError) {
+        console.error('Error logging deletion:', logError)
+        return {
+          success: false,
+          error: 'Deletion aborted: Failed to create audit log. Please contact support.',
+          errorCode: 'AUDIT_LOG_FAILED'
+        }
+      }
+
+      // 🏁 EXECUTION - Only after Layers 1, 2, and 3 pass successfully
       // Restore inventory if order is not cancelled (only for items with productId)
       if (order.status !== 'cancelled') {
         for (const item of order.items) {
@@ -465,11 +612,14 @@ class OrdersService {
       }
 
       // Delete order (cascade will delete order_items)
-      const { error } = await supabase
+      let query = supabase
         .from('orders')
         .delete()
         .eq('id', id)
-        .eq('tenant_id', tenantId) // Ensure tenant match
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
@@ -484,21 +634,31 @@ class OrdersService {
     }
   }
 
-  // Get orders by status (with tenant filter)
+  // Get orders by status (with tenant and branch filter)
   async getOrdersByStatus(status) {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch orders.')
         return []
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch orders.')
+        return []
+      }
+
+      let query = supabase
         .from('orders')
         .select('*')
-        .eq('tenant_id', tenantId) // Filter by tenant
+        .eq('tenant_id', tenantId)
         .eq('status', status)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
 
@@ -521,21 +681,31 @@ class OrdersService {
     }
   }
 
-  // Get orders by customer (with tenant filter)
+  // Get orders by customer (with tenant and branch filter)
   async getOrdersByCustomer(customerId) {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch orders.')
         return []
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch orders.')
+        return []
+      }
+
+      let query = supabase
         .from('orders')
         .select('*')
-        .eq('tenant_id', tenantId) // Filter by tenant
+        .eq('tenant_id', tenantId)
         .eq('customer_id', customerId)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
 
@@ -558,7 +728,7 @@ class OrdersService {
     }
   }
 
-  // Get orders by project (with tenant filter)
+  // Get orders by project (with tenant and branch filter)
   async getOrdersByProject(projectId) {
     try {
       if (!projectId) {
@@ -567,17 +737,27 @@ class OrdersService {
       }
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch orders.')
         return []
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch orders.')
+        return []
+      }
+
+      let query = supabase
         .from('orders')
         .select('*')
-        .eq('tenant_id', tenantId) // Filter by tenant
+        .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('created_at', { ascending: false })
 
       if (error) throw error
 
@@ -637,11 +817,22 @@ class OrdersService {
         return {}
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return empty object if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch revenue data.')
+        return {}
+      }
+
+      let query = supabase
         .from('orders')
         .select('total, created_at, status')
-        .eq('tenant_id', tenantId) // Filter by tenant
+        .eq('tenant_id', tenantId)
         .eq('status', 'completed')
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query
 
       if (error) throw error
 

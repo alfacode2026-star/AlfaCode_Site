@@ -1,6 +1,8 @@
 import { supabase } from './supabaseClient';
 import tenantStore from './tenantStore';
+import branchStore from './branchStore';
 import { validateTenantId } from '../utils/tenantValidation';
+import userManagementService from './userManagementService';
 
 class InventoryService {
   /**
@@ -105,11 +107,19 @@ class InventoryService {
       return false;
     }
 
+    const branchId = branchStore.getBranchId()
+    
+    // MANDATORY BRANCH ISOLATION: Return false if branchId is null
+    if (!branchId) {
+      return false
+    }
+    
     let query = supabase
       .from('products')
       .select('id')
       .eq('tenant_id', tenantId)
-      .eq('sku', sku);
+      .eq('sku', sku)
+      .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
     if (excludeProductId) {
       query = query.neq('id', excludeProductId);
@@ -135,11 +145,21 @@ class InventoryService {
       }
 
       // Supabase يرجع البيانات مرتبة حسب الأحدث
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch products.')
+        return []
+      }
+      
+      let query = supabase
         .from('products')
         .select('*')
-        .eq('tenant_id', tenantId) // Filter by tenant
-        .order('createdAt', { ascending: false });
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('createdAt', { ascending: false });
 
       if (error) throw error;
       return data || [];
@@ -160,12 +180,22 @@ class InventoryService {
         return null;
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch product.')
+        return null
+      }
+      
+      let query = supabase
         .from('products')
         .select('*')
         .eq('id', id)
-        .eq('tenant_id', tenantId) // Filter by tenant
-        .single();
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.single();
 
       if (error) throw error;
       return data;
@@ -236,11 +266,23 @@ class InventoryService {
       // نستخدم Timestamp لضمان رقم فريد مثل: PROD-17099999
       const generatedId = productData.id || `PROD-${Date.now()}`;
 
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
+
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create product.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
       const newProduct = {
         ...productData,
         id: generatedId, // <--- هنا كان النقص
         sku: sku, // Use generated or provided SKU
-        tenant_id: tenantId, // Include tenant_id
+        tenant_id: tenantId,
         purchasePrice: parseFloat(productData.purchasePrice) || 0,
         sellingPrice: parseFloat(productData.sellingPrice) || 0,
         quantity: parseInt(productData.quantity) || 0,
@@ -248,7 +290,8 @@ class InventoryService {
         maxQuantity: parseInt(productData.maxQuantity) || 0,
         lastUpdated: new Date().toISOString(),
         createdAt: new Date().toISOString(),
-        _version: 1
+        _version: 1,
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       };
 
       const { data, error } = await supabase
@@ -340,16 +383,24 @@ class InventoryService {
         }
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('products')
         .update({
           ...updates,
           lastUpdated: new Date().toISOString()
         })
         .eq('id', id)
-        .eq('tenant_id', tenantId) // Ensure tenant match
-        .select()
-        .single();
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single();
 
       if (error) {
         // Handle duplicate SKU constraint violation
@@ -401,8 +452,8 @@ class InventoryService {
     }
   }
 
-  // حذف منتج (with tenant check)
-  async deleteProduct(id) {
+  // Delete product (3-Layer Security Protocol)
+  async deleteProduct(id, password, deletionReason) {
     try {
       if (!id) {
         return {
@@ -421,11 +472,118 @@ class InventoryService {
         };
       }
 
-      const { error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      // 🟢 LAYER 1: AUTHORIZATION - Check user role (Permission Check)
+      const profile = await userManagementService.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const allowedRoles = ['super_admin', 'admin', 'manager', 'owner']
+      
+      if (!userRole || !allowedRoles.includes(userRole)) {
+        return {
+          success: false,
+          error: 'Access Denied: You do not have permission to delete records.',
+          errorCode: 'UNAUTHORIZED'
+        }
+      }
+
+      // Step 1: Get current user and product info
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user || !user.email) {
+        return {
+          success: false,
+          error: 'Authentication required',
+          errorCode: 'AUTH_REQUIRED'
+        }
+      }
+
+      // 🟡 LAYER 2: AUTHENTICATION - Verify password (Identity Check)
+      if (!password) {
+        return {
+          success: false,
+          error: 'Password is required for deletion',
+          errorCode: 'PASSWORD_REQUIRED'
+        }
+      }
+
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password
+      })
+
+      if (authError) {
+        return {
+          success: false,
+          error: 'Security Alert: Incorrect Password.',
+          errorCode: 'INVALID_PASSWORD'
+        }
+      }
+
+      // Step 3: Get product info for audit log
+      // Get product details from database
+      const { data: product, error: productError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
+        .single()
+
+      if (productError || !product) {
+        return {
+          success: false,
+          error: 'Product not found',
+          errorCode: 'PRODUCT_NOT_FOUND'
+        }
+      }
+
+      // 🔴 LAYER 3: DOCUMENTATION - Audit Logging (MANDATORY - Abort if fails)
+      if (!deletionReason || deletionReason.trim() === '') {
+        return {
+          success: false,
+          error: 'Deletion reason is required for audit purposes',
+          errorCode: 'REASON_REQUIRED'
+        }
+      }
+
+      const deletionLog = {
+        table_name: 'products',
+        record_ref_number: product.name || product.sku || id,
+        record_id: id,
+        deletion_reason: deletionReason.trim(),
+        deleted_by: user.id,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        deleted_data: JSON.stringify(product) // Store snapshot of deleted record
+      }
+
+      const { error: logError } = await supabase
+        .from('deletion_logs')
+        .insert([deletionLog])
+
+      if (logError) {
+        console.error('Error logging deletion:', logError)
+        return {
+          success: false,
+          error: 'Deletion aborted: Failed to create audit log. Please contact support.',
+          errorCode: 'AUDIT_LOG_FAILED'
+        }
+      }
+
+      // 🏁 EXECUTION - Only after Layers 1, 2, and 3 pass successfully
+      let deleteQuery = supabase
         .from('products')
         .delete()
         .eq('id', id)
-        .eq('tenant_id', tenantId); // Ensure tenant match
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await deleteQuery;
 
       if (error) throw error;
       return { success: true };
@@ -446,11 +604,22 @@ class InventoryService {
         return [];
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot search products.')
+        return []
+      }
+
+      let searchQuery = supabase
         .from('products')
         .select('*')
-        .eq('tenant_id', tenantId) // Filter by tenant
-        .or(`name.ilike.%${query}%,sku.ilike.%${query}%`); // ilike تعني بحث غير حساس لحالة الأحرف
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+        .or(`name.ilike.%${query}%,sku.ilike.%${query}%`) // ilike تعني بحث غير حساس لحالة الأحرف
+
+      const { data, error } = await searchQuery;
 
       if (error) throw error;
       return data || [];

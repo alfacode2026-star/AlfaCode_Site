@@ -17,9 +17,13 @@ import {
   InputNumber,
   Popconfirm,
   message,
+  notification,
   Tabs,
   Progress,
   Tooltip,
+  Spin,
+  Empty,
+  Alert
 } from 'antd'
 import {
   SearchOutlined,
@@ -35,12 +39,18 @@ import {
 } from '@ant-design/icons'
 import inventoryService from '../services/inventoryService'
 import { useTenant } from '../contexts/TenantContext'
+import { useBranch } from '../contexts/BranchContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 
 const { Option } = Select
 // const { TabPane } = Tabs
 
 const InventoryPage = () => {
   const { industryType } = useTenant()
+  const { branchId, branchName } = useBranch()
+  const { language } = useLanguage()
+  const { updateStatus } = useSyncStatus()
   const isEngineering = industryType === 'engineering'
   const isRetail = industryType === 'retail'
   // State
@@ -54,13 +64,14 @@ const InventoryPage = () => {
   const [form] = Form.useForm()
   const [activeTab, setActiveTab] = useState('products')
 
-  // Load products on component mount
+  // Load products on component mount and when branch changes
   useEffect(() => {
     loadProducts()
-  }, [])
+  }, [branchId])
 
   const loadProducts = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل المنتجات...' : 'Loading products...', branchName)
     try {
       const data = await inventoryService.getProducts();
       
@@ -78,13 +89,25 @@ const InventoryPage = () => {
             setLowStockAlerts(Array.isArray(lowStock) ? lowStock : [])
         } catch (e) { console.warn('Low stock alerts not ready') }
 
+        // Update sync status
+        if (data.length === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد منتجات' : 'No products found', branchName)
+        } else {
+          updateStatus('success', language === 'ar' ? `تم تحميل ${data.length} منتج` : `Loaded ${data.length} products`, branchName)
+        }
       } else {
         setProducts([])
+        updateStatus('empty', language === 'ar' ? 'لا توجد منتجات' : 'No products found', branchName)
       }
       
     } catch (error) {
       console.error('Error loading products:', error)
-      message.error('فشل في تحميل بيانات المنتجات')
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
+      notification.error({
+        message: language === 'ar' ? 'خطأ في الاتصال' : 'Connection error',
+        description: errorMsg
+      })
       setProducts([])
     } finally {
       setLoading(false)
@@ -101,6 +124,9 @@ const InventoryPage = () => {
   })
 
   const [lowStockAlerts, setLowStockAlerts] = useState([])
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false)
+  const [productToDelete, setProductToDelete] = useState<any>(null)
+  const [deleteForm] = Form.useForm()
 
   // Filter products
   const filteredProducts = (Array.isArray(products) ? products : []).filter((product: any) => {
@@ -254,21 +280,17 @@ const InventoryPage = () => {
               onClick={() => handleEditProduct(record)}
             />
           </Tooltip>
-          <Popconfirm
-            title="حذف المنتج"
-            description="هل أنت متأكد من حذف هذا المنتج؟"
-            onConfirm={() => handleDeleteProduct(record.id)}
-            okText="نعم"
-            cancelText="لا"
-          >
-            <Tooltip title="حذف">
-              <Button
-                type="link"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Tooltip>
-          </Popconfirm>
+          <Tooltip title="حذف">
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                setProductToDelete(record)
+                setDeleteModalVisible(true)
+              }}
+            />
+          </Tooltip>
         </Space>
       )
     }
@@ -359,9 +381,9 @@ const InventoryPage = () => {
     setIsModalVisible(true)
   }
 
-  const handleDeleteProduct = async (productId) => {
+  const handleDeleteProduct = async (productId, password?: string, deletionReason?: string) => {
     try {
-      const result = await inventoryService.deleteProduct(productId)
+      const result = await inventoryService.deleteProduct(productId, password, deletionReason)
       if (result.success) {
         message.success('تم حذف المنتج بنجاح')
         loadProducts() 
@@ -567,14 +589,23 @@ const InventoryPage = () => {
 
       {/* جدول المنتجات */}
       <Card>
-        <Table
-          columns={columns}
-          dataSource={filteredProducts}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          rowKey="id"
-          scroll={{ x: 1200 }}
-        />
+        <Spin spinning={loading}>
+          <Table
+            columns={columns}
+            dataSource={filteredProducts}
+            loading={false}
+            pagination={{ pageSize: 10 }}
+            rowKey="id"
+            scroll={{ x: 1200 }}
+            locale={{
+              emptyText: (
+                <Empty
+                  description={language === 'ar' ? 'لا توجد سجلات لهذا الفرع' : 'No records found for this branch'}
+                />
+              )
+            }}
+          />
+        </Spin>
       </Card>
 
       {/* Modal إضافة/تعديل منتج */}
@@ -706,6 +737,75 @@ const InventoryPage = () => {
               </Select>
             </Form.Item>
           )}
+        </Form>
+      </Modal>
+
+      {/* Secure Deletion Modal (3-Layer Security Protocol) */}
+      <Modal
+        title={language === 'ar' ? `حذف المنتج - ${productToDelete?.name || productToDelete?.id || ''}` : `Delete Product - ${productToDelete?.name || productToDelete?.id || ''}`}
+        open={deleteModalVisible}
+        onOk={async () => {
+          try {
+            const values = await deleteForm.validateFields()
+            
+            if (!productToDelete) {
+              message.error(language === 'ar' ? 'لم يتم تحديد منتج للحذف' : 'No product selected for deletion')
+              return
+            }
+
+            await handleDeleteProduct(productToDelete.id, values.password, values.deletionReason)
+            
+            setDeleteModalVisible(false)
+            setProductToDelete(null)
+            deleteForm.resetFields()
+          } catch (error) {
+            console.error('Error validating deletion form:', error)
+            if (error.errorFields) {
+              message.error(language === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill all required fields')
+            }
+          }
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false)
+          setProductToDelete(null)
+          deleteForm.resetFields()
+        }}
+        okText={language === 'ar' ? 'حذف' : 'Delete'}
+        cancelText={language === 'ar' ? 'إلغاء' : 'Cancel'}
+        okButtonProps={{ danger: true }}
+        width={600}
+      >
+        <Alert
+          type="warning"
+          message={language === 'ar' ? 'تحذير: هذا الإجراء لا يمكن التراجع عنه' : 'Warning: This action cannot be undone'}
+          description={language === 'ar' ? 'سيتم حذف المنتج وجميع بياناته المرتبطة. يرجى إدخال كلمة المرور للتأكيد.' : 'This will permanently delete the product and all associated data. Please enter your password to confirm.'}
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={deleteForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Form.Item
+            name="password"
+            label={language === 'ar' ? 'كلمة المرور' : 'Password'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال كلمة المرور' : 'Please enter your password' }]}
+          >
+            <Input.Password
+              placeholder={language === 'ar' ? 'أدخل كلمة المرور للتأكيد' : 'Enter password to confirm'}
+              autoComplete="current-password"
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="deletionReason"
+            label={language === 'ar' ? 'سبب الحذف' : 'Deletion Reason'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال سبب الحذف' : 'Please provide a reason for deletion' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder={language === 'ar' ? 'اشرح سبب حذف هذا المنتج...' : 'Explain why you are deleting this product...'}
+              maxLength={500}
+              showCount
+            />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

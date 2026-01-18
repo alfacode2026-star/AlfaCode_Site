@@ -10,6 +10,7 @@ import paymentsService from '../services/paymentsService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
 import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils'
@@ -29,13 +30,16 @@ import {
   Badge,
   Popconfirm,
   message,
+  notification,
   Steps,
   Descriptions,
   Divider,
   Tabs,
   InputNumber,
   AutoComplete,
-  Alert
+  Alert,
+  Spin,
+  Empty
 } from 'antd'
 import { 
   SearchOutlined, 
@@ -61,8 +65,9 @@ const { Step } = Steps
 
 const OrdersPage = () => {
   const { industryType } = useTenant()
-  const { branchCurrency } = useBranch() // Get branch currency from context
+  const { branchCurrency, branchId, branchName } = useBranch() // Get branch currency and branchId from context
   const { language } = useLanguage()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const isEngineering = industryType === 'engineering'
   
@@ -90,11 +95,14 @@ const OrdersPage = () => {
   const [availableWorkScopes, setAvailableWorkScopes] = useState([])
   const [treasuryAccounts, setTreasuryAccounts] = useState([])
   const [selectedOrderTreasuryAccount, setSelectedOrderTreasuryAccount] = useState(null)
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false)
+  const [orderToDelete, setOrderToDelete] = useState<any>(null)
+  const [deleteForm] = Form.useForm()
   
   // Use branch currency as the single source of truth
   const displayCurrency = branchCurrency || 'SAR'
 
-  // Load orders on mount
+  // Load orders on mount and when branch changes
   useEffect(() => {
     loadOrders()
     loadCustomers()
@@ -102,7 +110,7 @@ const OrdersPage = () => {
       loadProjects()
     }
     loadTreasuryAccounts()
-  }, [isEngineering])
+  }, [isEngineering, branchId])
 
   const loadCustomers = async () => {
     try {
@@ -137,6 +145,7 @@ const OrdersPage = () => {
 
   const loadOrders = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل الطلبات...' : 'Loading orders...', branchName)
     try {
       const data = await ordersService.loadOrders()
       
@@ -225,16 +234,29 @@ const OrdersPage = () => {
             key: normalizedOrder.id || normalizedOrder.key || `order-${Date.now()}-${Math.random()}`
           }
         }))
+        
+        if (ordersWithProjects.length === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد طلبات' : 'No orders found', branchName)
+        } else {
+          updateStatus('success', language === 'ar' ? `تم تحميل ${ordersWithProjects.length} طلب` : `Loaded ${ordersWithProjects.length} orders`, branchName)
+        }
       } else if (Array.isArray(ordersWithProjects)) {
         // Empty array is valid
         setOrders([])
+        updateStatus('empty', language === 'ar' ? 'لا توجد طلبات' : 'No orders found', branchName)
       } else {
         console.warn('loadOrders returned non-array data:', ordersWithProjects)
         setOrders([])
+        updateStatus('empty', language === 'ar' ? 'لا توجد طلبات' : 'No orders found', branchName)
       }
     } catch (error) {
       console.error('Error loading orders:', error)
-      message.error(t.orders.failedToLoad)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
+      notification.error({
+        message: language === 'ar' ? 'خطأ في الاتصال' : 'Connection error',
+        description: errorMsg
+      })
       // Set empty array on error to prevent crashes
       setOrders([])
     } finally {
@@ -522,33 +544,16 @@ const OrdersPage = () => {
             onClick={() => handlePrint(record)}
             title={t.orders.printInvoice}
           />
-          <Popconfirm
-            title={t.orders.deleteOrderConfirm}
-            description={t.orders.deleteOrderDescription}
-            onConfirm={async () => {
-              try {
-                const result = await ordersService.deleteOrder(record.id)
-                if (result.success) {
-                  message.success(t.orders.orderDeleted)
-                  loadOrders() // Refresh the list
-                } else {
-                  message.error(result.error || t.orders.failedToDelete)
-                }
-              } catch (error) {
-                console.error('Error deleting order:', error)
-                message.error(t.orders.failedToDelete)
-              }
+          <Button 
+            type="link" 
+            danger 
+            icon={<DeleteOutlined />}
+            title={t.orders.delete}
+            onClick={() => {
+              setOrderToDelete(record)
+              setDeleteModalVisible(true)
             }}
-            okText={t.orders.yes}
-            cancelText={t.orders.no}
-          >
-            <Button 
-              type="link" 
-              danger 
-              icon={<DeleteOutlined />}
-              title={t.orders.delete}
-            />
-          </Popconfirm>
+          />
         </Space>
       ),
     },
@@ -1165,14 +1170,22 @@ const OrdersPage = () => {
 
       {/* Orders Table */}
       <Card>
-        <Table 
-          columns={columns} 
-          dataSource={filteredOrders}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          rowKey={(record) => record.id || record.updatedAt || `order-${Date.now()}-${Math.random()}`}
-          locale={{ emptyText: 'No orders found' }}
-        />
+        <Spin spinning={loading}>
+          <Table 
+            columns={columns} 
+            dataSource={filteredOrders}
+            loading={false}
+            pagination={{ pageSize: 10 }}
+            rowKey={(record) => record.id || record.updatedAt || `order-${Date.now()}-${Math.random()}`}
+            locale={{
+              emptyText: (
+                <Empty
+                  description={language === 'ar' ? 'لا توجد سجلات لهذا الفرع' : 'No records found for this branch'}
+                />
+              )
+            }}
+          />
+        </Spin>
       </Card>
 
       {/* Modal Create New Purchase Order */}
@@ -1546,6 +1559,81 @@ const OrdersPage = () => {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* Secure Deletion Modal (3-Layer Security Protocol) */}
+      <Modal
+        title={language === 'ar' ? `حذف الطلب - ${orderToDelete?.id || ''}` : `Delete Order - ${orderToDelete?.id || ''}`}
+        open={deleteModalVisible}
+        onOk={async () => {
+          try {
+            const values = await deleteForm.validateFields()
+            
+            if (!orderToDelete) {
+              message.error('No order selected for deletion')
+              return
+            }
+
+            const result = await ordersService.deleteOrder(orderToDelete.id, values.password, values.deletionReason)
+            
+            if (result.success) {
+              message.success(t.orders.orderDeleted)
+              setDeleteModalVisible(false)
+              setOrderToDelete(null)
+              deleteForm.resetFields()
+              loadOrders()
+            } else {
+              message.error(result.error || t.orders.failedToDelete)
+            }
+          } catch (error) {
+            console.error('Error validating deletion form:', error)
+            if (error.errorFields) {
+              message.error(language === 'ar' ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill all required fields')
+            }
+          }
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false)
+          setOrderToDelete(null)
+          deleteForm.resetFields()
+        }}
+        okText={language === 'ar' ? 'حذف' : 'Delete'}
+        cancelText={language === 'ar' ? 'إلغاء' : 'Cancel'}
+        okButtonProps={{ danger: true }}
+        width={600}
+      >
+        <Alert
+          type="warning"
+          message={language === 'ar' ? 'تحذير: هذا الإجراء لا يمكن التراجع عنه' : 'Warning: This action cannot be undone'}
+          description={language === 'ar' ? 'سيتم حذف الطلب وجميع بياناته المرتبطة. يرجى إدخال كلمة المرور للتأكيد.' : 'This will permanently delete the order and all associated data. Please enter your password to confirm.'}
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={deleteForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Form.Item
+            name="password"
+            label={language === 'ar' ? 'كلمة المرور' : 'Password'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال كلمة المرور' : 'Please enter your password' }]}
+          >
+            <Input.Password
+              placeholder={language === 'ar' ? 'أدخل كلمة المرور للتأكيد' : 'Enter password to confirm'}
+              autoComplete="current-password"
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="deletionReason"
+            label={language === 'ar' ? 'سبب الحذف' : 'Deletion Reason'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال سبب الحذف' : 'Please provide a reason for deletion' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder={language === 'ar' ? 'اشرح سبب حذف هذا الطلب...' : 'Explain why you are deleting this order...'}
+              maxLength={500}
+              showCount
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )

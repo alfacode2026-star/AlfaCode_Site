@@ -32,6 +32,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext';
 import { useTenant } from '../contexts/TenantContext';
 import { useBranch } from '../contexts/BranchContext';
+import { useSyncStatus } from '../contexts/SyncStatusContext';
 import { getTranslations } from '../utils/translations';
 import incomesService from '../services/incomesService';
 import projectsService from '../services/projectsService';
@@ -95,7 +96,8 @@ const formatCurrency = (value: number, currency: string = 'SAR'): string => {
 const IncomesPage: FC = () => {
   const { language, setLanguage } = useLanguage();
   const { industryType } = useTenant();
-  const { branchCurrency } = useBranch(); // Get branch currency from context
+  const { branchCurrency, branchName } = useBranch(); // Get branch currency from context
+  const { updateStatus } = useSyncStatus();
   const t = getTranslations(language);
 
   const [incomes, setIncomes] = useState<Income[]>([]);
@@ -113,6 +115,9 @@ const IncomesPage: FC = () => {
   const [hasExistingIncomes, setHasExistingIncomes] = useState<boolean>(false);
   const [loadingProjectIncomes, setLoadingProjectIncomes] = useState<boolean>(false);
   const [availableWorkScopes, setAvailableWorkScopes] = useState<string[]>([]);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [incomeToDelete, setIncomeToDelete] = useState<Income | null>(null);
+  const [deleteForm] = Form.useForm();
   
   // Use branch currency as the single source of truth
   const displayCurrency = branchCurrency || 'SAR';
@@ -142,11 +147,21 @@ const IncomesPage: FC = () => {
 
   const loadIncomes = async (): Promise<void> => {
     setLoading(true);
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل الإيرادات...' : 'Fetching incomes...', branchName || null);
     try {
       const data = await incomesService.getIncomes();
-      setIncomes(data || []);
+      const incomesData = data || [];
+      setIncomes(incomesData);
+      
+      if (incomesData.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا توجد إيرادات' : 'No records found', branchName || null);
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${incomesData.length} سجل` : `Loaded ${incomesData.length} records`, branchName || null);
+      }
     } catch (error) {
       console.error('Error loading incomes:', error);
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database';
+      updateStatus('error', errorMsg, branchName || null);
       message.error('Failed to load incomes data.');
     } finally {
       setLoading(false);
@@ -294,16 +309,17 @@ const IncomesPage: FC = () => {
             >
               Edit
             </Button>
-            <Popconfirm
-              title="Are you sure you want to delete this income?"
-              onConfirm={() => handleDelete(record.id)}
-              okText="Yes"
-              cancelText="No"
+            <Button 
+              type="link" 
+              danger 
+              icon={<DeleteOutlined />}
+              onClick={() => {
+                setIncomeToDelete(record);
+                setDeleteModalVisible(true);
+              }}
             >
-              <Button type="link" danger icon={<DeleteOutlined />}>
-                Delete
-              </Button>
-            </Popconfirm>
+              Delete
+            </Button>
           </Space>
         ),
       },
@@ -391,9 +407,9 @@ const IncomesPage: FC = () => {
     setIsModalVisible(true);
   };
 
-  const handleDelete = async (id: string): Promise<void> => {
+  const handleDelete = async (id: string, password?: string, deletionReason?: string): Promise<void> => {
     try {
-      const result = await incomesService.deleteIncome(id);
+      const result = await incomesService.deleteIncome(id, password, deletionReason);
       if (result.success) {
         message.success('Income deleted successfully.');
         loadIncomes();
@@ -839,6 +855,75 @@ const IncomesPage: FC = () => {
             rules={[{ required: true, message: 'Please enter a description' }]}
           >
             <Input.TextArea rows={3} placeholder={t.common.description || 'Description of income/advance'} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Secure Deletion Modal (3-Layer Security Protocol) */}
+      <Modal
+        title={`Delete Income - ${incomeToDelete?.paymentNumber || incomeToDelete?.id}`}
+        open={deleteModalVisible}
+        onOk={async () => {
+          try {
+            const values = await deleteForm.validateFields();
+            
+            if (!incomeToDelete) {
+              message.error('No income selected for deletion');
+              return;
+            }
+
+            await handleDelete(incomeToDelete.id, values.password, values.deletionReason);
+            
+            setDeleteModalVisible(false);
+            setIncomeToDelete(null);
+            deleteForm.resetFields();
+          } catch (error) {
+            console.error('Error validating deletion form:', error);
+            if (error.errorFields) {
+              message.error('Please fill all required fields');
+            }
+          }
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false);
+          setIncomeToDelete(null);
+          deleteForm.resetFields();
+        }}
+        okText="Delete"
+        cancelText="Cancel"
+        okButtonProps={{ danger: true }}
+        width={600}
+      >
+        <Alert
+          type="warning"
+          message="Warning: This action cannot be undone"
+          description="This will permanently delete the income and all associated data. Please enter your password to confirm."
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={deleteForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Form.Item
+            name="password"
+            label="Password"
+            rules={[{ required: true, message: 'Please enter your password' }]}
+          >
+            <Input.Password
+              placeholder="Enter password to confirm"
+              autoComplete="current-password"
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="deletionReason"
+            label="Deletion Reason"
+            rules={[{ required: true, message: 'Please provide a reason for deletion' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder="Explain why you are deleting this income..."
+              maxLength={500}
+              showCount
+            />
           </Form.Item>
         </Form>
       </Modal>

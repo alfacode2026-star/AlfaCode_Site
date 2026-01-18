@@ -79,3 +79,26 @@ export const getCurrencyFromTreasury = (
   const account = treasuryAccounts.find(acc => acc.id === treasuryAccountId)
   return account?.currency || null
 }
+
+/**
+ * Format currency amount with code (simple format: "amount CURRENCY")
+ * Global utility for consistent currency display across the application
+ * @param amount - The numeric amount to format
+ * @param recordCurrency - Currency from the record (e.g., contract.currency)
+ * @param branchCurrency - Default currency from branch context
+ * @returns Formatted string like "500,000 IQD" or "1,234 SAR"
+ */
+export const formatCurrency = (
+  amount: number | undefined,
+  recordCurrency?: string | null,
+  branchCurrency?: string | null
+): string => {
+  const numericAmount = amount || 0
+  const formatted = numericAmount.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  })
+  
+  const currency = recordCurrency || branchCurrency || 'IQD'
+  return `${formatted} ${currency}`
+}

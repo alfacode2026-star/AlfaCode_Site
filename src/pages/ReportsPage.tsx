@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import ordersService from '../services/ordersService'
 import customersService from '../services/customersService'
 import inventoryService from '../services/inventoryService'
@@ -45,6 +48,9 @@ const { Option } = Select
 // const { TabPane } = Tabs
 
 const ReportsPage = () => {
+  const { language } = useLanguage()
+  const { branchName } = useBranch()
+  const { updateStatus } = useSyncStatus()
   const [dateRange, setDateRange] = useState<[string | null, string | null]>([null, null])
   const [timeFrame, setTimeFrame] = useState('monthly')
   const [loading, setLoading] = useState(true)
@@ -62,6 +68,8 @@ const ReportsPage = () => {
 
   // Load data on mount
   useEffect(() => {
+    // Set idle status on mount - Reports module is ready
+    updateStatus('idle', language === 'ar' ? 'وحدة التقارير جاهزة' : 'Reports Module Ready', branchName || null)
     loadReportsData()
   }, [])
 

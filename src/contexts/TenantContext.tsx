@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import tenantStore from '../services/tenantStore'
 // @ts-expect-error - supabaseClient is a .js file without type definitions
 import { supabase } from '../services/supabaseClient'
+import userManagementService from '../services/userManagementService'
 
 interface TenantContextType {
   currentTenantId: string | null
@@ -47,42 +48,64 @@ export const TenantProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }
 
-  // تهيئة النظام عند فتح الموقع
+  // CRITICAL: Auto-resolve tenant_id from authenticated user's profile
+  // This replaces the manual "Switch Company" dropdown - tenant is now derived from user session
   useEffect(() => {
-    const initTenants = async () => {
-      // 1. جلب جميع الشركات الحقيقية الموجودة في النظام
-      const { data: realTenants, error } = await supabase
-        .from('tenants')
-        .select('id, name, industry_type')
+    const initTenantFromUser = async () => {
+      try {
+        // 1. Get authenticated user's profile to extract tenant_id
+        const profile = await userManagementService.getCurrentUserProfile()
+        
+        if (!profile) {
+          console.warn('⚠️ [TenantContext] No user profile found. User may not be logged in.')
+          // Don't set tenant if user is not logged in - auth guard will handle redirect
+          return
+        }
 
-      if (error || !realTenants || realTenants.length === 0) {
-        console.warn("No tenants found in DB yet.")
-        return
-      }
+        // 2. Extract tenant_id from user profile (MANDATORY)
+        const userTenantId = profile.tenant_id
 
-      // حفظ القائمة الحقيقية لاستخدامها في التبديل
-      setTenants(realTenants)
+        if (!userTenantId) {
+          console.error('❌ [TenantContext] User profile has no tenant_id. Cannot initialize tenant context.')
+          // This is a critical error - user must have a tenant_id assigned
+          // The app should redirect to login/setup if this happens
+          return
+        }
 
-      // 2. تحديد الشركة النشطة
-      const storedId = tenantStore.getTenantId()
-      
-      // هل الشركة المخزنة في الذاكرة موجودة فعلاً في القائمة؟
-      const isValidTenant = storedId && realTenants.find(t => t.id === storedId)
+        // 3. Verify tenant exists in database
+        const { data: tenantData, error: tenantError } = await supabase
+          .from('tenants')
+          .select('id, name, industry_type')
+          .eq('id', userTenantId)
+          .single()
 
-      if (isValidTenant) {
-        // ممتاز، نستخدم الشركة المخزنة
-        setCurrentTenantIdState(storedId)
-        fetchIndustryType(storedId)
-      } else {
-        // الشركة المخزنة غير صالحة (أو قديمة)، نختار أول شركة متاحة تلقائياً
-        const defaultTenant = realTenants[0]
-        setCurrentTenantIdState(defaultTenant.id)
-        tenantStore.setTenantId(defaultTenant.id)
-        fetchIndustryType(defaultTenant.id)
+        if (tenantError || !tenantData) {
+          console.error('❌ [TenantContext] Tenant not found in database:', tenantError)
+          return
+        }
+
+        // 4. Set tenant_id in state and store
+        console.log('✅ [TenantContext] Auto-resolved tenant from user profile:', {
+          tenantId: userTenantId,
+          tenantName: tenantData.name,
+          industryType: tenantData.industry_type
+        })
+
+        setCurrentTenantIdState(userTenantId)
+        tenantStore.setTenantId(userTenantId)
+        fetchIndustryType(userTenantId)
+
+        // 5. Also set tenants array (single item) for backward compatibility
+        // (Some components might still reference it, though dropdown is removed)
+        setTenants([{ id: tenantData.id, name: tenantData.name }])
+
+      } catch (error) {
+        console.error('❌ [TenantContext] Error initializing tenant from user profile:', error)
+        // Fail silently - auth guard will handle redirect if needed
       }
     }
 
-    initTenants()
+    initTenantFromUser()
   }, [])
 
   const setCurrentTenantId = (tenantId: string | null) => {

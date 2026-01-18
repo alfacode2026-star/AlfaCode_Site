@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import moment from 'moment'
 import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import customersService from '../services/customersService'
 import ordersService from '../services/ordersService'
@@ -24,9 +25,12 @@ import {
   Avatar,
   Popconfirm,
   message,
+  notification,
   Tabs,
   Descriptions,
-  Divider
+  Divider,
+  Spin,
+  Empty
 } from 'antd'
 import {
   SearchOutlined,
@@ -49,8 +53,9 @@ import {
 const { Option } = Select
 
 const SuppliersPage = () => {
-  const { branchCurrency } = useBranch()
+  const { branchCurrency, branchId, branchName } = useBranch()
   const { language } = useLanguage()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -64,13 +69,14 @@ const SuppliersPage = () => {
   const [form] = Form.useForm()
   const [activeTab, setActiveTab] = useState('all')
 
-  // Load suppliers on mount
+  // Load suppliers on mount and when branch changes
   useEffect(() => {
     loadSuppliers()
-  }, [])
+  }, [branchId])
 
   const loadSuppliers = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل الموردين...' : 'Loading suppliers...', branchName)
     try {
       const [data, orders] = await Promise.all([
         customersService.loadCustomers(),
@@ -97,9 +103,20 @@ const SuppliersPage = () => {
         })
       
       setSuppliers(suppliersData)
+      
+      if (suppliersData.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا يوجد موردين' : 'No suppliers found', branchName)
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${suppliersData.length} مورد` : `Loaded ${suppliersData.length} suppliers`, branchName)
+      }
     } catch (error) {
       console.error('Error loading suppliers:', error)
-      message.error('فشل في تحميل بيانات الموردين')
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
+      notification.error({
+        message: language === 'ar' ? 'خطأ في الاتصال' : 'Connection error',
+        description: errorMsg
+      })
       setSuppliers([])
     } finally {
       setLoading(false)
@@ -531,13 +548,22 @@ const SuppliersPage = () => {
 
       {/* جدول الموردين */}
       <Card>
-        <Table
-          columns={columns}
-          dataSource={filteredSuppliers}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          rowKey="key"
-        />
+        <Spin spinning={loading}>
+          <Table
+            columns={columns}
+            dataSource={filteredSuppliers}
+            loading={false}
+            pagination={{ pageSize: 10 }}
+            rowKey="key"
+            locale={{
+              emptyText: (
+                <Empty
+                  description={language === 'ar' ? 'لا توجد سجلات لهذا الفرع' : 'No records found for this branch'}
+                />
+              )
+            }}
+          />
+        </Spin>
       </Card>
 
       {/* Modal إضافة/تعديل مورد */}

@@ -1,23 +1,36 @@
 import { supabase } from './supabaseClient'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
+import userManagementService from './userManagementService'
 
 class ProjectsService {
-  // 1. Get all projects (DEBUG MODE: Filter DISABLED + LOGS ADDED)
+  // 1. Get all projects (with strict branch and tenant filtering)
   async getProjects() {
     try {
-      console.log('🔄 Starting getProjects fetch...')
+      const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
+      if (!tenantId) {
+        console.warn('No tenant ID set. Cannot fetch projects.')
+        return []
+      }
 
-      // 👇 الاستعلام بدون فلتر tenant_id
-      const { data: projectsData, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch projects.')
+        return []
+      }
+
+      let query = supabase
         .from('projects')
         .select('*')
-        .order('created_at', { ascending: false })
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+      
+      query = query.order('created_at', { ascending: false })
 
-      // 👇👇 سجلات التشخيص (مهمة جداً) 👇👇
-      console.log('🔥 RAW DB DATA (Projects):', projectsData)
-      console.log('🔥 DB ERROR:', error)
-      // 👆👆👆👆👆👆👆👆👆👆
+      const { data: projectsData, error } = await query
 
       if (error) {
         console.error('[projectsService] Supabase error (getProjects):', error)
@@ -47,15 +60,31 @@ class ProjectsService {
     }
   }
 
-  // 2. Get active projects only (DEBUG MODE: Filter DISABLED)
+  // 2. Get active projects only (with strict branch and tenant filtering)
   async getActiveProjects() {
     try {
-      const { data: projectsData, error } = await supabase
+      const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
+      if (!tenantId) {
+        console.warn('No tenant ID set. Cannot fetch active projects.')
+        return []
+      }
+
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch active projects.')
+        return []
+      }
+
+      let query = supabase
         .from('projects')
         .select('*')
-        // .eq('tenant_id', tenantId) // 🔴 DISABLED
+        .eq('tenant_id', tenantId)
         .eq('status', 'active')
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+      
+      const { data: projectsData, error } = await query.order('created_at', { ascending: false })
 
       if (error) {
         console.error('[projectsService] Supabase error (getActiveProjects):', error)
@@ -84,23 +113,35 @@ class ProjectsService {
     }
   }
 
-  // 3. Get project by ID (DEBUG MODE: Filter DISABLED)
+  // 3. Get project by ID (with strict branch and tenant filtering)
   async getProject(id) {
     try {
       if (!id) return null
 
-      console.log(`🔄 Fetching single project: ${id}`)
+      const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
+      if (!tenantId) {
+        console.warn('No tenant ID set. Cannot fetch project.')
+        return null
+      }
 
-      const { data: projectData, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch project.')
+        return null
+      }
+
+      let query = supabase
         .from('projects')
         .select('*')
         .eq('id', id)
-        // .eq('tenant_id', tenantId) // 🔴 DISABLED
-        .single()
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: projectData, error } = await query.single()
 
       if (error) throw error
-
-      console.log('🔥 SINGLE PROJECT DATA:', projectData)
 
       // Fetch customer data if client_id exists
       let customerData = null
@@ -125,22 +166,32 @@ class ProjectsService {
     return this.getProject(id)
   }
 
-  // 4. Add new project (Keep Check Here - New data must have owner)
+  // 4. Add new project (with mandatory branch_id injection)
   async addProject(projectData) {
     try {
       const tenantId = tenantStore.getTenantId()
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
       const tenantValidation = validateTenantId(tenantId)
       
-      // لن نوقف العملية، فقط تحذير
       if (!tenantValidation.valid) {
         console.warn('⚠️ Adding project with potential missing Tenant ID')
+      }
+
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create project.',
+          errorCode: 'NO_BRANCH_ID'
+        }
       }
 
       const projectId = projectData.id || crypto.randomUUID()
 
       const newProject = {
         id: projectId,
-        tenant_id: tenantId, // Assign to current user
+        tenant_id: tenantId,
         name: projectData.name,
         client_id: projectData.clientId || null,
         status: projectData.status || 'active',
@@ -149,7 +200,8 @@ class ProjectsService {
         work_scopes: projectData.workScopes && Array.isArray(projectData.workScopes) ? projectData.workScopes : null,
         quotation_id: projectData.quotationId || null,
         work_start_date: projectData.workStartDate || null,
-        notes: projectData.notes && projectData.notes.trim() ? projectData.notes.trim() : null
+        notes: projectData.notes && projectData.notes.trim() ? projectData.notes.trim() : null,
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       }
 
       const { data: insertedProject, error } = await supabase
@@ -186,10 +238,17 @@ class ProjectsService {
     }
   }
 
-  // 5. Update project (DEBUG MODE: Filter DISABLED)
+  // 5. Update project (with strict branch and tenant filtering)
   async updateProject(id, updates) {
     try {
       if (!id) return { success: false, error: 'ID required' }
+
+      const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
+      if (!tenantId) {
+        return { success: false, error: 'No tenant ID set' }
+      }
 
       const updateData = {}
       if (updates.name !== undefined) updateData.name = updates.name
@@ -204,13 +263,19 @@ class ProjectsService {
       if (updates.endDate !== undefined) updateData.end_date = updates.endDate || null
       if (updates.notes !== undefined) updateData.notes = updates.notes || null
 
-      const { data: projectData, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('projects')
         .update(updateData)
         .eq('id', id)
-        // .eq('tenant_id', tenantId) // 🔴 DISABLED
-        .select('*')
-        .single()
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: projectData, error } = await query.select('*').single()
 
       if (error) throw error
 
@@ -238,16 +303,142 @@ class ProjectsService {
     }
   }
 
-  // 6. Delete project (DEBUG MODE: Filter DISABLED)
-  async deleteProject(id) {
+  // Delete project (3-Layer Security Protocol)
+  async deleteProject(id, password, deletionReason) {
     try {
       if (!id) return { success: false, error: 'ID required' }
 
-      const { error } = await supabase
+      const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
+      if (!tenantId) {
+        return { success: false, error: 'No tenant ID set' }
+      }
+
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      // 🟢 LAYER 1: AUTHORIZATION - Check user role (Permission Check)
+      const profile = await userManagementService.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const allowedRoles = ['super_admin', 'admin', 'manager', 'owner']
+      
+      if (!userRole || !allowedRoles.includes(userRole)) {
+        return {
+          success: false,
+          error: 'Access Denied: You do not have permission to delete records.',
+          errorCode: 'UNAUTHORIZED'
+        }
+      }
+
+      // Step 1: Get current user and project info
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user || !user.email) {
+        return {
+          success: false,
+          error: 'Authentication required',
+          errorCode: 'AUTH_REQUIRED'
+        }
+      }
+
+      // 🟡 LAYER 2: AUTHENTICATION - Verify password (Identity Check)
+      if (!password) {
+        return {
+          success: false,
+          error: 'Password is required for deletion',
+          errorCode: 'PASSWORD_REQUIRED'
+        }
+      }
+
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password
+      })
+
+      if (authError) {
+        return {
+          success: false,
+          error: 'Security Alert: Incorrect Password.',
+          errorCode: 'INVALID_PASSWORD'
+        }
+      }
+
+      // Step 3: Get project info for audit log and financial checks
+      const project = await this.getProject(id)
+      if (!project) {
+        return {
+          success: false,
+          error: 'Project not found',
+          errorCode: 'PROJECT_NOT_FOUND'
+        }
+      }
+
+      // Step 4: Financial Guard - Check for active financial records (payments/income/expenses)
+      const { count: paymentsCount, error: paymentsError } = await supabase
+        .from('payments')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
+        .eq('project_id', id)
+
+      if (paymentsError) {
+        console.error('Error checking payments:', paymentsError)
+      }
+
+      if (paymentsCount && paymentsCount > 0) {
+        return {
+          success: false,
+          error: 'Cannot delete: Active financial records exist for this project. Please remove all payments first.',
+          errorCode: 'FINANCIAL_RECORDS_EXIST',
+          paymentsCount: paymentsCount
+        }
+      }
+
+      // 🔴 LAYER 3: DOCUMENTATION - Audit Logging (MANDATORY - Abort if fails)
+      if (!deletionReason || deletionReason.trim() === '') {
+        return {
+          success: false,
+          error: 'Deletion reason is required for audit purposes',
+          errorCode: 'REASON_REQUIRED'
+        }
+      }
+
+      const deletionLog = {
+        table_name: 'projects',
+        record_ref_number: project.name || id,
+        record_id: id,
+        deletion_reason: deletionReason.trim(),
+        deleted_by: user.id,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        deleted_data: JSON.stringify(project) // Store snapshot of deleted record
+      }
+
+      const { error: logError } = await supabase
+        .from('deletion_logs')
+        .insert([deletionLog])
+
+      if (logError) {
+        console.error('Error logging deletion:', logError)
+        return {
+          success: false,
+          error: 'Deletion aborted: Failed to create audit log. Please contact support.',
+          errorCode: 'AUDIT_LOG_FAILED'
+        }
+      }
+
+      // 🏁 EXECUTION - Only after Layers 1, 2, and 3 pass successfully
+      // Step 6: Cascade Delete - Delete the project
+      let query = supabase
         .from('projects')
         .delete()
         .eq('id', id)
-        // .eq('tenant_id', tenantId) // 🔴 DISABLED
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
       return { success: true }

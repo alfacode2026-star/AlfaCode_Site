@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTenant } from '../../contexts/TenantContext'
 import { useLanguage } from '../../contexts/LanguageContext'
+import { useSyncStatus } from '../../contexts/SyncStatusContext'
 import { getTranslations } from '../../utils/translations'
 import userManagementService from '../../services/userManagementService'
 import { supabase } from '../../services/supabaseClient'
@@ -46,6 +47,7 @@ const BranchesSettings = () => {
   const navigate = useNavigate()
   const { currentTenantId } = useTenant()
   const { language } = useLanguage()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const [form] = Form.useForm()
   
@@ -92,6 +94,7 @@ const BranchesSettings = () => {
     if (!currentTenantId) return
     
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل قائمة الفروع...' : 'Loading branch list...', 'Global')
     try {
       const { data, error } = await supabase
         .from('branches')
@@ -102,9 +105,18 @@ const BranchesSettings = () => {
 
       if (error) throw error
 
-      setBranches(data || [])
+      const branchesData = data || []
+      setBranches(branchesData)
+      
+      if (branchesData.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا توجد فروع' : 'No branches found', 'Global')
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${branchesData.length} فرع` : `Branches loaded (${branchesData.length})`, 'Global')
+      }
     } catch (error: any) {
       console.error('Error loading branches:', error)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, 'Global')
       message.error(language === 'ar' 
         ? 'فشل في تحميل الفروع' 
         : 'Failed to load branches')

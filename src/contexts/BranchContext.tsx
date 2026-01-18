@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 // @ts-expect-error - tenantStore is a .js file without type definitions
 import tenantStore from '../services/tenantStore'
+// @ts-expect-error - branchStore is a .js file without type definitions
+import branchStore from '../services/branchStore'
 // @ts-expect-error - supabaseClient is a .js file without type definitions
 import { supabase } from '../services/supabaseClient'
 // @ts-expect-error - userManagementService is a .js file without type definitions
@@ -95,6 +97,8 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setBranchId(branchData.id)
       setBranchName(branchData.name)
       setError(null) // Clear error on success
+      // Sync with branchStore for service access
+      branchStore.setBranchId(branchData.id)
       console.log('✅ Branch currency loaded:', {
         branchId: branchData.id,
         branchName: branchData.name,
@@ -217,6 +221,8 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setBranchName(branch.name)
       setBranchCurrency(branch.currency || null)
       setError(null)
+      // Sync with branchStore for service access
+      branchStore.setBranchId(branch.id)
     } catch (error: any) {
       const errorMsg = `Error setting branch: ${error?.message || 'Unknown error'}`
       console.error('❌', errorMsg)

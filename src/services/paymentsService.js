@@ -2,8 +2,10 @@ import { supabase } from './supabaseClient'
 import contractsService from './contractsService'
 import ordersService from './ordersService'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import treasuryService from './treasuryService'
+import userManagementService from './userManagementService'
 
 class PaymentsService {
   // Get current user ID from Supabase auth
@@ -130,20 +132,30 @@ class PaymentsService {
     }
   }
 
-  // Get all payments (filtered by current tenant)
+  // Get all payments (filtered by current tenant and branch)
   async getPayments() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch payments.')
         return []
       }
 
-      const { data: payments, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch payments.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
-        .order('due_date', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: payments, error } = await query.order('due_date', { ascending: true })
 
       if (error) throw error
 
@@ -160,17 +172,27 @@ class PaymentsService {
       if (!id) return null
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch payment.')
         return null
       }
 
-      const { data: payment, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch payment.')
+        return null
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: payment, error } = await query.single()
 
       if (error) throw error
 
@@ -187,14 +209,24 @@ class PaymentsService {
       if (!contractId) return []
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) return []
 
-      const { data: payments, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch payments.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('contract_id', contractId)
-        .order('due_date', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: payments, error } = await query.order('due_date', { ascending: true })
 
       if (error) throw error
 
@@ -285,6 +317,9 @@ class PaymentsService {
       // Get currency from treasury account if provided, otherwise default to SAR
       const currency = paymentData.currency || 'SAR'
 
+      // AUTOMATIC BRANCH INJECTION: Get from branchStore
+      const branchId = branchStore.getBranchId()
+
       const newPayment = {
         tenant_id: tenantId,
         contract_id: isGeneralExpense ? null : (paymentData.contractId || null),
@@ -317,6 +352,16 @@ class PaymentsService {
         is_general_expense: isGeneralExpense,
         currency: currency // Currency from treasury account
       }
+      
+      // MANDATORY BRANCH INJECTION: Always include branch_id (required)
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create payment.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+      newPayment.branch_id = branchId
 
       // Only add created_by if we have a valid UUID (optional)
       let createdBy = paymentData.createdBy
@@ -474,13 +519,21 @@ class PaymentsService {
         updateData.paid_date = new Date().toISOString().split('T')[0]
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('payments')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) throw error
 
@@ -498,8 +551,8 @@ class PaymentsService {
     }
   }
 
-  // Delete payment
-  async deletePayment(id) {
+  // Delete payment (3-Layer Security Protocol)
+  async deletePayment(id, password, deletionReason) {
     try {
       if (!id) {
         return {
@@ -519,11 +572,110 @@ class PaymentsService {
         }
       }
 
-      const { error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      // 🟢 LAYER 1: AUTHORIZATION - Check user role (Permission Check)
+      const profile = await userManagementService.getCurrentUserProfile()
+      const userRole = profile?.role || null
+      const allowedRoles = ['super_admin', 'admin', 'manager', 'owner']
+      
+      if (!userRole || !allowedRoles.includes(userRole)) {
+        return {
+          success: false,
+          error: 'Access Denied: You do not have permission to delete records.',
+          errorCode: 'UNAUTHORIZED'
+        }
+      }
+
+      // Step 1: Get current user and payment info
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user || !user.email) {
+        return {
+          success: false,
+          error: 'Authentication required',
+          errorCode: 'AUTH_REQUIRED'
+        }
+      }
+
+      // 🟡 LAYER 2: AUTHENTICATION - Verify password (Identity Check)
+      if (!password) {
+        return {
+          success: false,
+          error: 'Password is required for deletion',
+          errorCode: 'PASSWORD_REQUIRED'
+        }
+      }
+
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password
+      })
+
+      if (authError) {
+        return {
+          success: false,
+          error: 'Security Alert: Incorrect Password.',
+          errorCode: 'INVALID_PASSWORD'
+        }
+      }
+
+      // Step 3: Get payment info for audit log
+      const payment = await this.getPayment(id)
+      if (!payment) {
+        return {
+          success: false,
+          error: 'Payment not found',
+          errorCode: 'PAYMENT_NOT_FOUND'
+        }
+      }
+
+      // 🔴 LAYER 3: DOCUMENTATION - Audit Logging (MANDATORY - Abort if fails)
+      if (!deletionReason || deletionReason.trim() === '') {
+        return {
+          success: false,
+          error: 'Deletion reason is required for audit purposes',
+          errorCode: 'REASON_REQUIRED'
+        }
+      }
+
+      const deletionLog = {
+        table_name: 'payments',
+        record_ref_number: payment.paymentNumber || id,
+        record_id: id,
+        deletion_reason: deletionReason.trim(),
+        deleted_by: user.id,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        deleted_data: JSON.stringify(payment) // Store snapshot of deleted record
+      }
+
+      const { error: logError } = await supabase
+        .from('deletion_logs')
+        .insert([deletionLog])
+
+      if (logError) {
+        console.error('Error logging deletion:', logError)
+        return {
+          success: false,
+          error: 'Deletion aborted: Failed to create audit log. Please contact support.',
+          errorCode: 'AUDIT_LOG_FAILED'
+        }
+      }
+
+      // 🏁 EXECUTION - Only after Layers 1, 2, and 3 pass successfully
+      let query = supabase
         .from('payments')
         .delete()
         .eq('id', id)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
@@ -590,14 +742,22 @@ class PaymentsService {
 
       const previousStatus = currentPayment.status
 
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
       // Update payment status
-      const { data, error } = await supabase
+      let query = supabase
         .from('payments')
         .update({ status: newStatus })
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) throw error
 
@@ -679,14 +839,24 @@ class PaymentsService {
   async getPaymentsByStatus(status) {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch payments.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('status', status)
-        .order('due_date', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('due_date', { ascending: true })
 
       if (error) throw error
 
@@ -697,20 +867,30 @@ class PaymentsService {
     }
   }
 
-  // Get payments by project ID (with tenant filter)
+  // Get payments by project ID (with tenant and branch filter)
   async getPaymentsByProject(projectId) {
     try {
       if (!projectId) return []
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch payments.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
-        .order('due_date', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('due_date', { ascending: true })
 
       if (error) throw error
 
@@ -729,14 +909,24 @@ class PaymentsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch income payments.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
         .eq('transaction_type', 'regular')
         .is('contract_id', null)
-        .order('due_date', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('due_date', { ascending: true })
 
       if (error) throw error
 
@@ -755,13 +945,23 @@ class PaymentsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch expense payments.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
         .eq('transaction_type', 'regular')
-        .order('due_date', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('due_date', { ascending: true })
 
       if (error) throw error
 
@@ -776,16 +976,26 @@ class PaymentsService {
   async getGeneralExpenses() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch general expenses.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .is('project_id', null)
         .not('expense_category', 'is', null)
         .eq('transaction_type', 'regular')
-        .order('due_date', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('due_date', { ascending: false })
 
       if (error) throw error
 
@@ -804,15 +1014,25 @@ class PaymentsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch all expenses.')
+        return []
+      }
+
       // Get all expense payments and filter to include:
       // 1. Administrative expenses: have expense_category (not null)
       // 2. Manager advances: transaction_type = 'advance' or 'settlement'
-      const { data, error } = await supabase
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .or('transaction_type.eq.regular,transaction_type.eq.advance,transaction_type.eq.settlement')
-        .order('due_date', { ascending: false })
+
+      const { data, error } = await query.order('due_date', { ascending: false })
 
       if (error) throw error
 
@@ -851,12 +1071,20 @@ class PaymentsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch advances.')
+        return []
+      }
+
       let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('transaction_type', 'advance')
-        .order('due_date', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
       if (managerName) {
         query = query.eq('manager_name', managerName)
@@ -865,6 +1093,8 @@ class PaymentsService {
       if (status) {
         query = query.eq('status', status)
       }
+
+      query = query.order('due_date', { ascending: false })
 
       const { data: advances, error } = await query
 
@@ -885,13 +1115,23 @@ class PaymentsService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data: settlements, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch settlements.')
+        return []
+      }
+
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('linked_advance_id', advanceId)
         .eq('transaction_type', 'settlement')
-        .order('due_date', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: settlements, error } = await query.order('due_date', { ascending: false })
 
       if (error) throw error
 
@@ -911,13 +1151,24 @@ class PaymentsService {
       // Get all advances
       const advances = await this.getAdvances()
 
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch settlements.')
+        return []
+      }
+
       // Get all settlements
-      const { data: settlements, error } = await supabase
+      let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('transaction_type', 'settlement')
         .not('linked_advance_id', 'is', null)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: settlements, error } = await query
 
       if (error) throw error
 

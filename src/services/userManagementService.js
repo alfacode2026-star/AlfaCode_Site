@@ -13,7 +13,7 @@ class UserManagementService {
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('id, email, full_name, role, tenant_id, branch_id')
+        .select('*') // CRITICAL: Select all fields including tenant_id and branch_id
         .eq('id', user.id)
         .single()
 

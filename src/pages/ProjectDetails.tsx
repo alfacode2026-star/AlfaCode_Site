@@ -15,6 +15,7 @@ import treasuryService from '../services/treasuryService'
 import laborGroupsService from '../services/laborGroupsService'
 import { supabase } from '../services/supabaseClient'
 import tenantStore from '../services/tenantStore'
+import branchStore from '../services/branchStore'
 import {
   Card,
   Table,
@@ -65,6 +66,7 @@ const ProjectDetails = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language)
   const [form] = Form.useForm()
   
@@ -114,11 +116,20 @@ const ProjectDetails = () => {
   const getPreviousCompletionPercentage = async () => {
     if (!id || !project) return null
     try {
+      const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return project.completionPercentage || 0
+      }
+      
       // Get the highest completion percentage from existing incomes
       const { data: payments, error } = await supabase
         .from('payments')
         .select('completion_percentage')
-        .eq('tenant_id', tenantStore.getTenantId())
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .eq('project_id', id)
         .or('contract_id.not.is.null,payment_type.eq.income')
         .not('completion_percentage', 'is', null)

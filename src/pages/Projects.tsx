@@ -6,7 +6,9 @@ import projectsService from '../services/projectsService'
 import customersService from '../services/customersService'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
+import { formatCurrency } from '../utils/currencyUtils'
 import {
   Card,
   Table,
@@ -22,9 +24,12 @@ import {
   Statistic,
   Popconfirm,
   message,
+  notification,
   Progress,
   InputNumber,
-  Alert
+  Alert,
+  Spin,
+  Empty
 } from 'antd'
 import {
   SearchOutlined,
@@ -44,7 +49,8 @@ const { Option } = Select
 const ProjectsPage = () => {
   const navigate = useNavigate()
   const { language } = useLanguage()
-  const { branchCurrency } = useBranch()
+  const { branchCurrency, branchId, branchName } = useBranch()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   const [projects, setProjects] = useState([])
   const [customers, setCustomers] = useState([])
@@ -57,30 +63,42 @@ const ProjectsPage = () => {
   const [form] = Form.useForm()
   const [datesEditModalVisible, setDatesEditModalVisible] = useState(false)
   const [datesEditForm] = Form.useForm()
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false)
+  const [projectToDelete, setProjectToDelete] = useState(null)
+  const [deleteForm] = Form.useForm()
 
-  // Load projects and customers on mount
+  // Load projects and customers on mount and when branch changes
   useEffect(() => {
     loadProjects()
     loadCustomers()
-  }, [])
+  }, [branchId])
 
   const loadProjects = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل المشاريع...' : 'Loading projects...', branchName)
     try {
       const data = await projectsService.getProjects()
       
       if (Array.isArray(data) && data.length > 0) {
         const mappedProjects = data.map(p => ({ ...p, key: p.id || `project-${Date.now()}-${Math.random()}` }))
         setProjects(mappedProjects)
+        updateStatus('success', language === 'ar' ? `تم تحميل ${mappedProjects.length} مشروع` : `Loaded ${mappedProjects.length} projects`, branchName)
       } else if (Array.isArray(data)) {
         setProjects([])
+        updateStatus('empty', language === 'ar' ? 'لا توجد مشاريع' : 'No projects found', branchName)
       } else {
         console.warn('getProjects returned non-array data')
         setProjects([])
+        updateStatus('empty', language === 'ar' ? 'لا توجد مشاريع' : 'No projects found', branchName)
       }
     } catch (error) {
       console.error('[ProjectsPage] Error loading projects:', error)
-      message.error(t.projects.failedToLoad)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
+      notification.error({
+        message: language === 'ar' ? 'خطأ في الاتصال' : 'Connection error',
+        description: errorMsg
+      })
       setProjects([])
     } finally {
       setLoading(false)
@@ -206,9 +224,9 @@ const ProjectsPage = () => {
       title: t.projects.budget,
       dataIndex: 'budget',
       key: 'budget',
-      render: (budget) => (
+      render: (budget, record) => (
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-          {budget ? budget.toLocaleString() : 0} {t.common.sar}
+          {formatCurrency(budget || 0, record?.currency, branchCurrency)}
         </span>
       ),
       sorter: (a, b) => (a?.budget || 0) - (b?.budget || 0),
@@ -276,33 +294,17 @@ const ProjectsPage = () => {
             }}
             title={t.projects.edit}
           />
-          <Popconfirm
-            title={t.projects.deleteProjectConfirm}
-            description={t.projects.deleteProjectDescription}
-            onConfirm={async () => {
-              try {
-                const result = await projectsService.deleteProject(record.id)
-                if (result.success) {
-                  message.success(t.projects.projectDeleted)
-                  loadProjects()
-                } else {
-                  message.error(result.error || t.projects.failedToDelete)
-                }
-              } catch (error) {
-                console.error('Error deleting project:', error)
-                message.error(t.projects.errorDeletingProject)
-              }
+          <Button 
+            type="link" 
+            danger 
+            icon={<DeleteOutlined />}
+            title={t.projects.delete}
+            onClick={() => {
+              setProjectToDelete(record)
+              deleteForm.resetFields()
+              setDeleteModalVisible(true)
             }}
-            okText={t.projects.yes}
-            cancelText={t.projects.no}
-          >
-            <Button 
-              type="link" 
-              danger 
-              icon={<DeleteOutlined />}
-              title={t.projects.delete}
-            />
-          </Popconfirm>
+          />
         </Space>
       ),
     },
@@ -500,13 +502,22 @@ const ProjectsPage = () => {
 
       {/* جدول المشاريع */}
       <Card>
-        <Table 
-          columns={columns} 
-          dataSource={filteredProjects}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          rowKey="key"
-        />
+        <Spin spinning={loading}>
+          <Table 
+            columns={columns} 
+            dataSource={filteredProjects}
+            loading={false}
+            pagination={{ pageSize: 10 }}
+            rowKey="key"
+            locale={{
+              emptyText: (
+                <Empty
+                  description={language === 'ar' ? 'لا توجد سجلات لهذا الفرع' : 'No records found for this branch'}
+                />
+              )
+            }}
+          />
+        </Spin>
       </Card>
 
       {/* Modal إنشاء/تعديل مشروع */}
@@ -665,6 +676,87 @@ const ProjectsPage = () => {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </Modal>
+
+      {/* Secure Deletion Modal (Banking Protocol) */}
+      <Modal
+        title={language === 'ar' ? `حذف المشروع - ${projectToDelete?.name}` : `Delete Project - ${projectToDelete?.name}`}
+        open={deleteModalVisible}
+        onOk={async () => {
+          try {
+            const values = await deleteForm.validateFields()
+            
+            if (!projectToDelete) {
+              message.error('No project selected for deletion')
+              return
+            }
+
+            const result = await projectsService.deleteProject(
+              projectToDelete.id,
+              values.password,
+              values.deletionReason
+            )
+
+            if (result.success) {
+              message.success(t.projects.projectDeleted)
+              setDeleteModalVisible(false)
+              setProjectToDelete(null)
+              deleteForm.resetFields()
+              loadProjects()
+            } else {
+              message.error(result.error || t.projects.failedToDelete)
+            }
+          } catch (error) {
+            console.error('Error deleting project:', error)
+            if (error.errorFields) {
+              message.error('Please fill all required fields')
+            } else {
+              message.error(t.projects.errorDeletingProject)
+            }
+          }
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false)
+          setProjectToDelete(null)
+          deleteForm.resetFields()
+        }}
+        okText={language === 'ar' ? 'حذف' : 'Delete'}
+        cancelText={t.projects.no}
+        okButtonProps={{ danger: true }}
+        width={600}
+      >
+        <Alert
+          type="warning"
+          message={language === 'ar' ? 'تحذير: هذا الإجراء لا يمكن التراجع عنه' : 'Warning: This action cannot be undone'}
+          description={language === 'ar' ? 'سيتم حذف المشروع وجميع بياناته المرتبطة. يرجى إدخال كلمة المرور للتأكيد.' : 'This will permanently delete the project and all associated data. Please enter your password to confirm.'}
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={deleteForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Form.Item
+            name="password"
+            label={language === 'ar' ? 'كلمة المرور' : 'Password'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال كلمة المرور' : 'Please enter your password' }]}
+          >
+            <Input.Password
+              placeholder={language === 'ar' ? 'أدخل كلمة المرور للتأكيد' : 'Enter password to confirm'}
+              autoComplete="current-password"
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="deletionReason"
+            label={language === 'ar' ? 'سبب الحذف' : 'Deletion Reason'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال سبب الحذف' : 'Please provide a reason for deletion' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder={language === 'ar' ? 'اشرح سبب حذف هذا المشروع...' : 'Explain why you are deleting this project...'}
+              maxLength={500}
+              showCount
+            />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

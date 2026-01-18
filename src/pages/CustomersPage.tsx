@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import customersService from '../services/customersService'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import {
   Card,
@@ -21,11 +22,14 @@ import {
   Avatar,
   Popconfirm,
   message,
+  notification,
   Tabs,
   Descriptions,
   Divider,
   InputNumber,
-  Upload
+  Upload,
+  Spin,
+  Empty
 } from 'antd'
 import {
   SearchOutlined,
@@ -50,7 +54,8 @@ const { Option } = Select
 
 const CustomersPage = () => {
   const { language } = useLanguage()
-  const { branchCurrency } = useBranch()
+  const { branchCurrency, branchId, branchName } = useBranch()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language)
   
   const [customers, setCustomers] = useState([])
@@ -65,13 +70,14 @@ const CustomersPage = () => {
   const [form] = Form.useForm()
   const [activeTab, setActiveTab] = useState('all')
 
-  // Load customers on mount
+  // Load customers on mount and when branch changes
   useEffect(() => {
     loadCustomers()
-  }, [])
+  }, [branchId])
 
   const loadCustomers = async () => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل العملاء...' : 'Loading customers...', branchName)
     try {
       const data = await customersService.loadCustomers()
       
@@ -82,9 +88,21 @@ const CustomersPage = () => {
         .map(c => ({ ...c, key: c.id || c.key || `customer-${Date.now()}-${Math.random()}` }))
       
       setCustomers(customersData)
+      
+      // Update sync status based on results
+      if (customersData.length === 0) {
+        updateStatus('empty', language === 'ar' ? 'لا توجد عملاء' : 'No customers found', branchName)
+      } else {
+        updateStatus('success', language === 'ar' ? `تم تحميل ${customersData.length} عميل` : `Loaded ${customersData.length} customers`, branchName)
+      }
     } catch (error) {
       console.error('Error loading customers:', error)
-      message.error(t.customers.failedToLoad)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName)
+      notification.error({
+        message: language === 'ar' ? 'خطأ في الاتصال' : 'Connection error',
+        description: errorMsg
+      })
       // Set empty array on error to prevent crashes
       setCustomers([])
     } finally {
@@ -438,13 +456,22 @@ const CustomersPage = () => {
 
       {/* Customers Table */}
       <Card>
-        <Table
-          columns={columns}
-          dataSource={filteredCustomers}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          rowKey={getRowKey}
-        />
+        <Spin spinning={loading}>
+          <Table
+            columns={columns}
+            dataSource={filteredCustomers}
+            loading={false}
+            pagination={{ pageSize: 10 }}
+            rowKey={getRowKey}
+            locale={{
+              emptyText: (
+                <Empty
+                  description={language === 'ar' ? 'لا توجد سجلات لهذا الفرع' : 'No records found for this branch'}
+                />
+              )
+            }}
+          />
+        </Spin>
       </Card>
 
       {/* Add/Edit Customer Modal */}

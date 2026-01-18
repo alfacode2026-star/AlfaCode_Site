@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
 class TreasuryService {
@@ -38,9 +39,14 @@ class TreasuryService {
         return []
       }
 
-      // Get current user's branch_id
-      const userProfile = await this.getCurrentUserProfile()
-      const branchId = userProfile?.branch_id
+      // MANDATORY BRANCH ISOLATION: Use branchStore (Current Branch dropdown)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch treasury accounts.')
+        return []
+      }
 
       // Build query with tenant filter
       let query = supabase
@@ -53,11 +59,7 @@ class TreasuryService {
           )
         `)
         .eq('tenant_id', tenantId)
-
-      // Filter by branch_id if user has one
-      if (branchId) {
-        query = query.eq('branch_id', branchId)
-      }
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
       const { data, error } = await query.order('created_at', { ascending: false })
 
@@ -80,9 +82,14 @@ class TreasuryService {
         return null
       }
 
-      // Get current user's branch_id
-      const userProfile = await this.getCurrentUserProfile()
-      const branchId = userProfile?.branch_id
+      // MANDATORY BRANCH ISOLATION: Use branchStore (Current Branch dropdown)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch treasury account.')
+        return null
+      }
 
       // Build query with tenant filter
       let query = supabase
@@ -96,11 +103,7 @@ class TreasuryService {
         `)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-
-      // Filter by branch_id if user has one
-      if (branchId) {
-        query = query.eq('branch_id', branchId)
-      }
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
       const { data, error } = await query.single()
 
@@ -316,7 +319,7 @@ class TreasuryService {
     }
   }
 
-  // Get all treasury transactions (filtered by current tenant)
+  // Get all treasury transactions (filtered by current tenant and branch)
   async getTransactions(accountId = null) {
     try {
       const tenantId = tenantStore.getTenantId()
@@ -325,13 +328,48 @@ class TreasuryService {
         return []
       }
 
+      // MANDATORY BRANCH ISOLATION: Use branchStore (Current Branch dropdown)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch treasury transactions.')
+        return []
+      }
+
+      // Note: treasury_transactions table may not have branch_id column
+      // Filter by accounts that belong to this branch instead
+      // First, get account IDs for this branch
+      const { data: branchAccounts, error: accountsError } = await supabase
+        .from('treasury_accounts')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId)
+
+      if (accountsError) {
+        console.error('Error fetching branch accounts:', accountsError)
+        return []
+      }
+
+      const branchAccountIds = (branchAccounts || []).map(acc => acc.id)
+      
+      if (branchAccountIds.length === 0) {
+        return [] // No accounts for this branch
+      }
+
       let query = supabase
         .from('treasury_transactions')
         .select('*')
         .eq('tenant_id', tenantId)
+        .in('account_id', branchAccountIds) // MANDATORY: Only transactions for branch accounts
 
       if (accountId) {
-        query = query.eq('account_id', accountId)
+        // Verify account belongs to branch
+        if (branchAccountIds.includes(accountId)) {
+          query = query.eq('account_id', accountId)
+        } else {
+          return [] // Account doesn't belong to this branch
+        }
       }
 
       const { data, error } = await query
@@ -369,38 +407,55 @@ class TreasuryService {
         }
       })
 
-      // Fetch payments with project_ids
+      // Fetch payments with project_ids (MANDATORY BRANCH ISOLATION)
       const paymentProjectMap = {}
       if (paymentIds.length > 0) {
-        const { data: payments, error: paymentsError } = await supabase
-          .from('payments')
-          .select('id, project_id')
-          .in('id', paymentIds)
-          .eq('tenant_id', tenantStore.getTenantId())
+        const tenantId = tenantStore.getTenantId()
+        const branchId = branchStore.getBranchId()
+        
+        if (!branchId) {
+          // No branch ID - skip payment lookup
+        } else {
+          const { data: payments, error: paymentsError } = await supabase
+            .from('payments')
+            .select('id, project_id')
+            .in('id', paymentIds)
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
-        if (!paymentsError && payments) {
-          payments.forEach(payment => {
-            if (payment.project_id) {
-              paymentProjectMap[payment.id] = payment.project_id
-            }
-          })
+          if (!paymentsError && payments) {
+            payments.forEach(payment => {
+              if (payment.project_id) {
+                paymentProjectMap[payment.id] = payment.project_id
+              }
+            })
+          }
         }
       }
 
-      // Fetch orders with project_ids
+      // Fetch orders with project_ids (MANDATORY BRANCH ISOLATION)
       const orderProjectMap = {}
       if (orderIds.length > 0) {
-        const { data: orders, error: ordersError } = await supabase
-          .from('orders')
-          .select('id, project_id')
-          .in('id', orderIds)
+        const tenantId = tenantStore.getTenantId()
+        const branchId = branchStore.getBranchId()
+        
+        if (!branchId) {
+          // No branch ID - skip order lookup
+        } else {
+          const { data: orders, error: ordersError } = await supabase
+            .from('orders')
+            .select('id, project_id')
+            .in('id', orderIds)
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
-        if (!ordersError && orders) {
-          orders.forEach(order => {
-            if (order.project_id) {
-              orderProjectMap[order.id] = order.project_id
-            }
-          })
+          if (!ordersError && orders) {
+            orders.forEach(order => {
+              if (order.project_id) {
+                orderProjectMap[order.id] = order.project_id
+              }
+            })
+          }
         }
       }
 
@@ -413,19 +468,27 @@ class TreasuryService {
         if (pid) projectIds.add(pid)
       })
 
-      // Fetch project names
+      // Fetch project names (MANDATORY BRANCH ISOLATION)
       const projectNameMap = {}
       if (projectIds.size > 0) {
-        const { data: projects, error: projectsError } = await supabase
-          .from('projects')
-          .select('id, name')
-          .in('id', Array.from(projectIds))
-          .eq('tenant_id', tenantStore.getTenantId())
+        const tenantId = tenantStore.getTenantId()
+        const branchId = branchStore.getBranchId()
+        
+        if (!branchId) {
+          // No branch ID - skip project lookup
+        } else {
+          const { data: projects, error: projectsError } = await supabase
+            .from('projects')
+            .select('id, name')
+            .in('id', Array.from(projectIds))
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
-        if (!projectsError && projects) {
-          projects.forEach(project => {
-            projectNameMap[project.id] = project.name
-          })
+          if (!projectsError && projects) {
+            projects.forEach(project => {
+              projectNameMap[project.id] = project.name
+            })
+          }
         }
       }
 

@@ -20,6 +20,8 @@ import {
   DollarOutlined,
   GlobalOutlined,
   LogoutOutlined,
+  HistoryOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -29,12 +31,13 @@ import { getTranslations } from '../utils/translations'
 import userManagementService from '../services/userManagementService'
 import { supabase } from '../services/supabaseClient'
 import { Button, Divider } from 'antd'
+import SystemStatusWidget from './SystemStatusWidget'
 
 const { Option } = Select
 
 const Navigation = () => {
   const navigate = useNavigate()
-  const { currentTenantId, setCurrentTenantId, tenants, industryType } = useTenant()
+  const { industryType } = useTenant() // Removed: currentTenantId, setCurrentTenantId, tenants (no longer needed)
   const { language, setLanguage } = useLanguage()
   const t = getTranslations(language)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
@@ -56,13 +59,10 @@ const Navigation = () => {
     }
   }, [])
 
-  // Check if user is super_admin and get role - Refresh when currentTenantId changes
+  // Check if user is super_admin and get role - Run once on mount
   useEffect(() => {
     checkRole()
-    
-    // Also refresh role when currentTenantId changes (user switches company)
-    // This ensures role is re-fetched after any context change
-  }, [currentTenantId])
+  }, [])
   
   // Listen to auth state changes (login/logout) to refresh role
   useEffect(() => {
@@ -174,6 +174,14 @@ const Navigation = () => {
       icon: <SafetyOutlined />,
       label: t.navigation.adminApprovals,
     },
+    // Audit Logs - Only for Super Admin, Admin, Manager
+    ...(userRole === 'super_admin' || userRole === 'admin' || userRole === 'manager' ? [
+      {
+        key: '/audit-logs',
+        icon: <SafetyCertificateOutlined />,
+        label: language === 'ar' ? 'سجل العمليات' : 'Audit Logs',
+      }
+    ] : []),
     {
       key: '/customers',
       icon: <UserOutlined />,
@@ -242,6 +250,9 @@ const Navigation = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* System Status Widget - At the TOP */}
+      <SystemStatusWidget />
+
       {/* Language Toggle */}
       <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
         <div style={{ marginBottom: '8px', color: '#666', fontSize: '12px', fontWeight: 500 }}>
@@ -256,26 +267,6 @@ const Navigation = () => {
         >
           <Option value="en">{t.languageSelection.english}</Option>
           <Option value="ar">{t.languageSelection.arabic}</Option>
-        </Select>
-      </div>
-
-      {/* Tenant Switcher */}
-      <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
-        <div style={{ marginBottom: '8px', color: '#666', fontSize: '12px', fontWeight: 500 }}>
-          <ApartmentOutlined style={{ marginRight: '4px' }} />
-          {t.navigation.switchCompany}
-        </div>
-        <Select
-          value={currentTenantId}
-          onChange={setCurrentTenantId}
-          style={{ width: '100%' }}
-          placeholder={t.navigation.selectCompany}
-        >
-          {tenants.map((tenant) => (
-            <Option key={tenant.id} value={tenant.id}>
-              {tenant.name}
-            </Option>
-          ))}
         </Select>
       </div>
 

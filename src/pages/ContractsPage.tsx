@@ -17,9 +17,10 @@ import treasuryService from '../services/treasuryService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
-import { getCurrencyFromTreasury, formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils'
+import { getCurrencyFromTreasury, formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol, formatCurrency } from '../utils/currencyUtils'
 import type { Contract, Customer, Quotation, Project, Payment, TreasuryAccount, ContractItem } from '../types'
 import {
   Card,
@@ -36,12 +37,15 @@ import {
   Statistic,
   Popconfirm,
   message,
+  notification,
   Descriptions,
   Divider,
   InputNumber,
   AutoComplete,
   Tabs,
-  Alert
+  Alert,
+  Spin,
+  Empty
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -95,7 +99,8 @@ interface WorkTypeCategory {
 const ContractsPage = () => {
   const { industryType, currentTenantId } = useTenant()
   const { language } = useLanguage()
-  const { branchCurrency } = useBranch()
+  const { branchCurrency, branchId, branchName } = useBranch()
+  const { updateStatus } = useSyncStatus()
   const t = getTranslations(language || 'en')
   
   // State with proper types
@@ -122,6 +127,9 @@ const ContractsPage = () => {
   const [datesEditModalVisible, setDatesEditModalVisible] = useState<boolean>(false)
   const [datesEditForm] = Form.useForm()
   const [selectedCurrency, setSelectedCurrency] = useState<string>('SAR') // Track selected currency
+  const [deleteModalVisible, setDeleteModalVisible] = useState<boolean>(false)
+  const [contractToDelete, setContractToDelete] = useState<ContractWithKey | null>(null)
+  const [deleteForm] = Form.useForm()
 
   useEffect(() => {
     loadContracts()
@@ -131,7 +139,7 @@ const ContractsPage = () => {
     if (industryType === 'engineering') {
       loadProjects()
     }
-  }, [industryType, currentTenantId])
+  }, [industryType, currentTenantId, branchId])
 
   const loadCustomers = async (): Promise<void> => {
     try {
@@ -183,6 +191,7 @@ const ContractsPage = () => {
 
   const loadContracts = async (): Promise<void> => {
     setLoading(true)
+    updateStatus('loading', language === 'ar' ? 'جاري تحميل العقود...' : 'Loading contracts...', branchName || null)
     try {
       const data = await contractsService.getContracts()
       
@@ -197,12 +206,24 @@ const ContractsPage = () => {
           })
           .filter((c: ContractWithKey | null) => c !== null) as ContractWithKey[]
         setContracts(mappedContracts)
+        
+        if (mappedContracts.length === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد عقود' : 'No contracts found', branchName || null)
+        } else {
+          updateStatus('success', language === 'ar' ? `تم تحميل ${mappedContracts.length} عقد` : `Loaded ${mappedContracts.length} contracts`, branchName || null)
+        }
       } else {
         setContracts([])
+        updateStatus('empty', language === 'ar' ? 'لا توجد عقود' : 'No contracts found', branchName || null)
       }
     } catch (error) {
       console.error('Error loading contracts:', error)
-      message.error(t.contracts.failedToLoad)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName || null)
+      notification.error({
+        message: language === 'ar' ? 'خطأ في الاتصال' : 'Connection error',
+        description: errorMsg
+      })
       setContracts([])
     } finally {
       setLoading(false)
@@ -355,19 +376,9 @@ const ContractsPage = () => {
     fully_completed: { text: t.contracts.statusFullyCompleted, color: 'green', icon: <CheckCircleOutlined /> }
   }
   
-  // Format currency using en-US locale
-  const formatCurrency = (amount: number | undefined): string => {
-    if (!amount) return '0'
-    return amount.toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    })
-  }
-  
-  // Format currency with SAR symbol
-  const formatCurrencyWithSymbol = (amount: number | undefined): string => {
-    const formatted = formatCurrency(amount)
-    return `${formatted} ${t.contracts.sar}`
+  // Format currency with dynamic currency symbol (using global utility)
+  const formatCurrencyWithSymbol = (amount: number | undefined, currency?: string): string => {
+    return formatCurrency(amount || 0, currency, branchCurrency)
   }
 
   // Memoize columns to prevent closure issues and force re-render when contracts change
@@ -526,9 +537,9 @@ const ContractsPage = () => {
       title: t.contracts.totalAmount,
       dataIndex: 'totalAmount',
       key: 'totalAmount',
-      render: (amount: number | undefined) => (
+      render: (amount: number | undefined, record: ContractWithKey) => (
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-          {formatCurrencyWithSymbol(amount || 0)}
+          {formatCurrencyWithSymbol(amount || 0, (record as any).currency || branchCurrency)}
         </span>
       )
     },
@@ -681,30 +692,18 @@ const ContractsPage = () => {
           >
             {t.common.edit}
           </Button>
-          <Popconfirm
-            title={t.contracts.deleteContract}
-            description="Are you sure you want to delete this contract?"
-            onConfirm={async () => {
-              try {
-                const result = await contractsService.deleteContract(record.id)
-                if (result.success) {
-                  message.success(t.contracts.contractDeleted)
-                  loadContracts()
-                } else {
-                  message.error(result.error || t.contracts.failedToDelete)
-                }
-              } catch (error) {
-                console.error('Error deleting contract:', error)
-                message.error(t.contracts.failedToDelete)
-              }
+          <Button
+            type="link"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => {
+              setContractToDelete(record)
+              deleteForm.resetFields()
+              setDeleteModalVisible(true)
             }}
-            okText={t.common.yes}
-            cancelText={t.common.no}
           >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              {t.common.delete}
-            </Button>
-          </Popconfirm>
+            {t.common.delete}
+          </Button>
         </Space>
       )
     }
@@ -1170,13 +1169,22 @@ const ContractsPage = () => {
       </Card>
 
       <Card>
-        <Table
-          columns={columns}
-          dataSource={filteredContracts}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          rowKey={getRowKey}
-        />
+        <Spin spinning={loading}>
+          <Table
+            columns={columns}
+            dataSource={filteredContracts}
+            loading={false}
+            pagination={{ pageSize: 10 }}
+            rowKey={getRowKey}
+            locale={{
+              emptyText: (
+                <Empty
+                  description={language === 'ar' ? 'لا توجد سجلات لهذا الفرع' : 'No records found for this branch'}
+                />
+              )
+            }}
+          />
+        </Spin>
       </Card>
 
       <Modal
@@ -1570,27 +1578,29 @@ const ContractsPage = () => {
                         })()}
                       </Descriptions.Item>
                       <Descriptions.Item label={t.contracts.totalAmount}>
-                        {formatCurrencyWithSymbol(selectedContract.totalAmount || 0)}
+                        {formatCurrencyWithSymbol(selectedContract.totalAmount || 0, (selectedContract as any).currency || branchCurrency)}
                       </Descriptions.Item>
                       <Descriptions.Item label={t.contracts.status}>
                         <Tag color={statusLabels[selectedContract.status]?.color}>
                           {statusLabels[selectedContract.status]?.text}
                         </Tag>
                       </Descriptions.Item>
-                      {selectedContract.startDate && (
-                        <Descriptions.Item label={t.contracts.startDate}>
-                          {moment(selectedContract.startDate, 'YYYY-MM-DD', true).isValid() 
-                            ? moment(selectedContract.startDate, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
-                            : '-'}
-                        </Descriptions.Item>
-                      )}
-                      {selectedContract.endDate && (
-                        <Descriptions.Item label={t.contracts.endDate}>
-                          {moment(selectedContract.endDate, 'YYYY-MM-DD', true).isValid()
-                            ? moment(selectedContract.endDate, 'YYYY-MM-DD', true).format('DD-MMM-YYYY')
-                            : '-'}
-                        </Descriptions.Item>
-                      )}
+                      <Descriptions.Item label={t.contracts.startDate}>
+                        {(() => {
+                          const dateValue = selectedContract.startDate || selectedContract.start_date
+                          if (!dateValue) return '-'
+                          const parsed = moment(dateValue, 'YYYY-MM-DD', true)
+                          return parsed.isValid() ? parsed.format('DD-MMM-YYYY') : '-'
+                        })()}
+                      </Descriptions.Item>
+                      <Descriptions.Item label={t.contracts.endDate}>
+                        {(() => {
+                          const dateValue = selectedContract.endDate || selectedContract.end_date
+                          if (!dateValue) return '-'
+                          const parsed = moment(dateValue, 'YYYY-MM-DD', true)
+                          return parsed.isValid() ? parsed.format('DD-MMM-YYYY') : '-'
+                        })()}
+                      </Descriptions.Item>
                       {selectedContract.quotationId && (
                         <Descriptions.Item label={t.contracts.quotationSource}>
                           {(() => {
@@ -1614,7 +1624,7 @@ const ContractsPage = () => {
                               title: t.contracts.unitPrice,
                               dataIndex: 'unitPrice',
                               key: 'unitPrice',
-                              render: (price: number) => formatCurrencyWithSymbol(price || 0)
+                              render: (price: number) => formatCurrencyWithSymbol(price || 0, (selectedContract as any).currency || branchCurrency)
                             },
                             {
                               title: t.contracts.itemTotal,
@@ -1684,7 +1694,7 @@ const ContractsPage = () => {
                         title: t.common.amount,
                         dataIndex: 'amount',
                         key: 'amount',
-                        render: (amount: number) => formatCurrencyWithSymbol(amount || 0)
+                        render: (amount: number) => formatCurrencyWithSymbol(amount || 0, (selectedContract as any).currency || branchCurrency)
                       },
                       {
                         title: t.contracts.dueDate,
@@ -1982,6 +1992,87 @@ const ContractsPage = () => {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </Modal>
+
+      {/* Secure Deletion Modal (Banking Protocol) */}
+      <Modal
+        title={language === 'ar' ? `حذف العقد - ${contractToDelete?.contractNumber}` : `Delete Contract - ${contractToDelete?.contractNumber}`}
+        open={deleteModalVisible}
+        onOk={async () => {
+          try {
+            const values = await deleteForm.validateFields()
+            
+            if (!contractToDelete) {
+              message.error('No contract selected for deletion')
+              return
+            }
+
+            const result = await contractsService.deleteContract(
+              contractToDelete.id,
+              values.password,
+              values.deletionReason
+            )
+
+            if (result.success) {
+              message.success(t.contracts.contractDeleted)
+              setDeleteModalVisible(false)
+              setContractToDelete(null)
+              deleteForm.resetFields()
+              loadContracts()
+            } else {
+              message.error(result.error || t.contracts.failedToDelete)
+            }
+          } catch (error) {
+            console.error('Error deleting contract:', error)
+            if (error.errorFields) {
+              message.error('Please fill all required fields')
+            } else {
+              message.error(t.contracts.failedToDelete)
+            }
+          }
+        }}
+        onCancel={() => {
+          setDeleteModalVisible(false)
+          setContractToDelete(null)
+          deleteForm.resetFields()
+        }}
+        okText={language === 'ar' ? 'حذف' : 'Delete'}
+        cancelText={t.common.cancel}
+        okButtonProps={{ danger: true }}
+        width={600}
+      >
+        <Alert
+          type="warning"
+          message={language === 'ar' ? 'تحذير: هذا الإجراء لا يمكن التراجع عنه' : 'Warning: This action cannot be undone'}
+          description={language === 'ar' ? 'سيتم حذف العقد وجميع بياناته المرتبطة. يرجى إدخال كلمة المرور للتأكيد.' : 'This will permanently delete the contract and all associated data. Please enter your password to confirm.'}
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={deleteForm} layout="vertical" style={{ marginTop: 24 }}>
+          <Form.Item
+            name="password"
+            label={language === 'ar' ? 'كلمة المرور' : 'Password'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال كلمة المرور' : 'Please enter your password' }]}
+          >
+            <Input.Password
+              placeholder={language === 'ar' ? 'أدخل كلمة المرور للتأكيد' : 'Enter password to confirm'}
+              autoComplete="current-password"
+            />
+          </Form.Item>
+          
+          <Form.Item
+            name="deletionReason"
+            label={language === 'ar' ? 'سبب الحذف' : 'Deletion Reason'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال سبب الحذف' : 'Please provide a reason for deletion' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              placeholder={language === 'ar' ? 'اشرح سبب حذف هذا العقد...' : 'Explain why you are deleting this contract...'}
+              maxLength={500}
+              showCount
+            />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

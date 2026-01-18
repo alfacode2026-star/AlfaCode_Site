@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
+import { useSyncStatus } from '../contexts/SyncStatusContext'
 import {
   Card,
   Table,
@@ -51,6 +54,9 @@ interface Payment {
 
 const AdminApprovals = () => {
   const navigate = useNavigate()
+  const { language } = useLanguage()
+  const { branchName } = useBranch()
+  const { updateStatus } = useSyncStatus()
   
   // Quotations state
   const [drafts, setDrafts] = useState<QuotationDraft[]>([])
@@ -74,11 +80,29 @@ const AdminApprovals = () => {
 
   // Load all data in parallel
   const loadAllData = async () => {
-    await Promise.all([
-      loadPendingQuotations(),
-      loadPendingExpenses(),
-      loadPendingAdvances()
-    ])
+    updateStatus('loading', language === 'ar' ? 'جاري التحقق من الموافقات المعلقة...' : 'Checking pending approvals...', branchName || null)
+    try {
+      await Promise.all([
+        loadPendingQuotations(),
+        loadPendingExpenses(),
+        loadPendingAdvances()
+      ])
+      
+      // Wait a bit for state updates to complete, then calculate totals
+      setTimeout(() => {
+        const totalPending = drafts.length + expenses.length + advances.length
+        
+        if (totalPending === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد عناصر معلقة' : 'No pending items found', branchName || null)
+        } else {
+          updateStatus('success', language === 'ar' ? `تم العثور على ${totalPending} عنصر معلق` : `Found ${totalPending} pending items`, branchName || null)
+        }
+      }, 100)
+    } catch (error) {
+      console.error('Error loading approvals data:', error)
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database'
+      updateStatus('error', errorMsg, branchName || null)
+    }
   }
 
   // Load pending quotations

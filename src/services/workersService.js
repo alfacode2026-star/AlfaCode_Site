@@ -1,22 +1,33 @@
 import { supabase } from './supabaseClient'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
 class WorkersService {
-  // Get all workers (filtered by current tenant)
+  // Get all workers (filtered by current tenant and branch)
   async getWorkers() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch workers.')
         return []
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch workers.')
+        return []
+      }
+
+      let query = supabase
         .from('workers')
         .select('*')
         .eq('tenant_id', tenantId)
-        .order('name', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('name', { ascending: true })
 
       if (error) throw error
 
@@ -31,17 +42,27 @@ class WorkersService {
   async getActiveWorkers() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch workers.')
         return []
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch active workers.')
+        return []
+      }
+
+      let query = supabase
         .from('workers')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('status', 'active')
-        .order('name', { ascending: true })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('name', { ascending: true })
 
       if (error) throw error
 
@@ -58,17 +79,27 @@ class WorkersService {
       if (!id) return null
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch worker.')
         return null
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch worker.')
+        return null
+      }
+
+      let query = supabase
         .from('workers')
         .select('*')
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.single()
 
       if (error) throw error
 
@@ -101,6 +132,18 @@ class WorkersService {
         }
       }
 
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
+
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create worker.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
       const newWorker = {
         id: workerData.id || crypto.randomUUID(),
         tenant_id: tenantId,
@@ -109,7 +152,8 @@ class WorkersService {
         default_daily_rate: parseFloat(workerData.defaultDailyRate) || 0,
         phone: workerData.phone?.trim() || null,
         status: workerData.status || 'active',
-        created_by: workerData.createdBy || 'user'
+        created_by: workerData.createdBy || 'user',
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       }
 
       const { data: insertedWorker, error } = await supabase
@@ -162,13 +206,21 @@ class WorkersService {
       if (updates.phone !== undefined) updateData.phone = updates.phone?.trim() || null
       if (updates.status !== undefined) updateData.status = updates.status
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('workers')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) throw error
 
@@ -215,11 +267,21 @@ class WorkersService {
         }
       }
 
-      const { error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('workers')
         .delete()
         .eq('id', id)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 

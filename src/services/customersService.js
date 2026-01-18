@@ -1,14 +1,23 @@
 import { supabase } from './supabaseClient'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 
 class CustomersService {
-  // Get all customers (filtered by current tenant)
+  // Get all customers (filtered by current tenant and branch)
   async getCustomers() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch customers.')
+        return []
+      }
+
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch customers.')
         return []
       }
 
@@ -16,7 +25,9 @@ class CustomersService {
         .from('customers')
         .select('*')
         .eq('tenant_id', tenantId)
-        .order('created_at', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      query = query.order('created_at', { ascending: false })
 
       const { data, error } = await query
 
@@ -28,23 +39,33 @@ class CustomersService {
     }
   }
 
-  // Get customer by ID (with tenant check)
+  // Get customer by ID (with tenant and branch check)
   async getCustomer(id) {
     try {
       if (!id) return null
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch customer.')
         return null
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch customer.')
+        return null
+      }
+
+      let query = supabase
         .from('customers')
         .select('*')
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.single()
 
       if (error) throw error
       return this.mapToCamelCase(data)
@@ -54,23 +75,33 @@ class CustomersService {
     }
   }
 
-  // Get customer by email (with tenant check)
+  // Get customer by email (with tenant and branch check)
   async getCustomerByEmail(email) {
     try {
       if (!email) return null
 
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch customer.')
         return null
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch customer.')
+        return null
+      }
+
+      let query = supabase
         .from('customers')
         .select('*')
         .eq('email', email)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.single()
 
       if (error && error.code !== 'PGRST116') throw error // PGRST116 = not found
       return data ? this.mapToCamelCase(data) : null
@@ -96,9 +127,21 @@ class CustomersService {
       // Generate UUID if not provided (let Supabase handle it or use crypto.randomUUID())
       const customerId = customerData.id || crypto.randomUUID()
 
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
+
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create customer.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
       const newCustomer = {
         id: customerId,
-        tenant_id: tenantId, // Include tenant_id
+        tenant_id: tenantId,
         name: customerData.name,
         email: customerData.email,
         phone: customerData.phone,
@@ -118,7 +161,8 @@ class CustomersService {
         notes: customerData.notes || null,
         created_by: customerData.createdBy || 'user',
         // لضمان التوافق مع مخزن Supabase وسكيمة الكاش
-        created_at: customerData.createdAt || new Date().toISOString()
+        created_at: customerData.createdAt || new Date().toISOString(),
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       }
 
       const { data, error } = await supabase
@@ -191,13 +235,21 @@ class CustomersService {
       if (updates.creditLimit !== undefined) updateData.credit_limit = updates.creditLimit ? parseFloat(updates.creditLimit) : null
       if (updates.notes !== undefined) updateData.notes = updates.notes || null
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('customers')
         .update(updateData)
         .eq('id', id)
-        .eq('tenant_id', tenantId) // Ensure tenant match
-        .select()
-        .single()
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) {
         if (error.code === '23505') {
@@ -252,11 +304,21 @@ class CustomersService {
         }
       }
 
-      const { error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return { success: false, error: 'No branch ID set' }
+      }
+
+      let query = supabase
         .from('customers')
         .delete()
         .eq('id', id)
-        .eq('tenant_id', tenantId) // Ensure tenant match
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
@@ -295,12 +357,21 @@ class CustomersService {
         return []
       }
 
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot search customers.')
+        return []
+      }
+
       const searchTerm = `%${query.trim()}%`
       
       let queryBuilder = supabase
         .from('customers')
         .select('*')
-        .eq('tenant_id', tenantId) // Filter by tenant
+        .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .or(`name.ilike.${searchTerm},email.ilike.${searchTerm},phone.ilike.${searchTerm}`)
       
       // Strict vendor filtering: only include type = 'vendor' or 'supplier', exclude 'client'

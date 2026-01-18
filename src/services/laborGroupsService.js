@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import paymentsService from './paymentsService'
 import treasuryService from './treasuryService'
@@ -126,10 +127,19 @@ class LaborGroupsService {
         return []
       }
 
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch labor groups.')
+        return []
+      }
+
       let query = supabase
         .from('labor_groups')
         .select('*')
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
 
       if (status) {
         query = query.eq('status', status)
@@ -239,12 +249,22 @@ class LaborGroupsService {
         return null
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch labor group.')
+        return null
+      }
+
+      let query = supabase
         .from('labor_groups')
         .select('*')
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.single()
 
       if (error) throw error
 
@@ -301,6 +321,18 @@ class LaborGroupsService {
         createdBy = await this.getCurrentUserId()
       }
 
+      // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return error if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot create labor group.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+      
       // Only send project_ids array, do not send project_id
       const newGroup = {
         id: groupData.id || crypto.randomUUID(),
@@ -326,7 +358,8 @@ class LaborGroupsService {
         treasury_account_id: null,
         approved_by: null,
         approved_at: null,
-        notes: groupData.notes || null
+        notes: groupData.notes || null,
+        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
       }
 
       // Only add created_by if we have a valid UUID (optional)
@@ -516,13 +549,25 @@ class LaborGroupsService {
         updated_at: new Date().toISOString()
       }
 
-      const { data: updatedGroup, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
+      let query = supabase
         .from('labor_groups')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: updatedGroup, error } = await query.select().single()
 
       if (error) throw error
 
@@ -605,13 +650,25 @@ class LaborGroupsService {
         }
       }
 
-      const { data: updatedGroup, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
+      let query = supabase
         .from('labor_groups')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: updatedGroup, error } = await query.select().single()
 
       if (error) throw error
 
@@ -731,13 +788,25 @@ class LaborGroupsService {
         updated_at: new Date().toISOString()
       }
 
-      const { data: updatedGroup, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
+      let query = supabase
         .from('labor_groups')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data: updatedGroup, error } = await query.select().single()
 
       if (error) throw error
 
@@ -755,11 +824,18 @@ class LaborGroupsService {
 
         if (!treasuryResult.success) {
           // Rollback group payment method
-          await supabase
+          const branchIdForRollback = branchStore.getBranchId()
+          let rollbackQuery = supabase
             .from('labor_groups')
             .update({ payment_method: null, treasury_account_id: null, linked_advance_id: null })
             .eq('id', id)
             .eq('tenant_id', tenantId)
+          
+          if (branchIdForRollback) {
+            rollbackQuery = rollbackQuery.eq('branch_id', branchIdForRollback)
+          }
+          
+          await rollbackQuery
 
           return {
             success: false,
@@ -769,11 +845,18 @@ class LaborGroupsService {
         }
 
         // Mark as paid
-        await supabase
+        const branchIdForPaid = branchStore.getBranchId()
+        let paidQuery = supabase
           .from('labor_groups')
           .update({ status: 'paid' })
           .eq('id', id)
           .eq('tenant_id', tenantId)
+        
+        if (branchIdForPaid) {
+          paidQuery = paidQuery.eq('branch_id', branchIdForPaid)
+        }
+        
+        await paidQuery
       } else if (paymentMethod === 'advance') {
         // Deduct from advance
         // Get project ID (handle both projectId and projectIds array)
@@ -833,11 +916,18 @@ class LaborGroupsService {
 
         if (!settlementResult.success) {
           // Rollback group payment method
-          await supabase
+          const branchIdForRollback2 = branchStore.getBranchId()
+          let rollbackQuery2 = supabase
             .from('labor_groups')
             .update({ payment_method: null, treasury_account_id: null, linked_advance_id: null })
             .eq('id', id)
             .eq('tenant_id', tenantId)
+          
+          if (branchIdForRollback2) {
+            rollbackQuery2 = rollbackQuery2.eq('branch_id', branchIdForRollback2)
+          }
+          
+          await rollbackQuery2
 
           return {
             success: false,
@@ -847,11 +937,18 @@ class LaborGroupsService {
         }
 
         // Mark as paid
-        await supabase
+        const branchIdForPaid2 = branchStore.getBranchId()
+        let paidQuery2 = supabase
           .from('labor_groups')
           .update({ status: 'paid' })
           .eq('id', id)
           .eq('tenant_id', tenantId)
+        
+        if (branchIdForPaid2) {
+          paidQuery2 = paidQuery2.eq('branch_id', branchIdForPaid2)
+        }
+        
+        await paidQuery2
       }
 
       return {
@@ -926,13 +1023,25 @@ class LaborGroupsService {
       if (updates.holidays !== undefined) updateData.holidays = updates.holidays
       if (updates.notes !== undefined) updateData.notes = updates.notes
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
+      let query = supabase
         .from('labor_groups')
         .update(updateData)
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .select()
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.select().single()
 
       if (error) throw error
 
@@ -989,11 +1098,25 @@ class LaborGroupsService {
         }
       }
 
-      const { error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
+      let query = supabase
         .from('labor_groups')
         .delete()
         .eq('id', id)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
@@ -1018,16 +1141,24 @@ class LaborGroupsService {
       if (!engineerName && !engineerId) return []
       
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) return []
+
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch advances.')
+        return []
+      }
 
       // Build query to fetch advances
       let query = supabase
         .from('payments')
         .select('*')
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .eq('transaction_type', 'advance')
         .in('status', ['approved', 'paid']) // CRITICAL: Only 'approved' or 'paid' status
-        .order('due_date', { ascending: false })
 
       // Filter by engineer_id if available, otherwise by engineer_name (manager_name)
       if (engineerId) {
@@ -1040,6 +1171,8 @@ class LaborGroupsService {
       } else {
         return [] // No engineer identifier provided
       }
+
+      query = query.order('due_date', { ascending: false })
 
       const { data: advances, error } = await query
 

@@ -28,6 +28,7 @@ import GeneralExpenses from './pages/GeneralExpenses';
 import AdminApprovals from './pages/AdminApprovals';
 import TreasuryPage from './pages/TreasuryPage';
 import IncomesPage from './pages/IncomesPage';
+import AuditLogsPage from './pages/AuditLogsPage';
 import RequireSetup from './components/RequireSetup';
 import BranchesSettings from './pages/settings/BranchesSettings';
 import AuthPage from './pages/AuthPage';
@@ -49,6 +50,9 @@ import { BranchProvider, useBranch } from './contexts/BranchContext';
 
 // Import Language Provider
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
+
+// Import Sync Status Provider
+import { SyncStatusProvider, useSyncStatus } from './contexts/SyncStatusContext'
 import LanguageSelection from './components/LanguageSelection';
 
 // Import company settings service
@@ -390,7 +394,8 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 function AppContent() {
   const { industryType } = useTenant();
   const { language } = useLanguage();
-  const { error: branchError, branchId } = useBranch();
+  const { error: branchError, branchId, branchName } = useBranch();
+  const { updateStatus } = useSyncStatus();
   const location = useLocation();
   
   // SIMPLE AUTH GUARD: Standard Supabase session state
@@ -443,6 +448,18 @@ function AppContent() {
       subscription.unsubscribe();
     };
   }, []); // Run once on mount
+
+  // CRITICAL: Reset sync status when route or branch changes
+  // This ensures the sidebar widget doesn't show stale status from previous page
+  useEffect(() => {
+    // Reset to idle state immediately when navigating or switching branches
+    updateStatus('idle', language === 'ar' ? 'جاهز' : 'Ready', branchName || null);
+    console.log('🔄 [AppContent] Route or branch changed - resetting sync status', {
+      pathname: location.pathname,
+      branchId,
+      branchName
+    });
+  }, [location.pathname, branchId, updateStatus, language, branchName]);
 
   const isSetupPage = location.pathname === '/setup';
   const isSetupWizard = location.pathname === '/setup-wizard';
@@ -532,6 +549,7 @@ function AppContent() {
                 <Route path="/labor" element={<LaborPage />} />
                 <Route path="/general-expenses" element={<GeneralExpenses />} />
                 <Route path="/admin-approvals" element={<AdminApprovals />} />
+                <Route path="/audit-logs" element={<AuditLogsPage />} />
                 <Route path="/treasury" element={<TreasuryPage />} />
                 <Route path="/incomes" element={<IncomesPage />} />
                 <Route path="/customers" element={<CustomersPage />} />
@@ -581,13 +599,15 @@ function AppWrapper() {
     <ConfigProvider direction={direction} locale={locale}>
       <TenantProvider>
         <BranchProvider>
-          <Router>
-            <RequireSetup>
-              <OnboardingGuard>
-                <AppContent />
-              </OnboardingGuard>
-            </RequireSetup>
-          </Router>
+          <SyncStatusProvider>
+            <Router>
+              <RequireSetup>
+                <OnboardingGuard>
+                  <AppContent />
+                </OnboardingGuard>
+              </RequireSetup>
+            </Router>
+          </SyncStatusProvider>
         </BranchProvider>
       </TenantProvider>
     </ConfigProvider>

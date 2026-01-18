@@ -1,25 +1,36 @@
 import { supabase } from './supabaseClient'
 import tenantStore from './tenantStore'
+import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import paymentsService from './paymentsService'
 import workersService from './workersService'
 import categoryService from './categoryService'
 
 class AttendanceService {
-  // Get all daily records (filtered by current tenant)
+  // Get all daily records (filtered by current tenant and branch)
   async getDailyRecords() {
     try {
       const tenantId = tenantStore.getTenantId()
+      const branchId = branchStore.getBranchId()
+      
       if (!tenantId) {
         console.warn('No tenant ID set. Cannot fetch daily records.')
         return []
       }
 
-      const { data, error } = await supabase
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch daily records.')
+        return []
+      }
+
+      let query = supabase
         .from('daily_records')
         .select('*')
         .eq('tenant_id', tenantId)
-        .order('date', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('date', { ascending: false })
 
       if (error) throw error
 
@@ -38,12 +49,22 @@ class AttendanceService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch daily records by project.')
+        return []
+      }
+
+      let query = supabase
         .from('daily_records')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
-        .order('date', { ascending: false })
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.order('date', { ascending: false })
 
       if (error) throw error
 
@@ -62,12 +83,23 @@ class AttendanceService {
       const tenantId = tenantStore.getTenantId()
       if (!tenantId) return []
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch daily records by date and project.')
+        return []
+      }
+
+      let query = supabase
         .from('daily_records')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('project_id', projectId)
         .eq('date', date)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query
 
       if (error) throw error
 
@@ -145,6 +177,14 @@ class AttendanceService {
         const dailyRate = attendanceData.workerRates?.[workerId] || worker.defaultDailyRate || 0
         const hoursWorked = attendanceData.workerHours?.[workerId] || 1.0
 
+        // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
+        const branchId = branchStore.getBranchId()
+        
+        // MANDATORY BRANCH ISOLATION: Skip record if branchId is null (return error at end)
+        if (!branchId) {
+          throw new Error('No branch ID set. Cannot create attendance record.')
+        }
+        
         // Create daily record
         const record = {
           id: crypto.randomUUID(),
@@ -155,7 +195,8 @@ class AttendanceService {
           daily_rate_at_time: dailyRate,
           hours_worked: parseFloat(hoursWorked),
           notes: attendanceData.notes || null,
-          created_by: attendanceData.createdBy || 'user'
+          created_by: attendanceData.createdBy || 'user',
+          branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
         }
 
         recordsToInsert.push(record)
@@ -258,12 +299,26 @@ class AttendanceService {
         }
       }
 
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        return {
+          success: false,
+          error: 'No branch ID set. Cannot delete daily record.',
+          errorCode: 'NO_BRANCH_ID'
+        }
+      }
+
       // Delete the record
-      const { error } = await supabase
+      let query = supabase
         .from('daily_records')
         .delete()
         .eq('id', id)
         .eq('tenant_id', tenantId)
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { error } = await query
 
       if (error) throw error
 
@@ -294,12 +349,22 @@ class AttendanceService {
         return null
       }
 
-      const { data, error } = await supabase
+      const branchId = branchStore.getBranchId()
+      
+      // MANDATORY BRANCH ISOLATION: Return NO DATA if branchId is null
+      if (!branchId) {
+        console.warn('No branch ID set. Cannot fetch daily record.')
+        return null
+      }
+
+      let query = supabase
         .from('daily_records')
         .select('*')
         .eq('id', id)
         .eq('tenant_id', tenantId)
-        .single()
+        .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+
+      const { data, error } = await query.single()
 
       if (error) throw error
 
