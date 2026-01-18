@@ -37,6 +37,7 @@ import { getTranslations } from '../utils/translations';
 import incomesService from '../services/incomesService';
 import projectsService from '../services/projectsService';
 import treasuryService from '../services/treasuryService';
+import userManagementService from '../services/userManagementService';
 import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils';
 
 const { Option } = Select;

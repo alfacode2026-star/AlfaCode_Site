@@ -5,6 +5,7 @@ import tenantStore from './tenantStore'
 import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import userManagementService from './userManagementService'
+import logsService from './logsService'
 
 class ContractsService {
   // Generate contract number
@@ -61,8 +62,11 @@ class ContractsService {
   }
 
   // Convert Quotation to Contract
-  async convertQuotationToContract(quotationId, contractType = 'original', workStartDate = null, clientId = null) {
+  async convertQuotationToContract(quotationId, contractType = 'original', customStartDate = null, clientId = null) {
     try {
+      console.log('🚀 Starting Conversion. Date:', customStartDate)
+      
+      // Validate inputs
       if (!quotationId) {
         return {
           success: false,
@@ -80,9 +84,14 @@ class ContractsService {
         }
       }
 
-      // Get quotation
-      const quotation = await quotationsService.getQuotation(quotationId)
-      if (!quotation) {
+      // 1. Fetch Quotation Data
+      const { data: quotation, error: qError } = await supabase
+        .from('quotations')
+        .select('*')
+        .eq('id', quotationId)
+        .single()
+
+      if (qError || !quotation) {
         return {
           success: false,
           error: 'العرض غير موجود',
@@ -90,8 +99,8 @@ class ContractsService {
         }
       }
 
-      // Check if quotation is accepted
-      if (quotation.status !== 'accepted') {
+      // Check if quotation is accepted/converted
+      if (quotation.status !== 'accepted' && quotation.status !== 'converted') {
         return {
           success: false,
           error: 'يمكن تحويل العروض المقبولة فقط إلى عقود',
@@ -121,13 +130,6 @@ class ContractsService {
         }
       }
 
-      // Create contract from quotation (inherit numeric ID from quote number)
-      const contractNumber = await this.generateContractNumberFromQuote(
-        quotation.quoteNumber,
-        contractType,
-        quotationId
-      )
-      
       // MANDATORY BRANCH INJECTION: Explicitly use branchStore (ignore frontend branchId)
       const branchId = branchStore.getBranchId()
       
@@ -139,41 +141,233 @@ class ContractsService {
           errorCode: 'NO_BRANCH_ID'
         }
       }
+
+      // Create contract from quotation (inherit numeric ID from quote number)
+      const contractNumber = await this.generateContractNumberFromQuote(
+        quotation.quote_number || quotation.quoteNumber,
+        contractType,
+        quotationId
+      )
+
+      // 2. Prepare Date (Force User Input)
+      let finalDate = null
+      if (customStartDate) {
+        if (typeof customStartDate === 'string') {
+          // Already a string, validate format
+          if (customStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            finalDate = customStartDate
+          } else {
+            // Try to parse and format
+            finalDate = new Date(customStartDate).toISOString().split('T')[0]
+          }
+        } else {
+          // Date object or moment, convert to string
+          finalDate = new Date(customStartDate).toISOString().split('T')[0]
+        }
+      }
       
-      const newContract = {
+      // Fallback to today only if NO date was provided
+      if (!finalDate) {
+        finalDate = new Date().toISOString().split('T')[0]
+      }
+
+      console.log('📅 Converting with Final Date:', finalDate)
+
+      // 3. Create Contract
+      const contractData = {
         tenant_id: tenantId,
+        branch_id: branchId, // MANDATORY: Explicitly set from branchStore (not from frontend)
         contract_number: contractNumber,
         quotation_id: quotationId,
-        customer_id: clientId || quotation.customerId || null, // Use provided clientId first
-        customer_name: quotation.customerName,
-        customer_phone: quotation.customerPhone,
+        customer_id: clientId || quotation.customer_id || null,
+        customer_name: quotation.customer_name || quotation.customerName || '',
+        customer_phone: quotation.customer_phone || quotation.customerPhone || '',
         contract_type: contractType,
-        work_type: quotation.workType,
-        total_amount: quotation.totalAmount,
-        project_name: quotation.projectName || null,
-        start_date: workStartDate || null, // CRITICAL: Use user-selected contract start date from modal, NOT quotation date
+        work_type: quotation.work_type || quotation.workType || null,
+        total_amount: quotation.total_amount || quotation.totalAmount || 0,
+        project_name: quotation.project_name || quotation.projectName || null,
+        contract_date: finalDate, // FORCE: Use user-selected date
+        start_date: finalDate,    // FORCE: Use user-selected date
         status: 'in_progress',
-        notes: `تم إنشاء هذا العقد من العرض ${quotation.quoteNumber}`,
-        created_by: 'user',
-        branch_id: branchId // MANDATORY: Explicitly set from branchStore (not from frontend)
+        notes: `تم إنشاء هذا العقد من العرض ${quotation.quote_number || quotation.quoteNumber}`,
+        created_by: 'user'
       }
       
       // Only include customer_email if it exists and is not empty
-      if (quotation.customerEmail && quotation.customerEmail.trim() !== '') {
-        newContract.customer_email = quotation.customerEmail
+      const customerEmail = quotation.customer_email || quotation.customerEmail
+      if (customerEmail && customerEmail.trim() !== '') {
+        contractData.customer_email = customerEmail.trim()
       }
 
-      const { data: insertedContract, error } = await supabase
+      const { data: newContract, error: cError } = await supabase
         .from('contracts')
-        .insert([newContract])
+        .insert([contractData])
         .select()
         .single()
 
-      if (error) throw error
+      if (cError) {
+        console.error('❌ Contract insertion error:', cError)
+        throw cError
+      }
 
+      console.log('✅ Contract created successfully:', newContract.id)
+
+      // 4. SMART PROJECT HANDLING (CRITICAL FIX: Eliminate Duplicates & Force Dates)
+      // BUG FIX: Use maybeSingle() first to check if a project exists, then handle accordingly
+      // This prevents duplicate creation when called from single-button conversion flow
+      
+      // Step 1: Check if a project already exists for this quotation (to avoid double entry)
+      const { data: existingProject, error: projectCheckError } = await supabase
+        .from('projects')
+        .select('id, work_start_date, start_date')
+        .eq('quotation_id', quotationId)
+        .eq('branch_id', branchId) // MANDATORY: Only find projects in the same branch
+        .eq('tenant_id', tenantId) // MANDATORY: Only find projects in the same tenant
+        .maybeSingle() // Use maybeSingle() to handle 0 or 1 result gracefully
+
+      if (projectCheckError && projectCheckError.code !== 'PGRST116') {
+        // PGRST116 = no rows returned, which is fine
+        console.warn('⚠️ Error checking for existing project:', projectCheckError)
+      }
+
+      // Step 1b: Also check for ALL projects (in case duplicates exist from previous runs)
+      const { data: allExistingProjects } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('quotation_id', quotationId)
+        .eq('branch_id', branchId)
+        .eq('tenant_id', tenantId)
+
+      // Step 2: Cleanup - Delete duplicates if more than one exists
+      if (allExistingProjects && allExistingProjects.length > 1) {
+        console.warn(`⚠️ Found ${allExistingProjects.length} duplicate projects for quotation ${quotationId}. Deleting extras...`)
+        
+        // Keep the first one (or the one we found with maybeSingle), delete the rest
+        const mainProjectId = existingProject?.id || allExistingProjects[0].id
+        const idsToDelete = allExistingProjects
+          .filter(p => p.id !== mainProjectId)
+          .map(p => p.id)
+        
+        if (idsToDelete.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('projects')
+            .delete()
+            .in('id', idsToDelete)
+            .eq('branch_id', branchId) // MANDATORY: Ensure branch isolation
+            .eq('tenant_id', tenantId) // MANDATORY: Ensure tenant isolation
+          
+          if (deleteError) {
+            console.error('❌ Failed to delete duplicate projects:', deleteError)
+            // Continue anyway - we'll try to update the remaining ones
+          } else {
+            console.log(`✅ Deleted ${idsToDelete.length} duplicate project(s)`)
+          }
+        }
+      }
+
+      // Step 3: Update or Create project with dates
+      if (existingProject) {
+        // SCENARIO A: Project exists (created by QuotationsPage or previous conversion). UPDATE IT.
+        const mainProjectId = existingProject.id
+        console.log('🔄 Project already exists, linking to contract and updating date...', mainProjectId)
+        
+        // Update BOTH date columns to ensure dates are set
+        // Also link the project to the contract if not already linked
+        // Note: Some tables use start_date, others use work_start_date
+        const updateData = {
+          work_start_date: finalDate, // Primary date column
+          status: 'active'
+        }
+        
+        // Try to set start_date as well (if column exists, will be set; if not, will be ignored by DB)
+        // We'll attempt both columns to ensure dates are saved
+        updateData.start_date = finalDate
+        
+        // Link project to contract (if contract_id field exists in projects table)
+        // This ensures the project is properly associated with the new contract
+        // Note: We'll try to set it, but if the field doesn't exist, the DB will ignore it
+        updateData.contract_id = newContract.id
+        
+        const { error: updateError } = await supabase
+          .from('projects')
+          .update(updateData)
+          .eq('id', mainProjectId)
+        
+        if (updateError) {
+          console.warn('⚠️ Failed to update existing project:', updateError)
+          // If update failed due to column name, try with only work_start_date
+          const { error: retryError } = await supabase
+            .from('projects')
+            .update({
+              work_start_date: finalDate,
+              status: 'active'
+            })
+            .eq('id', mainProjectId)
+          
+          if (retryError) {
+            console.error('❌ Failed to update project (retry also failed):', retryError)
+          } else {
+            console.log('✅ Updated existing project (work_start_date only) - date:', finalDate)
+          }
+        } else {
+          console.log('✅ Updated existing project - work_start_date:', finalDate, 'start_date:', finalDate)
+        }
+      } else {
+        // SCENARIO B: No project exists. CREATE ONE.
+        console.log('✨ Creating NEW project manually')
+        
+        const newProject = {
+          tenant_id: tenantId,
+          branch_id: branchId, // MANDATORY: Use branchStore
+          name: quotation.project_name || quotation.projectName || `Project for ${contractNumber}`,
+          client_id: clientId || quotation.customer_id || null,
+          budget: quotation.total_amount || quotation.totalAmount || 0,
+          quotation_id: quotationId, // Link to quotation (relationship maintained through quotation_id)
+          work_start_date: finalDate, // FIX DATE: Use user-selected date
+          status: 'active',
+          completion_percentage: 0,
+          work_scopes: quotation.work_scopes || quotation.workScopes || null,
+          notes: `Created from quotation ${quotation.quote_number || quotation.quoteNumber}`
+        }
+        
+        // Try to set start_date as well (if column exists)
+        newProject.start_date = finalDate
+        
+        // Link project to contract immediately (if contract_id field exists)
+        // This ensures the project is properly associated with the new contract
+        newProject.contract_id = newContract.id
+        
+        const { data: createdProject, error: createError } = await supabase
+          .from('projects')
+          .insert([newProject])
+          .select()
+          .single()
+        
+        if (createError) {
+          console.error('❌ Failed to create project:', createError)
+          // If insert failed due to column name, try without start_date
+          delete newProject.start_date
+          const { data: retryProject, error: retryError } = await supabase
+            .from('projects')
+            .insert([newProject])
+            .select()
+            .single()
+          
+          if (retryError) {
+            console.error('❌ Failed to create project (retry also failed):', retryError)
+            // Continue anyway - contract was created successfully
+          } else {
+            console.log('✅ Created new project (work_start_date only):', retryProject.id, '- date:', finalDate)
+          }
+        } else {
+          console.log('✅ Created new project:', createdProject.id, '- work_start_date:', finalDate, 'start_date:', finalDate)
+        }
+      }
+
+      // 5. Return success
       return {
         success: true,
-        contract: await this.getContract(insertedContract.id)
+        contract: await this.getContract(newContract.id)
       }
     } catch (error) {
       console.error('Error converting quotation to contract:', error.message)
@@ -520,6 +714,87 @@ class ContractsService {
         throw error
       }
 
+      // TASK 2: Force sync to Projects table - Update associated project dates
+      if (dbPayload.start_date !== undefined || dbPayload.end_date !== undefined) {
+        console.log('🔄 Syncing dates to associated projects...')
+        
+        try {
+          // Get the updated contract to find its quotation_id
+          const updatedContract = data || await this.getContract(id)
+          const contractQuotationId = updatedContract?.quotation_id
+          
+          // Find projects linked to this contract by contract_id OR by quotation_id
+          let projectsToUpdate = []
+          
+          // Method 1: Find by contract_id (if projects table has this field)
+          // Note: Some schemas may not have contract_id, so we'll try both methods
+          const { data: projectsByContractId } = await supabase
+            .from('projects')
+            .select('id')
+            .eq('contract_id', id)
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId)
+          
+          if (projectsByContractId && projectsByContractId.length > 0) {
+            projectsToUpdate = projectsByContractId
+          } else if (contractQuotationId) {
+            // Method 2: Find by quotation_id (if no direct contract_id link exists)
+            const { data: projectsByQuotationId } = await supabase
+              .from('projects')
+              .select('id')
+              .eq('quotation_id', contractQuotationId)
+              .eq('tenant_id', tenantId)
+              .eq('branch_id', branchId)
+            
+            if (projectsByQuotationId && projectsByQuotationId.length > 0) {
+              projectsToUpdate = projectsByQuotationId
+            }
+          }
+          
+          // Update all found projects with contract dates
+          if (projectsToUpdate.length > 0) {
+            console.log(`✅ Found ${projectsToUpdate.length} project(s) to sync dates`)
+            
+            for (const project of projectsToUpdate) {
+              const projectUpdateData = {}
+              
+              // Update start_date (if contract has it)
+              if (dbPayload.start_date !== undefined) {
+                projectUpdateData.start_date = dbPayload.start_date
+                projectUpdateData.work_start_date = dbPayload.start_date // Update both columns
+              }
+              
+              // Update end_date (if contract has it)
+              if (dbPayload.end_date !== undefined) {
+                projectUpdateData.end_date = dbPayload.end_date
+              }
+              
+              // Only update if we have data to update
+              if (Object.keys(projectUpdateData).length > 0) {
+                const { error: projectUpdateError } = await supabase
+                  .from('projects')
+                  .update(projectUpdateData)
+                  .eq('id', project.id)
+                  .eq('tenant_id', tenantId)
+                  .eq('branch_id', branchId)
+                
+                if (projectUpdateError) {
+                  console.warn(`⚠️ Failed to update project ${project.id}:`, projectUpdateError)
+                  // Continue anyway - contract was updated successfully
+                } else {
+                  console.log(`✅ Updated project ${project.id} - start_date: ${projectUpdateData.start_date || 'unchanged'}, end_date: ${projectUpdateData.end_date || 'unchanged'}`)
+                }
+              }
+            }
+          } else {
+            console.log('ℹ️ No projects found to sync dates')
+          }
+        } catch (syncError) {
+          console.warn('⚠️ Error syncing dates to projects:', syncError)
+          // Continue anyway - contract was updated successfully
+        }
+      }
+
       return {
         success: true,
         contract: await this.getContract(id)
@@ -645,23 +920,17 @@ class ContractsService {
         }
       }
 
-      const deletionLog = {
-        table_name: 'contracts',
-        record_ref_number: contract.contractNumber || id,
-        record_id: id,
-        deletion_reason: deletionReason.trim(),
-        deleted_by: user.id,
-        tenant_id: tenantId,
-        branch_id: branchId,
-        deleted_data: JSON.stringify(contract) // Store snapshot of deleted record
-      }
+      // Log deletion using centralized logsService
+      const logResult = await logsService.logDeletion({
+        tableName: 'contracts',
+        recordId: id,
+        deletionReason: deletionReason.trim(),
+        recordRef: contract.contractNumber || id, // Human-readable reference
+        deletedData: contract // Store snapshot of deleted record
+      })
 
-      const { error: logError } = await supabase
-        .from('deletion_logs')
-        .insert([deletionLog])
-
-      if (logError) {
-        console.error('Error logging deletion:', logError)
+      if (!logResult.success) {
+        console.error('Error logging deletion:', logResult.error)
         return {
           success: false,
           error: 'Deletion aborted: Failed to create audit log. Please contact support.',

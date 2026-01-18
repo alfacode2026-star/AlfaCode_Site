@@ -1481,7 +1481,7 @@ const SettingsPage = () => {
                   <Card title={t.settings.brandingAndMedia} style={{ marginBottom: 16 }}>
                     <Row gutter={[24, 24]}>
                       <Col span={24}>
-                        <Divider orientation="left">{t.settings.fullPageLetterhead}</Divider>
+                        <Divider>{t.settings.fullPageLetterhead}</Divider>
                         <Form.Item
                           label={t.settings.letterheadImage}
                           extra={t.settings.letterheadImageExtra}
@@ -1528,7 +1528,7 @@ const SettingsPage = () => {
                       </Col>
 
                       <Col span={12}>
-                        <Divider orientation="left">{t.settings.digitalStamp}</Divider>
+                        <Divider>{t.settings.digitalStamp}</Divider>
                         <Form.Item
                           label={t.settings.digitalStamp}
                           extra={t.settings.digitalStampExtra}
@@ -1569,7 +1569,7 @@ const SettingsPage = () => {
                       </Col>
 
                       <Col span={12}>
-                        <Divider orientation="left">{t.settings.companyLogo}</Divider>
+                        <Divider>{t.settings.companyLogo}</Divider>
                         <Form.Item
                           label={t.settings.companyLogo}
                           extra={t.settings.companyLogoExtra}

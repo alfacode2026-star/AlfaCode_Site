@@ -645,10 +645,25 @@ const QuotationsPage = () => {
         message.error(result.error || t.quotations.failedToSave)
       }
     } catch (error) {
-      console.error('Validation failed:', error)
+      console.error('Validation Failed:', error)
       if (error.errorFields) {
-        message.error(t.quotations.fillRequiredFields)
+        // Log exact fields that failed validation
+        const failedFields = error.errorFields.map(field => ({
+          name: field.name?.join('.') || 'unknown',
+          errors: field.errors
+        }))
+        console.error('Failed Fields:', failedFields)
+        console.error('Failed Field Names:', failedFields.map(f => f.name).join(', '))
+        
+        // Show user-friendly message with field names
+        const fieldNames = failedFields.map(f => f.name).join(', ')
+        message.error(`${t.quotations.fillRequiredFields}: ${fieldNames}`)
       } else {
+        console.error('Error Details:', {
+          message: error.message,
+          stack: error.stack,
+          error
+        })
         message.error(t.quotations.failedToSave)
       }
     }
@@ -966,7 +981,7 @@ const QuotationsPage = () => {
             </Col>
           </Row>
 
-          <Divider orientation="left" style={{ marginTop: 24, marginBottom: 16 }}>
+          <Divider style={{ marginTop: 24, marginBottom: 16 }}>
             {t.quotations.workScopeDivider}
           </Divider>
 
@@ -1062,7 +1077,7 @@ const QuotationsPage = () => {
           )}
 
           {/* Custom Work Scopes */}
-          <Divider orientation="left" style={{ marginTop: 24, marginBottom: 16 }}>
+          <Divider style={{ marginTop: 24, marginBottom: 16 }}>
             {t.quotations.customWorkDivider}
           </Divider>
           {customWorkScopes.map((custom, index) => (
@@ -1281,30 +1296,39 @@ const QuotationsPage = () => {
             // Get updated quotation data
             const updatedQuotation = quotationUpdateResult.quotation || selectedQuotation
             
-            // Format work start date
-            const workStartDate = values.workStartDate ? moment(values.workStartDate).format('YYYY-MM-DD') : null
-            
-            // Create project with work start date, branch_id, and appropriate status
-            const projectData = {
-              name: updatedQuotation.projectName || `Project from ${updatedQuotation.quoteNumber}`,
-              clientId: customerIdToUse || updatedQuotation.customerId,
-              budget: updatedQuotation.totalAmount || 0,
-              workScopes: updatedQuotation.workScopes || [],
-              quotationId: updatedQuotation.id,
-              status: projectStatus,
-              completionPercentage: 0,
-              workStartDate: workStartDate,
-              branchId: branchId // Pass branch_id to ensure project is linked to correct branch
+            // Format work start date - explicitly format to ensure it's a string in YYYY-MM-DD format
+            // Handle both string (from HTML date input) and moment/dayjs objects
+            let workStartDate = null
+            if (values.workStartDate) {
+              if (typeof values.workStartDate === 'string') {
+                // Already a string from HTML date input, use it directly
+                workStartDate = values.workStartDate
+              } else if (moment.isMoment(values.workStartDate) || moment.isDayjs(values.workStartDate)) {
+                // Moment or Dayjs object, format it
+                workStartDate = moment(values.workStartDate).format('YYYY-MM-DD')
+              } else {
+                // Fallback: try to parse and format
+                workStartDate = moment(values.workStartDate).format('YYYY-MM-DD')
+              }
             }
             
-            const projectResult = await projectsService.addProject(projectData)
-            
-            if (!projectResult.success) {
-              message.error(projectResult.error || 'Failed to create project')
-              return
+            // Ensure date is in correct format (YYYY-MM-DD)
+            if (workStartDate && !workStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              console.warn('Invalid date format, formatting:', workStartDate)
+              workStartDate = moment(workStartDate).format('YYYY-MM-DD')
             }
+            
+            console.log('🔍 Convert to Contract - Selected Date:', workStartDate)
+            
+            // BUG FIX: Remove project creation from here - let convertQuotationToContract handle it
+            // This prevents duplicate project creation when the single button is clicked
+            // The convertQuotationToContract function already has logic to:
+            // 1. Check for existing projects by quotation_id
+            // 2. Delete duplicates if found
+            // 3. Update existing or create new project with proper dates
             
             // Create contract with work_start_date and client_id
+            // The contract service will handle project creation/update automatically
             const contractType = values.contractType || 'original'
             const contractResult = await contractsService.convertQuotationToContract(
               updatedQuotation.id,
@@ -1313,7 +1337,7 @@ const QuotationsPage = () => {
               customerIdToUse || updatedQuotation.customerId
             )
             
-            if (contractResult.success || projectResult.success) {
+            if (contractResult.success) {
               if (projectStatus === 'pending_approval') {
                 message.success(t.quotations?.quotationConvertedPendingApproval || 'Successfully converted to project and pending manager approval.')
               } else {
@@ -1325,10 +1349,8 @@ const QuotationsPage = () => {
               convertForm.resetFields()
               loadQuotations()
             } else {
-              // If contract creation fails, still show success for project creation
-              message.warning(projectResult.success ? 
-                (t.quotations?.projectCreatedButContractFailed || 'Project created but contract creation failed') :
-                (contractResult.error || t.quotations.failedToSave))
+              // Contract creation failed
+              message.error(contractResult.error || t.quotations.failedToSave)
             }
           } catch (error) {
             console.error('Error converting quotation:', error)
@@ -1375,10 +1397,11 @@ const QuotationsPage = () => {
               type="date"
               className="ant-input"
               style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+              value={convertForm.getFieldValue('workStartDate') || ''}
               onChange={(e) => {
-                if (e.target.value) {
-                  convertForm.setFieldsValue({ workStartDate: e.target.value })
-                }
+                const dateValue = e.target.value
+                console.log('🔍 Date input changed:', dateValue)
+                convertForm.setFieldsValue({ workStartDate: dateValue })
               }}
             />
           </Form.Item>

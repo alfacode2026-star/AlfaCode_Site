@@ -5,6 +5,7 @@ import tenantStore from './tenantStore'
 import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import userManagementService from './userManagementService'
+import logsService from './logsService'
 
 class OrdersService {
   // Generate PO number in format PO-YYYY-XXXX
@@ -576,23 +577,17 @@ class OrdersService {
         }
       }
 
-      const deletionLog = {
-        table_name: 'orders',
-        record_ref_number: order.orderNumber || `PO-${id}`,
-        record_id: id,
-        deletion_reason: deletionReason.trim(),
-        deleted_by: user.id,
-        tenant_id: tenantId,
-        branch_id: branchId,
-        deleted_data: JSON.stringify(order) // Store snapshot of deleted record
-      }
+      // Log deletion using centralized logsService
+      const logResult = await logsService.logDeletion({
+        tableName: 'orders',
+        recordId: id,
+        deletionReason: deletionReason.trim(),
+        recordRef: order.orderNumber || `PO-${id}`, // Human-readable reference
+        deletedData: order // Store snapshot of deleted record
+      })
 
-      const { error: logError } = await supabase
-        .from('deletion_logs')
-        .insert([deletionLog])
-
-      if (logError) {
-        console.error('Error logging deletion:', logError)
+      if (!logResult.success) {
+        console.error('Error logging deletion:', logResult.error)
         return {
           success: false,
           error: 'Deletion aborted: Failed to create audit log. Please contact support.',

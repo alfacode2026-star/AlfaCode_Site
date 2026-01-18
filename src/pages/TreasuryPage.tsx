@@ -692,6 +692,12 @@ const TreasuryPage: FC = () => {
         message.warning(`Currency ${currencyCode} not found. Using SAR as fallback.`);
       }
 
+      // GLOBAL FIX: Inject branch_id for non-super admins if missing
+      const userProfile = await userManagementService.getCurrentUserProfile()
+      if (!isSuperAdmin && userProfile?.branch_id && !values.branch_id) {
+        values.branch_id = userProfile.branch_id
+      }
+
       const accountData = {
         name: values.name,
         type: values.type,
@@ -781,12 +787,20 @@ const TreasuryPage: FC = () => {
   const handleSaveAddFunds = async (): Promise<void> => {
     try {
       const values = await addFundsForm.validateFields();
-      const result = await treasuryService.addFunds({
+      
+      // GLOBAL FIX: Inject branch_id for non-super admins if missing
+      const userProfile = await userManagementService.getCurrentUserProfile()
+      const fundsPayload: any = {
         accountId: values.accountId,
         amount: values.amount,
         date: values.date ? moment(values.date).toISOString() : new Date().toISOString(),
         description: values.description || values.note || 'Funds added by manager',
-      });
+      }
+      if (!isSuperAdmin && userProfile?.branch_id && !fundsPayload.branch_id) {
+        fundsPayload.branch_id = userProfile.branch_id
+      }
+      
+      const result = await treasuryService.addFunds(fundsPayload);
 
       if (result.success) {
         message.success('Funds added successfully.');
@@ -814,18 +828,38 @@ const TreasuryPage: FC = () => {
   const handleSaveTransferFunds = async (): Promise<void> => {
     try {
       const values = await transferFundsForm.validateFields();
+      
+      // --- START GLOBAL FIX: Branch Injection ---
+      const userProfile = await userManagementService.getCurrentUserProfile();
+      const isSuperAdminUser = userProfile?.role === 'super_admin';
+
+      if (!isSuperAdminUser && userProfile?.branch_id) {
+         // Inject into values if missing
+         if (!values.branch_id) {
+             values.branch_id = userProfile.branch_id;
+         }
+      }
+      // --- END GLOBAL FIX ---
+
       const sourceAmount = values.sourceAmount;
       const exchangeRate = values.exchangeRate || 1.0;
       const destinationAmount = sourceAmount * exchangeRate;
 
-      const result = await treasuryService.transferFunds({
+      const transferPayload: any = {
         sourceAccountId: values.sourceAccountId,
         destinationAccountId: values.destinationAccountId,
         sourceAmount: sourceAmount,
         exchangeRate: exchangeRate,
         destinationAmount: destinationAmount,
         description: values.description || 'Funds transfer between accounts',
-      });
+      };
+      
+      // Inject branch_id if missing for non-super admins
+      if (!isSuperAdminUser && userProfile?.branch_id && !transferPayload.branch_id) {
+        transferPayload.branch_id = userProfile.branch_id;
+      }
+
+      const result = await treasuryService.transferFunds(transferPayload);
 
       if (result.success) {
         message.success(

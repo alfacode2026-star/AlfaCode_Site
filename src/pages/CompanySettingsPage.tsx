@@ -309,7 +309,7 @@ const CompanySettingsPage = () => {
           <Row gutter={[24, 24]}>
             {/* Full-Page Letterhead */}
             <Col span={24}>
-              <Divider orientation="left">Full-Page Letterhead (A4 Background)</Divider>
+              <Divider>Full-Page Letterhead (A4 Background)</Divider>
               <Form.Item
                 label="Letterhead Image"
                 extra="Upload a high-resolution PNG/JPG of the entire A4 page (210mm x 297mm) including header, footer, and watermark. Recommended: 2480x3508 pixels at 300 DPI."
@@ -370,7 +370,7 @@ const CompanySettingsPage = () => {
 
             {/* Digital Stamp */}
             <Col span={12}>
-              <Divider orientation="left">Digital Stamp</Divider>
+              <Divider>Digital Stamp</Divider>
               <Form.Item
                 label="Digital Stamp (Transparent PNG)"
                 extra="Upload a transparent PNG of your company stamp/signature. Recommended: 300x300 pixels."
@@ -425,7 +425,7 @@ const CompanySettingsPage = () => {
 
             {/* Logo */}
             <Col span={12}>
-              <Divider orientation="left">Company Logo</Divider>
+              <Divider>Company Logo</Divider>
               <Form.Item
                 label="Company Logo (Optional)"
                 extra="Upload your company logo. Recommended: 300x100 pixels."

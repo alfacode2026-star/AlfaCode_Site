@@ -7,6 +7,7 @@ import customersService from '../services/customersService'
 import projectsService from '../services/projectsService'
 import treasuryService from '../services/treasuryService'
 import paymentsService from '../services/paymentsService'
+import userManagementService from '../services/userManagementService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
@@ -974,6 +975,10 @@ const OrdersPage = () => {
       // Use branch currency directly (single source of truth)
       const currency = displayCurrency
 
+      // GLOBAL FIX: Inject branch_id for non-super admins if missing
+      const userProfile = await userManagementService.getCurrentUserProfile()
+      const isSuperAdmin = userProfile?.role === 'super_admin'
+      
       // Create order data
       const orderData = {
         customerId: finalCustomerId,
@@ -990,6 +995,11 @@ const OrdersPage = () => {
         shippingMethod: 'standard',
         notes: values.notes || '',
         createdBy: 'user' // TODO: Get from auth context
+      }
+      
+      // Inject branch_id if missing for non-super admins
+      if (!isSuperAdmin && userProfile?.branch_id && !orderData.branch_id) {
+        orderData.branch_id = userProfile.branch_id
       }
 
       const result = await ordersService.createOrder(orderData)

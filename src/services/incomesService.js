@@ -4,6 +4,7 @@ import branchStore from './branchStore'
 import { validateTenantId } from '../utils/tenantValidation'
 import treasuryService from './treasuryService'
 import userManagementService from './userManagementService'
+import logsService from './logsService'
 
 class IncomesService {
   // Get all incomes (received payments/advances per project)
@@ -503,23 +504,17 @@ class IncomesService {
         }
       }
 
-      const deletionLog = {
-        table_name: 'payments',
-        record_ref_number: income.paymentNumber || income.id,
-        record_id: id,
-        deletion_reason: deletionReason.trim(),
-        deleted_by: user.id,
-        tenant_id: tenantId,
-        branch_id: branchId,
-        deleted_data: JSON.stringify(income) // Store snapshot of deleted record
-      }
+      // Log deletion using centralized logsService
+      const logResult = await logsService.logDeletion({
+        tableName: 'payments',
+        recordId: id,
+        deletionReason: deletionReason.trim(),
+        recordRef: income.paymentNumber || income.id, // Human-readable reference
+        deletedData: income // Store snapshot of deleted record
+      })
 
-      const { error: logError } = await supabase
-        .from('deletion_logs')
-        .insert([deletionLog])
-
-      if (logError) {
-        console.error('Error logging deletion:', logError)
+      if (!logResult.success) {
+        console.error('Error logging deletion:', logResult.error)
         return {
           success: false,
           error: 'Deletion aborted: Failed to create audit log. Please contact support.',

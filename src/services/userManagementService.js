@@ -24,7 +24,11 @@ class UserManagementService {
 
       return profile
     } catch (error) {
-      console.warn('Error getting current user profile:', error)
+      if (error.name === 'AbortError' || error.message === 'AbortError' || error instanceof DOMException) {
+        console.warn('Fetch aborted (navigation or unmount) - ignoring.')
+        return null // Return null but DO NOT throw, to prevent app crash
+      }
+      console.error('Error getting user profile:', error)
       return null
     }
   }

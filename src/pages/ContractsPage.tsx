@@ -578,52 +578,53 @@ const ContractsPage = () => {
             onClick={() => {
               setSelectedContract(record)
               
-              // CRITICAL FIX: Strict parsing to prevent 2072 year corruption
+              // CRITICAL FIX: Load dates properly for HTML date inputs (must be YYYY-MM-DD string format)
               const startDateValue = record.startDate || record.start_date
               const endDateValue = record.endDate || record.end_date
               
-              let startDateMoment: moment.Moment | null = null
-              let endDateMoment: moment.Moment | null = null
+              let startDateStr: string | null = null
+              let endDateStr: string | null = null
               
+              // Parse start date to YYYY-MM-DD string format
               if (startDateValue) {
                 if (moment.isMoment(startDateValue)) {
-                  startDateMoment = startDateValue.isValid() ? startDateValue.clone() : null
-                } else if (startDateValue && typeof startDateValue === 'object' && 'getTime' in startDateValue) {
-                  const dateStr = moment(startDateValue).format('YYYY-MM-DD')
-                  startDateMoment = moment(dateStr, 'YYYY-MM-DD', true).isValid() 
-                    ? moment(dateStr, 'YYYY-MM-DD', true) 
-                    : null
+                  startDateStr = startDateValue.isValid() ? startDateValue.format('YYYY-MM-DD') : null
                 } else if (typeof startDateValue === 'string') {
                   const parsed = moment(startDateValue, 'YYYY-MM-DD', true)
-                  startDateMoment = parsed.isValid() ? parsed : null
+                  startDateStr = parsed.isValid() ? parsed.format('YYYY-MM-DD') : null
+                } else if (startDateValue && typeof startDateValue === 'object' && 'getTime' in startDateValue) {
+                  const dateStr = moment(startDateValue).format('YYYY-MM-DD')
+                  const parsed = moment(dateStr, 'YYYY-MM-DD', true)
+                  startDateStr = parsed.isValid() ? parsed.format('YYYY-MM-DD') : null
                 } else {
                   const dateStr = String(startDateValue).split('T')[0]
                   const parsed = moment(dateStr, 'YYYY-MM-DD', true)
-                  startDateMoment = parsed.isValid() ? parsed : null
+                  startDateStr = parsed.isValid() ? parsed.format('YYYY-MM-DD') : null
                 }
               }
               
+              // Parse end date to YYYY-MM-DD string format
               if (endDateValue) {
                 if (moment.isMoment(endDateValue)) {
-                  endDateMoment = endDateValue.isValid() ? endDateValue.clone() : null
-                } else if (endDateValue && typeof endDateValue === 'object' && 'getTime' in endDateValue) {
-                  const dateStr = moment(endDateValue).format('YYYY-MM-DD')
-                  endDateMoment = moment(dateStr, 'YYYY-MM-DD', true).isValid() 
-                    ? moment(dateStr, 'YYYY-MM-DD', true) 
-                    : null
+                  endDateStr = endDateValue.isValid() ? endDateValue.format('YYYY-MM-DD') : null
                 } else if (typeof endDateValue === 'string') {
                   const parsed = moment(endDateValue, 'YYYY-MM-DD', true)
-                  endDateMoment = parsed.isValid() ? parsed : null
+                  endDateStr = parsed.isValid() ? parsed.format('YYYY-MM-DD') : null
+                } else if (endDateValue && typeof endDateValue === 'object' && 'getTime' in endDateValue) {
+                  const dateStr = moment(endDateValue).format('YYYY-MM-DD')
+                  const parsed = moment(dateStr, 'YYYY-MM-DD', true)
+                  endDateStr = parsed.isValid() ? parsed.format('YYYY-MM-DD') : null
                 } else {
                   const dateStr = String(endDateValue).split('T')[0]
                   const parsed = moment(dateStr, 'YYYY-MM-DD', true)
-                  endDateMoment = parsed.isValid() ? parsed : null
+                  endDateStr = parsed.isValid() ? parsed.format('YYYY-MM-DD') : null
                 }
               }
               
+              // Set form values as strings (HTML date input requires string in YYYY-MM-DD format)
               datesEditForm.setFieldsValue({
-                startDate: startDateMoment,
-                endDate: endDateMoment
+                startDate: startDateStr || '',
+                endDate: endDateStr || ''
               })
               
               setDatesEditModalVisible(true)
@@ -856,75 +857,46 @@ const ContractsPage = () => {
     try {
       const values = await datesEditForm.validateFields()
 
+      // TASK 3: Prevent empty saves - Validate that start date is provided for active contracts
+      if (!selectedContract) {
+        message.error('No contract selected')
+        return
+      }
+
+      // Parse dates from HTML date input (values are strings in YYYY-MM-DD format)
       let startMoment: moment.Moment | null = null
       let endMoment: moment.Moment | null = null
       
-      if (values.startDate) {
-        if (moment.isMoment(values.startDate)) {
-          startMoment = values.startDate.isValid() ? values.startDate.clone() : null
-        } else if (values.startDate && typeof values.startDate === 'object' && 'getTime' in values.startDate) {
-          startMoment = moment(values.startDate)
-          if (!startMoment.isValid()) {
-            message.error('Invalid start date')
-            return
-          }
-        } else if (typeof values.startDate === 'string') {
-          startMoment = moment(values.startDate, 'YYYY-MM-DD', true)
-          if (!startMoment.isValid()) {
-            message.error('Invalid start date')
-            return
-          }
-        } else {
-          startMoment = moment(values.startDate)
-          if (!startMoment.isValid()) {
-            message.error('Invalid start date')
-            return
-          }
+      if (values.startDate && values.startDate.trim() !== '') {
+        startMoment = moment(values.startDate, 'YYYY-MM-DD', true)
+        if (!startMoment.isValid()) {
+          message.error('Invalid start date format')
+          return
         }
-        
-        if (startMoment) {
-          startMoment = startMoment.startOf('day')
+        startMoment = startMoment.startOf('day')
+      } else {
+        // TASK 3: Prevent empty saves - Require start date for active contracts
+        if (selectedContract.status === 'in_progress') {
+          message.error('Start date is required for active contracts')
+          return
         }
       }
       
-      if (values.endDate) {
-        if (moment.isMoment(values.endDate)) {
-          endMoment = values.endDate.isValid() ? values.endDate.clone() : null
-        } else if (values.endDate && typeof values.endDate === 'object' && 'getTime' in values.endDate) {
-          endMoment = moment(values.endDate)
-          if (!endMoment.isValid()) {
-            message.error('Invalid end date')
-            return
-          }
-        } else if (typeof values.endDate === 'string') {
-          endMoment = moment(values.endDate, 'YYYY-MM-DD', true)
-          if (!endMoment.isValid()) {
-            message.error('Invalid end date')
-            return
-          }
-        } else {
-          endMoment = moment(values.endDate)
-          if (!endMoment.isValid()) {
-            message.error('Invalid end date')
-            return
-          }
+      if (values.endDate && values.endDate.trim() !== '') {
+        endMoment = moment(values.endDate, 'YYYY-MM-DD', true)
+        if (!endMoment.isValid()) {
+          message.error('Invalid end date format')
+          return
         }
-        
-        if (endMoment) {
-          endMoment = endMoment.startOf('day')
-        }
+        endMoment = endMoment.startOf('day')
       }
 
+      // Validate date range
       if (startMoment && endMoment) {
         if (endMoment.isBefore(startMoment)) {
           message.error('End date must be after start date')
           return
         }
-      }
-
-      if (!selectedContract) {
-        message.error('No contract selected')
-        return
       }
 
       const newStartDate = startMoment && startMoment.isValid() 
@@ -938,7 +910,6 @@ const ContractsPage = () => {
         startDate: newStartDate,
         endDate: newEndDate
       }
-
 
       const result = await contractsService.updateContract(selectedContract.id, apiPayload)
 
@@ -1957,18 +1928,23 @@ const ContractsPage = () => {
               <Form.Item
                 name="startDate"
                 label={t.contracts.startDate}
-                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
-                getValueProps={(value) => ({
-                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
-                })}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator: (_, value) => {
+                      // Require start date for active contracts
+                      if (!value && selectedContract?.status === 'in_progress') {
+                        return Promise.reject(new Error('Start date is required for active contracts'))
+                      }
+                      return Promise.resolve()
+                    }
+                  })
+                ]}
               >
                 <input
                   type="date"
                   className="ant-input"
                   style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   placeholder={t.contracts.selectStartDatePlaceholder}
-                  disabled
-                  readOnly
                 />
               </Form.Item>
             </Col>
@@ -1976,18 +1952,27 @@ const ContractsPage = () => {
               <Form.Item
                 name="endDate"
                 label={t.contracts.endDate}
-                getValueFromEvent={(e) => e.target.value ? moment(e.target.value) : null}
-                getValueProps={(value) => ({
-                  value: value ? (moment.isMoment(value) ? value.format('YYYY-MM-DD') : moment(value).format('YYYY-MM-DD')) : ''
-                })}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator: (_, value) => {
+                      const startDate = getFieldValue('startDate')
+                      if (value && startDate) {
+                        const start = moment(startDate, 'YYYY-MM-DD', true)
+                        const end = moment(value, 'YYYY-MM-DD', true)
+                        if (end.isBefore(start)) {
+                          return Promise.reject(new Error('End date must be after start date'))
+                        }
+                      }
+                      return Promise.resolve()
+                    }
+                  })
+                ]}
               >
                 <input
                   type="date"
                   className="ant-input"
                   style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
                   placeholder={t.contracts.selectEndDatePlaceholder}
-                  disabled
-                  readOnly
                 />
               </Form.Item>
             </Col>

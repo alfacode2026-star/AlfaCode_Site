@@ -46,6 +46,7 @@ import ordersService from '../services/ordersService'
 import treasuryService from '../services/treasuryService'
 import workersService from '../services/workersService'
 import employeesService from '../services/employeesService'
+import userManagementService from '../services/userManagementService'
 import tenantStore from '../services/tenantStore'
 import { useTenant } from '../contexts/TenantContext'
 import { useBranch } from '../contexts/BranchContext'
@@ -913,6 +914,10 @@ const GeneralExpenses = () => {
           isManualEntry: p.isManualEntry || false
         }))
 
+        // GLOBAL FIX: Inject branch_id for non-super admins if missing
+        const userProfile = await userManagementService.getCurrentUserProfile()
+        const isSuperAdmin = userProfile?.role === 'super_admin'
+        
         const orderData = {
           customerId: finalCustomerId,
           customerName: finalCustomerName,
@@ -927,6 +932,11 @@ const GeneralExpenses = () => {
           shippingMethod: 'standard',
           notes: values.notes || '',
           createdBy: 'user'
+        }
+        
+        // Inject branch_id if missing for non-super admins
+        if (!isSuperAdmin && userProfile?.branch_id && !orderData.branch_id) {
+          orderData.branch_id = userProfile.branch_id
         }
 
         const orderResult = await ordersService.createOrder(orderData)
@@ -1315,6 +1325,10 @@ const GeneralExpenses = () => {
 
         // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
         const currencyForAdvance = branchCurrency || 'SAR'
+        
+        // GLOBAL FIX: Inject branch_id for non-super admins if missing
+        const userProfile = await userManagementService.getCurrentUserProfile()
+        const isSuperAdmin = userProfile?.role === 'super_admin'
 
         const paymentData = {
           isGeneralExpense: true, // Manager advances are general expenses
@@ -1335,6 +1349,11 @@ const GeneralExpenses = () => {
           settlementType: transactionType === 'settlement' ? (settlementType || 'expense') : null,
           currency: currencyForAdvance, // Currency from treasury account or linked advance
           treasuryAccountId: treasuryAccountIdForAdvance // Include treasury account ID for advances
+        }
+        
+        // Inject branch_id if missing for non-super admins
+        if (!isSuperAdmin && userProfile?.branch_id && !paymentData.branch_id) {
+          paymentData.branch_id = userProfile.branch_id
         }
 
         let result
@@ -1478,6 +1497,14 @@ const GeneralExpenses = () => {
         // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
         const currencyForAdmin = branchCurrency || 'SAR'
 
+        // GLOBAL FIX: Inject branch_id for non-super admins if missing
+        let fetchedUserProfile = userProfile
+        let fetchedIsSuperAdmin = isSuperAdmin
+        if (!fetchedUserProfile) {
+          fetchedUserProfile = await userManagementService.getCurrentUserProfile()
+          fetchedIsSuperAdmin = fetchedUserProfile?.role === 'super_admin'
+        }
+        
         const paymentData = {
           isGeneralExpense: true,
           projectId: null,
@@ -1498,6 +1525,11 @@ const GeneralExpenses = () => {
           linkedAdvanceId: null,
           currency: currencyForAdmin, // Currency from treasury account
           treasuryAccountId: treasuryAccountId // Include treasury account ID
+        }
+        
+        // Inject branch_id if missing for non-super admins
+        if (!isSuperAdmin && userProfile?.branch_id && !paymentData.branch_id) {
+          paymentData.branch_id = userProfile.branch_id
         }
 
         let result

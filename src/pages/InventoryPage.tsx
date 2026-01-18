@@ -38,6 +38,7 @@ import {
   DatabaseOutlined
 } from '@ant-design/icons'
 import inventoryService from '../services/inventoryService'
+import userManagementService from '../services/userManagementService'
 import { useTenant } from '../contexts/TenantContext'
 import { useBranch } from '../contexts/BranchContext'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -416,6 +417,13 @@ const InventoryPage = () => {
       // For engineering mode, ensure sellingPrice is not set (or set to 0/null)
       if (isEngineering && values.sellingPrice === undefined) {
         values.sellingPrice = 0 // Set default for engineering mode
+      }
+      
+      // GLOBAL FIX: Inject branch_id for non-super admins if missing
+      const userProfile = await userManagementService.getCurrentUserProfile()
+      const isSuperAdmin = userProfile?.role === 'super_admin'
+      if (!isSuperAdmin && userProfile?.branch_id && !values.branch_id) {
+        values.branch_id = userProfile.branch_id
       }
       
       if (selectedProduct) {
