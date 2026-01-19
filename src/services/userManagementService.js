@@ -253,8 +253,8 @@ class UserManagementService {
         }
       }
 
-      // Validate role - only allow 3 core roles
-      const validRoles = ['super_admin', 'admin', 'manager']
+      // Validate role - allow core roles plus accountant and engineer
+      const validRoles = ['super_admin', 'admin', 'manager', 'accountant', 'engineer']
       if (!validRoles.includes(newRole)) {
         return {
           success: false,

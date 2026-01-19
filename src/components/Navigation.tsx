@@ -50,8 +50,6 @@ const Navigation = () => {
       const role = profile?.role || null
       setUserRole(role)
       setIsSuperAdmin(role === 'super_admin')
-      
-      console.log('✅ [Navigation] Role checked:', { role, isSuperAdmin: role === 'super_admin' })
     } catch (error) {
       console.error('❌ [Navigation] Error checking role:', error)
       setIsSuperAdmin(false)
@@ -67,15 +65,11 @@ const Navigation = () => {
   // Listen to auth state changes (login/logout) to refresh role
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 [Navigation] Auth state changed:', event)
-      
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         // User logged in or token refreshed - check role again
-        console.log('🔐 [Navigation] User authenticated, refreshing role...')
         await checkRole()
       } else if (event === 'SIGNED_OUT') {
         // User logged out
-        console.log('🚪 [Navigation] User signed out')
         setUserRole(null)
         setIsSuperAdmin(false)
       }
@@ -93,7 +87,6 @@ const Navigation = () => {
         const profile = await userManagementService.getCurrentUserProfile()
         const role = profile?.role || null
         if (role !== userRole) {
-          console.log('🔄 [Navigation] Role changed detected:', { old: userRole, new: role })
           setUserRole(role)
           setIsSuperAdmin(role === 'super_admin')
         }
@@ -217,20 +210,9 @@ const Navigation = () => {
     ] : []),
   ]
   
-  // DEBUG: Log menu items to verify Branches is included
-  console.log('📋 [Navigation] Menu Items:', menuItems.map(item => ({
-    key: item.key,
-    label: item.label,
-    isBranches: item.key === '/settings/branches'
-  })))
-
-  // DEBUG: Log role when rendering sidebar
-  console.log('🔄 [Navigation] Rendering Sidebar with Role:', userRole, '| isSuperAdmin:', isSuperAdmin, '| userRole === super_admin:', userRole === 'super_admin')
-  
   // Handle logout
   const handleLogout = async () => {
     try {
-      console.log('🚪 [Navigation] Logging out...')
       await supabase.auth.signOut()
       
       // Clear localStorage

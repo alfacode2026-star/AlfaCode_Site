@@ -123,8 +123,6 @@ const GeneralExpenses = () => {
   const [externalCustodyPhone, setExternalCustodyPhone] = useState('')
   const [externalCustodyAddress, setExternalCustodyAddress] = useState('')
   const [selectedTreasuryAccount, setSelectedTreasuryAccount] = useState<any>(null)
-  const [baseCurrency] = useState<string>('SAR') // Base currency for exchange rate calculations
-  
   // Use branch currency as the single source of truth
   const displayCurrency = branchCurrency || 'SAR'
 
@@ -963,7 +961,8 @@ const GeneralExpenses = () => {
                 })
                 
                 if (treasuryResult.success) {
-                  message.success(`${t.generalExpenses.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${t.common.sar} (${treasuryResult.accountName || t.common.notSpecified})`)
+                  const currencySymbol = getCurrencySymbol(displayCurrency, language)
+                  message.success(`${t.generalExpenses.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${currencySymbol} (${treasuryResult.accountName || t.common.notSpecified})`)
                   loadTreasuryAccounts() // Refresh treasury accounts to show updated balances
                 } else {
                   console.error('❌ GeneralExpenses: Failed to update treasury for project expense:', treasuryResult.error)
@@ -1038,7 +1037,10 @@ const GeneralExpenses = () => {
         
         // Validate amount <= remaining amount (not original amount)
         // Use 'let' instead of 'const' because amountValue may be reassigned for expense-type settlements
-        let amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
+        // CRITICAL: Parse amount to ensure large numbers are handled correctly
+        let amountValue = typeof values.amount === 'string' 
+          ? parseFloat(values.amount.replace(/,/g, '')) 
+          : (typeof values.amount === 'number' ? values.amount : parseFloat(values.amount) || 0);
         
         // For non-settlement advances, validate amount and treasury account immediately
         // For settlements, validation happens later (expense-type: from PO items, return-type: after checking remaining amount)
@@ -1174,7 +1176,7 @@ const GeneralExpenses = () => {
             // No treasury transaction should be created for expense-type settlements
 
             // CRITICAL: Use branch currency as the single source of truth
-            const currencyForSettlement = branchCurrency || 'SAR'
+            const currencyForSettlement = displayCurrency
 
             const result = await paymentsService.createSettlementWithPO({
               linkedAdvanceId: values.linkedAdvanceId,
@@ -1324,7 +1326,7 @@ const GeneralExpenses = () => {
         }
 
         // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
-        const currencyForAdvance = branchCurrency || 'SAR'
+        const currencyForAdvance = displayCurrency
         
         // GLOBAL FIX: Inject branch_id for non-super admins if missing
         const userProfile = await userManagementService.getCurrentUserProfile()
@@ -1433,7 +1435,11 @@ const GeneralExpenses = () => {
           message.error(t.generalExpenses.selectCategory)
           return
         }
-        let amountValue = typeof values.amount === 'number' ? values.amount : parseFloat(values.amount)
+        // CRITICAL: Parse amount to ensure large numbers are handled correctly
+        // InputNumber parser removes commas, but we need to ensure it's a number
+        let amountValue = typeof values.amount === 'string' 
+          ? parseFloat(values.amount.replace(/,/g, '')) 
+          : (typeof values.amount === 'number' ? values.amount : parseFloat(values.amount) || 0);
         if (!values.amount || isNaN(amountValue) || amountValue <= 0) {
           message.error(t.generalExpenses.enterValidAmount)
           return
@@ -1495,7 +1501,7 @@ const GeneralExpenses = () => {
         // CRITICAL: Use values.status if provided, otherwise default to 'pending'
         const expenseStatus = values.status || (editingExpense ? editingExpense.status : 'pending')
         // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
-        const currencyForAdmin = branchCurrency || 'SAR'
+        const currencyForAdmin = displayCurrency
 
         // GLOBAL FIX: Inject branch_id for non-super admins if missing
         let fetchedUserProfile = userProfile
@@ -1764,7 +1770,7 @@ const GeneralExpenses = () => {
         <td>${expense.dueDate ? dayjs(expense.dueDate).format('YYYY-MM-DD') : '-'}</td>
         <td>${expense.recipientName || '-'}</td>
         <td>${expense.expenseCategory || '-'}</td>
-        <td>${parseFloat(expense.amount || 0).toLocaleString()} ${language === 'ar' ? 'ريال' : 'SAR'}</td>
+        <td>${parseFloat(expense.amount || 0).toLocaleString()} ${getCurrencySymbol(displayCurrency, language)}</td>
         <td>${expense.notes || '-'}</td>
       </tr>
     `).join('')
@@ -1829,7 +1835,7 @@ const GeneralExpenses = () => {
           </tbody>
         </table>
         <div class="footer">
-          <p>${language === 'ar' ? 'إجمالي المصاريف:' : 'Total Expenses:'} ${totalExpenses.toLocaleString()} ${language === 'ar' ? 'ريال' : 'SAR'}</p>
+          <p>${language === 'ar' ? 'إجمالي المصاريف:' : 'Total Expenses:'} ${totalExpenses.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)}</p>
           <p>${language === 'ar' ? 'تم الطباعة في:' : 'Printed on:'} ${dayjs().format('YYYY-MM-DD HH:mm')}</p>
         </div>
       </body>
@@ -1991,7 +1997,10 @@ const GeneralExpenses = () => {
       dataIndex: 'amount',
       key: 'amount',
       width: 120,
-      render: (amount: number) => `${parseFloat(amount || 0).toLocaleString()} ${t.common.sar}`,
+      render: (amount: number) => {
+        const currencySymbol = getCurrencySymbol(displayCurrency, language)
+        return `${parseFloat(amount || 0).toLocaleString()} ${currencySymbol}`
+      },
       sorter: (a: any, b: any) => parseFloat(a.amount || 0) - parseFloat(b.amount || 0)
     },
     {
@@ -2131,7 +2140,10 @@ const GeneralExpenses = () => {
       dataIndex: 'amount',
       key: 'amount',
       width: 120,
-      render: (amount: number) => `${parseFloat(amount || 0).toLocaleString()} ${t.common.sar}`,
+      render: (amount: number) => {
+        const currencySymbol = getCurrencySymbol(displayCurrency, language)
+        return `${parseFloat(amount || 0).toLocaleString()} ${currencySymbol}`
+      },
       sorter: (a: any, b: any) => parseFloat(a.amount || 0) - parseFloat(b.amount || 0)
     },
     {
@@ -2147,7 +2159,7 @@ const GeneralExpenses = () => {
           const color = remainingAmount <= 0 ? 'success' : remainingAmount < originalAmount ? 'warning' : 'default'
           return (
             <Tag color={color}>
-              {remainingAmount.toLocaleString()} {t.common.sar}
+              {remainingAmount.toLocaleString()} {getCurrencySymbol(displayCurrency, language)}
             </Tag>
           )
         }
@@ -2220,7 +2232,7 @@ const GeneralExpenses = () => {
           const advance = pettyCashAdvances.find(a => a.id === linkedId)
           return advance ? (
             <Tag color="blue">
-              {advance.referenceNumber || advance.paymentNumber} - {advance.amount} {t.common.sar}
+              {advance.referenceNumber || advance.paymentNumber} - {advance.amount} {getCurrencySymbol(displayCurrency, language)}
             </Tag>
           ) : (
             <Tag>{linkedId.substring(0, 8)}...</Tag>
@@ -2350,12 +2362,12 @@ const GeneralExpenses = () => {
                       title={`${balance.managerName || t.common.notSpecified}`}
                       value={balance.outstandingBalance}
                       precision={0}
-                      suffix={displayCurrency}
+                      suffix={getCurrencySymbol(displayCurrency, language)}
                       styles={{ value: { color: balance.outstandingBalance > 0 ? '#cf1322' : '#3f8600' } }}
                       prefix={<UserOutlined />}
                     />
                     <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                      {balance.advanceCount} {t.generalExpenses.advances || 'Advances'} | {balance.totalSettled.toLocaleString()} {t.common.sar} {t.generalExpenses.settled || 'Settled'}
+                      {balance.advanceCount} {t.generalExpenses.advances || 'Advances'} | {balance.totalSettled.toLocaleString()} {getCurrencySymbol(displayCurrency, language)} {t.generalExpenses.settled || 'Settled'}
                     </div>
                   </Card>
                 </Col>
@@ -2402,6 +2414,8 @@ const GeneralExpenses = () => {
                     locale={{
                       emptyText: loading ? t.common.loading : (t.generalExpenses.noExpenses || 'No expenses')
                     }}
+                    virtual={false}
+                    sticky={true}
                   />
                 </>
               )
@@ -2438,6 +2452,8 @@ const GeneralExpenses = () => {
                       showSizeChanger: true,
                       showTotal: (total) => `${t.generalExpenses.total || 'Total'}: ${total} ${t.generalExpenses.transactions || 'transactions'}`
                     }}
+                    virtual={false}
+                    sticky={true}
                     locale={{
                       emptyText: loading ? t.common.loading : (t.generalExpenses.noAdvancesSettlements || 'No advances or settlements')
                     }}
@@ -2781,7 +2797,7 @@ const GeneralExpenses = () => {
                         const originalAmount = parseFloat(advance.amount || 0)
                         return (
                           <Option key={advance.id} value={advance.id}>
-                            {advance.referenceNumber || advance.paymentNumber} - {advance.managerName} - ${t.generalExpenses.originalAmount || 'Original Amount'}: {originalAmount.toLocaleString()} {t.common.sar} - ${t.generalExpenses.remaining || 'Remaining'}: {remainingAmount.toLocaleString()} {t.common.sar} ({dayjs(advance.dueDate || advance.createdAt).format('YYYY-MM-DD')})
+                            {advance.referenceNumber || advance.paymentNumber} - {advance.managerName} - ${t.generalExpenses.originalAmount || 'Original Amount'}: {originalAmount.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)} - ${t.generalExpenses.remaining || 'Remaining'}: {remainingAmount.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)} ({dayjs(advance.dueDate || advance.createdAt).format('YYYY-MM-DD')})
                           </Option>
                         )
                       })}
@@ -2794,9 +2810,9 @@ const GeneralExpenses = () => {
                       <div style={{ marginBottom: 8, fontWeight: 'bold', color: '#1890ff' }}>
                         {t.generalExpenses.linkedAdvanceDetails || 'Linked Advance Details'}:
                       </div>
-                      <div>{t.generalExpenses.originalAmount || 'Original Amount'}: <strong>{parseFloat(selectedLinkedAdvance.amount || 0).toLocaleString()} {t.common.sar}</strong></div>
+                      <div>{t.generalExpenses.originalAmount || 'Original Amount'}: <strong>{parseFloat(selectedLinkedAdvance.amount || 0).toLocaleString()} {language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')}</strong></div>
                       <div>{t.generalExpenses.remainingAmountColumn || 'Remaining Amount'}: <strong style={{ color: selectedLinkedAdvance.remainingAmount > 0 ? '#cf1322' : '#3f8600' }}>
-                        {parseFloat(selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined ? selectedLinkedAdvance.remainingAmount : selectedLinkedAdvance.amount || 0).toLocaleString()} {t.common.sar}
+                        {parseFloat(selectedLinkedAdvance.remainingAmount !== null && selectedLinkedAdvance.remainingAmount !== undefined ? selectedLinkedAdvance.remainingAmount : selectedLinkedAdvance.amount || 0).toLocaleString()} {language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')}
                       </strong></div>
                       <div>{t.generalExpenses.manager || 'Manager'}: <strong>{selectedLinkedAdvance.managerName}</strong></div>
                       {selectedLinkedAdvance.projectId && (
@@ -3425,7 +3441,7 @@ const GeneralExpenses = () => {
                   {treasuryAccounts.map(acc => (
                     <Option key={acc.id} value={acc.id}>
                       {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
-                      {acc.currency && acc.currency !== baseCurrency ? ` - ${acc.currency}` : ''}
+                      {acc.currency && acc.currency !== displayCurrency ? ` - ${acc.currency}` : ''}
                     </Option>
                   ))}
                 </Select>
@@ -3445,8 +3461,8 @@ const GeneralExpenses = () => {
                   const amount = getFieldValue('amount') || 0
                   const exchangeRate = getFieldValue('exchangeRate') || 1
                   const selectedAccount = treasuryAccounts.find(acc => acc.id === treasuryAccountId)
-                  const accountCurrency = selectedAccount?.currency || baseCurrency
-                  const showExchangeRate = selectedAccount && accountCurrency !== baseCurrency
+                  const accountCurrency = selectedAccount?.currency || displayCurrency
+                  const showExchangeRate = selectedAccount && accountCurrency !== displayCurrency
 
                   if (showExchangeRate) {
                     const convertedAmount = amount && exchangeRate ? (parseFloat(amount) * parseFloat(exchangeRate)) : 0
@@ -3462,12 +3478,12 @@ const GeneralExpenses = () => {
                       <>
                         <Form.Item
                           name="exchangeRate"
-                          label={`سعر الصرف (${accountCurrency} → ${baseCurrency}) / Exchange Rate`}
+                          label={`سعر الصرف (${accountCurrency} → ${displayCurrency}) / Exchange Rate`}
                           rules={[
                             { required: true, message: 'يرجى إدخال سعر الصرف' },
                             { type: 'number', min: 0.0001, message: 'يجب أن يكون سعر الصرف أكبر من صفر' }
                           ]}
-                          tooltip={`سعر تحويل 1 ${accountCurrency} إلى ${baseCurrency}`}
+                          tooltip={`سعر تحويل 1 ${accountCurrency} إلى ${displayCurrency}`}
                         >
                           <InputNumber
                             min={0.0001}
@@ -3488,7 +3504,7 @@ const GeneralExpenses = () => {
                         </Form.Item>
                         <Form.Item
                           name="convertedAmount"
-                          label={`المبلغ المحول (${baseCurrency}) / Converted Amount`}
+                          label={`المبلغ المحول (${displayCurrency}) / Converted Amount`}
                         >
                           <InputNumber
                             min={0}

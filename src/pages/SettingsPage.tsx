@@ -1703,13 +1703,25 @@ const SettingsPage = () => {
                             key: 'role',
                             render: (role: string | null | undefined) => {
                               const safeRole = role || 'manager'
-                              // Standardize colors: Super Admin (Red), Admin (Gold/Amber), Manager (Blue)
+                              // Standardize colors: Super Admin (Red), Admin (Gold/Amber), Manager (Blue), Accountant (Green), Engineer (Purple)
+                              const roleColors: Record<string, string> = {
+                                'super_admin': 'red',
+                                'admin': 'gold',
+                                'manager': 'blue',
+                                'accountant': 'green',
+                                'engineer': 'purple'
+                              }
+                              const roleLabels: Record<string, { ar: string; en: string }> = {
+                                'super_admin': { ar: 'مدير النظام', en: 'Super Admin' },
+                                'admin': { ar: 'مدير', en: 'Admin' },
+                                'manager': { ar: 'مدير فرع', en: 'Manager' },
+                                'accountant': { ar: 'محاسب', en: 'Accountant' },
+                                'engineer': { ar: 'مهندس', en: 'Engineer' }
+                              }
+                              const roleLabel = roleLabels[safeRole] || roleLabels['manager']
                               return (
-                                <Tag color={safeRole === 'super_admin' ? 'red' : safeRole === 'admin' ? 'gold' : 'blue'}>
-                                  {safeRole === 'super_admin' ? (language === 'ar' ? 'مدير النظام' : 'Super Admin') :
-                                   safeRole === 'admin' ? (language === 'ar' ? 'مدير' : 'Admin') :
-                                   safeRole === 'manager' ? (language === 'ar' ? 'مدير فرع' : 'Manager') :
-                                   language === 'ar' ? 'مدير فرع' : 'Manager'}
+                                <Tag color={roleColors[safeRole] || 'blue'}>
+                                  {language === 'ar' ? roleLabel.ar : roleLabel.en}
                                 </Tag>
                               )
                             }
@@ -1845,10 +1857,12 @@ const SettingsPage = () => {
                             placeholder={t.settings.selectRolePlaceholder}
                             disabled={selectedUser?.role === 'super_admin' && !isSuperAdmin}
                           >
-                            {/* Only show 3 core roles */}
+                            {/* Core roles */}
                             <Option value="super_admin">{language === 'ar' ? 'مدير النظام' : 'Super Admin'}</Option>
                             <Option value="admin">{language === 'ar' ? 'مدير' : 'Admin'}</Option>
                             <Option value="manager">{language === 'ar' ? 'مدير فرع' : 'Manager'}</Option>
+                            <Option value="accountant">{language === 'ar' ? 'محاسب' : 'Accountant'}</Option>
+                            <Option value="engineer">{language === 'ar' ? 'مهندس' : 'Engineer'}</Option>
                           </Select>
                         </Form.Item>
                       </Form>

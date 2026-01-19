@@ -398,12 +398,15 @@ class TreasuryService {
       // Collect all reference IDs by type
       const paymentIds = []
       const orderIds = []
+      const incomeIds = []
 
       transactions.forEach(txn => {
         if ((txn.reference_type === 'payment' || txn.reference_type === 'expense') && txn.reference_id) {
           paymentIds.push(txn.reference_id)
         } else if (txn.reference_type === 'order' && txn.reference_id) {
           orderIds.push(txn.reference_id)
+        } else if (txn.reference_type === 'income' && txn.reference_id) {
+          incomeIds.push(txn.reference_id)
         }
       })
 
@@ -459,12 +462,42 @@ class TreasuryService {
         }
       }
 
+      // Fetch incomes (payments with payment_type='income') with project_ids (MANDATORY BRANCH ISOLATION)
+      const incomeProjectMap = {}
+      if (incomeIds.length > 0) {
+        const tenantId = tenantStore.getTenantId()
+        const branchId = branchStore.getBranchId()
+        
+        if (!branchId) {
+          // No branch ID - skip income lookup
+        } else {
+          const { data: incomes, error: incomesError } = await supabase
+            .from('payments')
+            .select('id, project_id')
+            .in('id', incomeIds)
+            .eq('tenant_id', tenantId)
+            .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
+            .eq('payment_type', 'income') // CRITICAL: Only fetch income-type payments
+
+          if (!incomesError && incomes) {
+            incomes.forEach(income => {
+              if (income.project_id) {
+                incomeProjectMap[income.id] = income.project_id
+              }
+            })
+          }
+        }
+      }
+
       // Collect all unique project IDs
       const projectIds = new Set()
       Object.values(paymentProjectMap).forEach(pid => {
         if (pid) projectIds.add(pid)
       })
       Object.values(orderProjectMap).forEach(pid => {
+        if (pid) projectIds.add(pid)
+      })
+      Object.values(incomeProjectMap).forEach(pid => {
         if (pid) projectIds.add(pid)
       })
 
@@ -499,6 +532,8 @@ class TreasuryService {
           projectId = paymentProjectMap[txn.reference_id] || null
         } else if (txn.reference_type === 'order' && txn.reference_id) {
           projectId = orderProjectMap[txn.reference_id] || null
+        } else if (txn.reference_type === 'income' && txn.reference_id) {
+          projectId = incomeProjectMap[txn.reference_id] || null
         }
 
         const projectName = projectId ? (projectNameMap[projectId] || null) : null

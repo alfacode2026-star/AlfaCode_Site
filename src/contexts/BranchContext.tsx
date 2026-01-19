@@ -99,11 +99,6 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setError(null) // Clear error on success
       // Sync with branchStore for service access
       branchStore.setBranchId(branchData.id)
-      console.log('✅ Branch currency loaded:', {
-        branchId: branchData.id,
-        branchName: branchData.name,
-        currency: branchData.currency
-      })
     } catch (error: any) {
       const errorMsg = `Exception fetching branch data: ${error?.message || 'Unknown error'}`
       console.error('❌', errorMsg)
@@ -136,7 +131,6 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       // If saved branch exists and matches current tenant, use it
       if (savedBranchId && savedTenantId === tenantId) {
-        console.log('🔄 [BranchContext] Using saved branch from localStorage:', savedBranchId)
         await fetchBranchById(savedBranchId)
         return
       }
@@ -161,7 +155,6 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       let targetBranchId = profile?.branch_id
       
       if (isSuperAdmin && !targetBranchId) {
-        console.log('🔄 [BranchContext] Super admin without assigned branch, fetching main branch...')
         const { data: mainBranch } = await supabase
           .from('branches')
           .select('id')
@@ -171,7 +164,6 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         
         if (mainBranch?.id) {
           targetBranchId = mainBranch.id
-          console.log('✅ [BranchContext] Using main branch for super_admin:', targetBranchId)
         }
       }
 
@@ -208,13 +200,6 @@ export const BranchProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       // Save to localStorage for persistence
       localStorage.setItem(STORAGE_KEY, branch.id)
       localStorage.setItem(STORAGE_TENANT_KEY, tenantId)
-      
-      console.log('✅ [BranchContext] Branch manually set:', {
-        branchId: branch.id,
-        branchName: branch.name,
-        currency: branch.currency,
-        tenantId
-      })
 
       // Update state immediately
       setBranchId(branch.id)

@@ -845,6 +845,8 @@ const QuotationsPage = () => {
                 />
               )
             }}
+            virtual={false}
+            sticky={true}
           />
         </Spin>
       </Card>
@@ -981,12 +983,14 @@ const QuotationsPage = () => {
             </Col>
           </Row>
 
-          <Divider style={{ marginTop: 24, marginBottom: 16 }}>
-            {t.quotations.workScopeDivider}
-          </Divider>
-
-          {/* Multi-Category Work Scope Selector */}
-          {workScopeCategories.length > 0 && (
+          {/* Work Scope Section with Main Label */}
+          <Form.Item
+            label={t.quotations.workScope || 'نطاق العمل'}
+            style={{ marginTop: 24 }}
+          >
+            <div>
+              {/* Multi-Category Work Scope Selector */}
+              {workScopeCategories.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               {workScopeCategories.map((catSelection, index) => {
                 const catData = allWorkScopeCategories[catSelection.category]
@@ -1043,68 +1047,70 @@ const QuotationsPage = () => {
             </div>
           )}
 
-          {/* Add Category Button */}
-          {workScopeCategories.length < availableCategories.length && (
-            <Select
-              placeholder={t.quotations.addNewWorkCategory}
-              style={{ width: '100%', marginBottom: 16 }}
-              value={categorySelectValue}
-              onChange={(value) => {
-                if (value) {
-                  addWorkScopeCategory(value)
-                  // Reset select value after adding
-                  setCategorySelectValue(null)
-                }
-              }}
-              popupRender={(menu) => (
-                <div>
-                  {menu}
-                  <Divider style={{ margin: '8px 0' }} />
-                  <div style={{ padding: '8px', color: '#666', fontSize: '12px', textAlign: 'center' }}>
-                    {availableCategories.length - workScopeCategories.length} {t.quotations.categoriesAvailable}
-                  </div>
-                </div>
+              {/* Add Category Button */}
+              {workScopeCategories.length < availableCategories.length && (
+                <Select
+                  placeholder={language === 'ar' ? 'اختر نوع العمل' : 'Select Work Type'}
+                  style={{ width: '100%', marginBottom: 16 }}
+                  value={categorySelectValue}
+                  onChange={(value) => {
+                    if (value) {
+                      addWorkScopeCategory(value)
+                      // Reset select value after adding
+                      setCategorySelectValue(null)
+                    }
+                  }}
+                  popupRender={(menu) => (
+                    <div>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <div style={{ padding: '8px', color: '#666', fontSize: '12px', textAlign: 'center' }}>
+                        {availableCategories.length - workScopeCategories.length} {t.quotations.categoriesAvailable}
+                      </div>
+                    </div>
+                  )}
+                >
+                  {availableCategories
+                    .filter(cat => !workScopeCategories.some(added => added.category === cat.key))
+                    .map(cat => (
+                      <Option key={cat.key} value={cat.key}>
+                        {translateWorkType(cat.label, language)}
+                      </Option>
+                    ))}
+                </Select>
               )}
-            >
-              {availableCategories
-                .filter(cat => !workScopeCategories.some(added => added.category === cat.key))
-                .map(cat => (
-                  <Option key={cat.key} value={cat.key}>
-                    {translateWorkType(cat.label, language)}
-                  </Option>
-                ))}
-            </Select>
-          )}
 
-          {/* Custom Work Scopes */}
-          <Divider style={{ marginTop: 24, marginBottom: 16 }}>
-            {t.quotations.customWorkDivider}
-          </Divider>
-          {customWorkScopes.map((custom, index) => (
-            <div key={index} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <Input
-                placeholder={t.quotations.enterCustomWorkType}
-                value={custom}
-                onChange={(e) => updateCustomWorkScope(index, e.target.value)}
-                style={{ flex: 1 }}
-              />
+              {/* Custom Work Scopes */}
+              <Divider style={{ marginTop: 16, marginBottom: 16 }}>
+                {t.quotations.customWorkDivider}
+              </Divider>
+              {customWorkScopes.map((custom, index) => (
+                <div key={index} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <Input
+                    placeholder={t.quotations.enterCustomWorkType}
+                    value={custom}
+                    onChange={(e) => updateCustomWorkScope(index, e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    type="text"
+                    danger
+                    icon={<MinusCircleOutlined />}
+                    onClick={() => removeCustomWorkScope(index)}
+                    title={t.quotations.remove}
+                  />
+                </div>
+              ))}
               <Button
-                type="text"
-                danger
-                icon={<MinusCircleOutlined />}
-                onClick={() => removeCustomWorkScope(index)}
-                title={t.quotations.remove}
-              />
+                type="dashed"
+                icon={<PlusOutlined />}
+                onClick={addCustomWorkScope}
+                style={{ width: '100%', marginBottom: 16 }}
+              >
+                {t.quotations.addCustomWork}
+              </Button>
             </div>
-          ))}
-          <Button
-            type="dashed"
-            icon={<PlusOutlined />}
-            onClick={addCustomWorkScope}
-            style={{ width: '100%', marginBottom: 16 }}
-          >
-            {t.quotations.addCustomWork}
-          </Button>
+          </Form.Item>
 
           <Form.Item
             name="totalAmount"
@@ -1206,7 +1212,7 @@ const QuotationsPage = () => {
                 </Descriptions.Item>
               )}
               <Descriptions.Item label={t.quotations.totalAmount}>
-                {selectedQuotation.totalAmount.toLocaleString()} {t.common.sar}
+                {selectedQuotation.totalAmount.toLocaleString()} {language === 'ar' ? 'ر.س' : (branchCurrency || 'SAR')}
               </Descriptions.Item>
               <Descriptions.Item label={t.quotations.status}>
                 <Tag color={statusLabels[selectedQuotation.status]?.color}>

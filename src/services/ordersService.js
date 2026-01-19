@@ -201,7 +201,17 @@ class OrdersService {
           : discount  // Fixed amount
 
         const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount)
-        tax = subtotalAfterDiscount * 0.05 // 5% tax
+        
+        // CRITICAL: Only calculate VAT if enabled in settings
+        const vatEnabled = orderData.vatEnabled !== undefined ? orderData.vatEnabled : false
+        const vatRate = orderData.vatRate !== undefined ? parseFloat(orderData.vatRate) : 0
+        
+        if (vatEnabled && vatRate > 0) {
+          tax = subtotalAfterDiscount * (vatRate / 100) // VAT rate as percentage
+        } else {
+          tax = 0 // No VAT if disabled or rate is 0
+        }
+        
         total = subtotalAfterDiscount + tax
       } else if (isSettlementPO && exactTotal !== null) {
         // For settlement POs, use exact total (no tax, no discount)

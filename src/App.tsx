@@ -111,11 +111,8 @@ function AppHeader() {
   useEffect(() => {
     const fetchBranches = async () => {
       if (!currentTenantId) {
-        console.log('🔍 [AppHeader] No tenant ID, skipping branch fetch');
         return;
       }
-      
-      console.log('🔍 [AppHeader] Fetching branches for tenant:', currentTenantId);
       setLoadingBranches(true);
       
       try {
@@ -136,10 +133,7 @@ function AppHeader() {
           if (profile?.branch_id) {
             // For managers, only show their assigned branch
             query = query.eq('id', profile.branch_id);
-            console.log('🔍 [AppHeader] Manager: Filtering by branch_id:', profile.branch_id);
           }
-        } else {
-          console.log('✅ [AppHeader] Super Admin/Admin: Showing ALL branches');
         }
 
         const { data, error } = await query;
@@ -149,21 +143,6 @@ function AppHeader() {
           throw error;
         }
 
-        // CRITICAL DEBUG: Log all branches found
-        console.log('✅ [AppHeader] Branches Found:', data?.length || 0);
-        if (data && data.length > 0) {
-          data.forEach((branch, index) => {
-            console.log(`  Branch ${index + 1}:`, {
-              id: branch.id,
-              name: branch.name,
-              currency: branch.currency,
-              is_main: branch.is_main,
-              tenant_id: branch.tenant_id
-            });
-          });
-        } else {
-          console.warn('⚠️ [AppHeader] No branches found for tenant:', currentTenantId);
-        }
 
         // Sort: Main branch first, then by name
         const sortedBranches = (data || []).sort((a, b) => {
@@ -172,8 +151,13 @@ function AppHeader() {
           return (a.name || '').localeCompare(b.name || '');
         });
 
-        setBranches(sortedBranches);
-        console.log('✅ [AppHeader] Branches state updated:', sortedBranches.length);
+        // GUARD: Only update state if data is different (prevent render loops)
+        const currentBranchesStr = JSON.stringify(branches.map(b => ({ id: b.id, name: b.name, currency: b.currency, is_main: b.is_main })));
+        const newBranchesStr = JSON.stringify(sortedBranches.map(b => ({ id: b.id, name: b.name, currency: b.currency, is_main: b.is_main })));
+        
+        if (currentBranchesStr !== newBranchesStr) {
+          setBranches(sortedBranches);
+        }
       } catch (err) {
         console.error('❌ [AppHeader] Critical error fetching branches:', err);
         setBranches([]); // Reset to empty array on error
@@ -184,21 +168,11 @@ function AppHeader() {
     fetchBranches();
   }, [currentTenantId]);
 
-  // 3. Handle Branch Switch - Enhanced with logging
+  // 3. Handle Branch Switch
   const handleBranchChange = async (branchId: string) => {
-    console.log('🔄 [AppHeader] Branch change requested:', branchId);
-    console.log('🔄 [AppHeader] Available branches:', branches.map(b => ({ id: b.id, name: b.name })));
-    
     const selectedBranch = branches.find(b => b.id === branchId);
     
     if (selectedBranch) {
-        console.log('✅ [AppHeader] Switching to branch:', {
-          id: selectedBranch.id,
-          name: selectedBranch.name,
-          currency: selectedBranch.currency,
-          is_main: selectedBranch.is_main
-        });
-        
         // Update Context using the new setBranch function
         // This will save to localStorage and update the context
         await setBranch({
@@ -207,7 +181,6 @@ function AppHeader() {
           currency: selectedBranch.currency || '',
           is_main: selectedBranch.is_main || false
         });
-        console.log('✅ [AppHeader] Branch context updated, reloading page...');
         
         // CRITICAL: Reload page to ensure TOTAL ISOLATION
         // This forces all pages (Dashboard, Treasury, etc.) to re-fetch data 
@@ -410,12 +383,6 @@ function AppContent() {
     const getInitialSession = async () => {
       try {
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-        
-        console.log('🔐 [AppContent] Initial session check:', {
-          hasSession: !!initialSession,
-          userId: initialSession?.user?.id,
-          error: error?.message
-        });
 
         if (isMounted) {
           setSession(initialSession);
@@ -435,8 +402,6 @@ function AppContent() {
 
     // Listen to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      console.log('🔄 [AppContent] Auth state changed:', _event, newSession?.user?.id);
-      
       if (isMounted) {
         setSession(newSession);
         setLoading(false);
@@ -454,11 +419,6 @@ function AppContent() {
   useEffect(() => {
     // Reset to idle state immediately when navigating or switching branches
     updateStatus('idle', language === 'ar' ? 'جاهز' : 'Ready', branchName || null);
-    console.log('🔄 [AppContent] Route or branch changed - resetting sync status', {
-      pathname: location.pathname,
-      branchId,
-      branchName
-    });
   }, [location.pathname, branchId, updateStatus, language, branchName]);
 
   const isSetupPage = location.pathname === '/setup';
@@ -491,7 +451,6 @@ function AppContent() {
 
   // If no session, show login page
   if (!session) {
-    console.log('🚫 [AppContent] No session - showing login page');
     return <AuthPage />;
   }
 

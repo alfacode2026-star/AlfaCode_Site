@@ -3,7 +3,9 @@
 import React, { useEffect, useState } from 'react'
 import moment from 'moment'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
+import { getCurrencySymbol } from '../utils/currencyUtils'
 
 interface QuotationPDFPreviewProps {
   companySettings: any
@@ -23,8 +25,11 @@ const QuotationPDFPreview: React.FC<QuotationPDFPreviewProps> = ({
   includeSignature = true
 }) => {
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language)
   const isRTL = language === 'ar'
+  const displayCurrency = branchCurrency || 'SAR'
+  const currencySymbol = getCurrencySymbol(displayCurrency, language)
   
   // Get margins from settings (default: 4cm top, 3cm bottom) with null-safety
   const topMarginCm = companySettings?.topMarginCm ?? 4.0
@@ -237,7 +242,7 @@ const QuotationPDFPreview: React.FC<QuotationPDFPreviewProps> = ({
                   <tr style={{ backgroundColor: '#f5f5f5' }}>
                     <th style={{ padding: '4px', border: '1px solid #000', textAlign: 'center', fontWeight: 'bold', width: '10%', fontSize: '10px' }}>SQ</th>
                     <th style={{ padding: '4px', border: '1px solid #000', textAlign: isRTL ? 'right' : 'left', fontWeight: 'bold', width: '50%', fontSize: '10px' }}>{t.quotations.activities || 'Activities'}</th>
-                    <th style={{ padding: '4px', border: '1px solid #000', textAlign: 'right', fontWeight: 'bold', width: '40%', fontSize: '10px' }}>{t.quotations.amount || 'Amount'} ({t.common.sar || 'SAR'})</th>
+                    <th style={{ padding: '4px', border: '1px solid #000', textAlign: 'right', fontWeight: 'bold', width: '40%', fontSize: '10px' }}>{t.quotations.amount || 'Amount'} ({currencySymbol})</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -245,14 +250,14 @@ const QuotationPDFPreview: React.FC<QuotationPDFPreviewProps> = ({
                     <tr key={index}>
                       <td style={{ padding: '4px', border: '1px solid #000', textAlign: 'center', fontSize: '10px', verticalAlign: 'top' }}>{item.sq || index + 1}</td>
                       <td style={{ padding: '4px', border: '1px solid #000', fontSize: '10px', textAlign: isRTL ? 'right' : 'left', wordWrap: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-wrap', verticalAlign: 'top', lineHeight: '1.5' }}>{item.activities || '-'}</td>
-                      <td style={{ padding: '4px', border: '1px solid #000', textAlign: 'right', fontSize: '10px', fontWeight: 'bold', verticalAlign: 'top', whiteSpace: 'nowrap', backgroundColor: '#f9f9f9' }}>{parseFloat(String(item.amount || 0)).toLocaleString()} {t.common.sar || 'SAR'}</td>
+                      <td style={{ padding: '4px', border: '1px solid #000', textAlign: 'right', fontSize: '10px', fontWeight: 'bold', verticalAlign: 'top', whiteSpace: 'nowrap', backgroundColor: '#f9f9f9' }}>{parseFloat(String(item.amount || 0)).toLocaleString()} {currencySymbol}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>
                     <td colSpan={2} style={{ padding: '4px', border: '1px solid #000', textAlign: 'right', fontSize: '10px' }}>{t.quotations.total || 'Total Amount'}:</td>
-                    <td style={{ padding: '4px', border: '1px solid #000', textAlign: 'center', fontSize: '11px', whiteSpace: 'nowrap' }}>{boqTotal.toLocaleString()} {t.common.sar || 'SAR'}</td>
+                    <td style={{ padding: '4px', border: '1px solid #000', textAlign: 'center', fontSize: '11px', whiteSpace: 'nowrap' }}>{boqTotal.toLocaleString()} {currencySymbol}</td>
                   </tr>
                 </tfoot>
               </table>

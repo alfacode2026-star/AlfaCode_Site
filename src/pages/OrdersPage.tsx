@@ -8,6 +8,7 @@ import projectsService from '../services/projectsService'
 import treasuryService from '../services/treasuryService'
 import paymentsService from '../services/paymentsService'
 import userManagementService from '../services/userManagementService'
+import companySettingsService from '../services/companySettingsService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
@@ -99,6 +100,7 @@ const OrdersPage = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false)
   const [orderToDelete, setOrderToDelete] = useState<any>(null)
   const [deleteForm] = Form.useForm()
+  const [vatSettings, setVatSettings] = useState({ enabled: false, rate: 0 })
   
   // Use branch currency as the single source of truth
   const displayCurrency = branchCurrency || 'SAR'
@@ -111,7 +113,25 @@ const OrdersPage = () => {
       loadProjects()
     }
     loadTreasuryAccounts()
+    loadVatSettings()
   }, [isEngineering, branchId])
+
+  // Load VAT settings from company settings
+  const loadVatSettings = async () => {
+    try {
+      const settings = await companySettingsService.getCompanySettings()
+      if (settings) {
+        setVatSettings({
+          enabled: settings.vatEnabled || false,
+          rate: settings.vatPercentage || 0
+        })
+      }
+    } catch (error) {
+      console.error('Error loading VAT settings:', error)
+      // Default to disabled if error
+      setVatSettings({ enabled: false, rate: 0 })
+    }
+  }
 
   const loadCustomers = async () => {
     try {
@@ -345,8 +365,8 @@ const OrdersPage = () => {
                   <tr>
                     <td>${productName}</td>
                     <td>${quantity}</td>
-                    <td>${price.toLocaleString()} ${t.common.sar}</td>
-                    <td>${total.toLocaleString()} ${t.common.sar}</td>
+                    <td>${price.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)}</td>
+                    <td>${total.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)}</td>
                   </tr>
                 `
               }).join('')}
@@ -354,7 +374,7 @@ const OrdersPage = () => {
           </table>
           
           <div class="total">
-            ${t.orders.totalAmount}: ${orderTotal.toLocaleString()} ${t.common.sar}
+            ${t.orders.totalAmount}: ${orderTotal.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)}
           </div>
         </div>
         <script>
@@ -466,9 +486,10 @@ const OrdersPage = () => {
       key: 'total',
       render: (total) => {
         const totalValue = total || 0
+        const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
         return (
           <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-            {totalValue.toLocaleString()} {t.common.sar}
+            {totalValue.toLocaleString()} {currencySymbol}
           </span>
         )
       },
@@ -728,7 +749,7 @@ const OrdersPage = () => {
                   dataIndex: 'total', 
                   render: (value) => (
                     <span style={{ fontWeight: 500, color: '#1890ff' }}>
-                      {value.toLocaleString()} {t.common?.sar || 'ر.س'}
+                      {value.toLocaleString()} {getCurrencySymbol(displayCurrency, language)}
                     </span>
                   )
                 },
@@ -758,7 +779,7 @@ const OrdersPage = () => {
                     </Table.Summary.Cell>
                     <Table.Summary.Cell>
                       <strong style={{ color: '#1890ff', fontSize: 16, fontWeight: 'bold' }}>
-                        {total.toLocaleString()} {t.common.sar}
+                        {total.toLocaleString()} {language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')}
                       </strong>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell />
@@ -994,7 +1015,10 @@ const OrdersPage = () => {
         shippingAddress: values.shippingAddress || '',
         shippingMethod: 'standard',
         notes: values.notes || '',
-        createdBy: 'user' // TODO: Get from auth context
+        createdBy: 'user', // TODO: Get from auth context
+        // CRITICAL: Pass VAT settings to order service
+        vatEnabled: vatSettings.enabled,
+        vatRate: vatSettings.rate
       }
       
       // Inject branch_id if missing for non-super admins
@@ -1026,7 +1050,8 @@ const OrdersPage = () => {
               })
               
               if (treasuryResult.success) {
-                message.success(`${t.orders.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${t.common.sar} (${treasuryResult.accountName || t.common.notSpecified})`)
+                const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
+                message.success(`${t.orders.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${currencySymbol} (${treasuryResult.accountName || t.common.notSpecified})`)
               } else {
                 // VISIBLE UI ERROR: Show detailed error to user
                 console.error('❌ OrdersPage: Failed to update treasury:', treasuryResult.error)
@@ -1194,6 +1219,8 @@ const OrdersPage = () => {
                 />
               )
             }}
+            virtual={false}
+            sticky={true}
           />
         </Spin>
       </Card>
@@ -1530,7 +1557,8 @@ const OrdersPage = () => {
                   dataIndex: 'price',
                   render: (p, record) => {
                     const price = p || record?.unitPrice || 0
-                    return `${price.toLocaleString()} ${t.common.sar}`
+                    const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
+                    return `${price.toLocaleString()} ${currencySymbol}`
                   }
                 },
                 { 
@@ -1538,7 +1566,8 @@ const OrdersPage = () => {
                   render: (_, item) => {
                     const price = item?.price || item?.unitPrice || 0
                     const quantity = item?.quantity || 0
-                    return `${(price * quantity).toLocaleString()} ${t.common.sar}`
+                    const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
+                    return `${(price * quantity).toLocaleString()} ${currencySymbol}`
                   }
                 },
               ]}
@@ -1553,7 +1582,7 @@ const OrdersPage = () => {
                     </Table.Summary.Cell>
                     <Table.Summary.Cell>
                       <strong style={{ color: '#1890ff', fontSize: 16 }}>
-                        {total.toLocaleString()} {t.common.sar}
+                        {total.toLocaleString()} {language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')}
                       </strong>
                     </Table.Summary.Cell>
                   </Table.Summary.Row>

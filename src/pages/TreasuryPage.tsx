@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useState } from 'react';
+import React, { FC, useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Table,
   Card,
@@ -85,10 +85,20 @@ interface FilterState {
 ======================= */
 
 const formatCurrency = (value: number, currency: string = 'SAR'): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-  }).format(value);
+  // Safety check: ensure currency is valid
+  const validCurrency = currency && currency.trim() ? currency : 'SAR';
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: validCurrency,
+    }).format(value);
+  } catch (error) {
+    // Fallback if currency code is invalid
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value) + ' ' + validCurrency;
+  }
 };
 
 const formatNumber = (value: number): string => {
@@ -143,16 +153,128 @@ const TreasuryPage: FC = () => {
      Data Loading
   ======================= */
 
-  // CRITICAL: Re-fetch data when branchId changes (strict branch isolation)
+  // Memoize loadTransactions to prevent unnecessary re-renders
+  // This function can be called manually or will be triggered by useEffect
+  const loadTransactions = useCallback(async (accountId: string | null = null): Promise<void> => {
+    setTransactionsLoading(true);
+    try {
+      // CRITICAL: Strict branch isolation - only fetch transactions for current branch accounts
+      if (!branchId) {
+        setTransactionsLoading(false);
+        return;
+      }
+
+      // Fetch transactions
+      const data = await treasuryService.getTransactions(accountId);
+
+      // CRITICAL: Filter transactions to only include those from accounts in the current branch
+      // Use functional update to get latest accounts state
+      setTransactions((prevTransactions) => {
+        // Get current accounts from state using a ref-like pattern
+        // Since we can't directly access accounts in the callback, we'll filter in the useEffect
+        // For now, return all data (service already filters by branch)
+        // The useEffect will apply account filtering
+        
+        if (data && data.length > 0) {
+          return data;
+        }
+        // Only clear if explicitly fetching all (not filtered by account)
+        if (accountId === null) {
+          return [];
+        }
+        return prevTransactions;
+      });
+    } catch (error) {
+      console.error('Error loading transactions:', error);
+      message.error('Failed to load transactions.');
+    } finally {
+      setTransactionsLoading(false);
+    }
+  }, [branchId]);
+
+  // Memoize loadAccounts
+  const loadAccounts = useCallback(async (): Promise<void> => {
+    updateStatus('loading', language === 'ar' ? 'جاري التحقق من أرصدة الخزينة...' : 'Checking treasury balances...', branchName || null);
+    try {
+      // CRITICAL: Strict branch isolation - only fetch accounts for current branch
+      if (!branchId) {
+        setAccounts([]);
+        setAllAccounts([]);
+        updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
+        return;
+      }
+
+      // Fetch accounts and filter by branchId (service already filters by user profile branch_id, but we enforce it here too)
+      const data = await treasuryService.getAccounts();
+      
+      // CRITICAL: Double-filter by branchId to ensure strict isolation
+      // Even if service returns data, we filter again to ensure only current branch accounts
+      const branchFilteredData = (data || []).filter(
+        (acc) => acc.branchId === branchId
+      );
+      
+      setAllAccounts(branchFilteredData);
+      
+      // Filter out private accounts for non-Super Admins
+      if (!isSuperAdmin) {
+        const filteredData = branchFilteredData.filter(
+          (acc) => acc.accountType !== 'private'
+        );
+        setAccounts(filteredData);
+        // Update status with filtered count
+        if (filteredData.length === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
+        } else {
+          updateStatus('success', language === 'ar' ? `تم تحميل ${filteredData.length} حساب خزينة نشط` : `Treasury accounts active (${filteredData.length})`, branchName || null);
+        }
+      } else {
+        setAccounts(branchFilteredData);
+        // Update status with all accounts count
+        if (branchFilteredData.length === 0) {
+          updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
+        } else {
+          updateStatus('success', language === 'ar' ? `تم تحميل ${branchFilteredData.length} حساب خزينة نشط` : `Treasury accounts active (${branchFilteredData.length})`, branchName || null);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading accounts:', error);
+      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database';
+      updateStatus('error', errorMsg, branchName || null);
+      message.error('Failed to load accounts.');
+    }
+  }, [branchId, branchName, isSuperAdmin, language, updateStatus]);
+
+  // Memoize loadData
+  const loadData = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    try {
+      // Load accounts first
+      await loadAccounts();
+      // Transactions will be loaded automatically via useEffect when accounts change
+    } catch (error) {
+      console.error('Error loading data:', error);
+      message.error('Failed to load treasury data.');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadAccounts]);
+
+  // CRITICAL: Load on mount (empty dependency array)
   useEffect(() => {
     if (branchId) {
-      console.log('🔄 [TreasuryPage] Branch changed, reloading data for branch:', branchId, branchName);
       loadData();
     }
     checkSuperAdmin();
     checkManager();
     loadCurrencies();
-  }, [branchId]); // Re-fetch when branch changes
+  }, []); // Run once on mount
+
+  // CRITICAL: Re-fetch data when branchId changes (strict branch isolation)
+  useEffect(() => {
+    if (branchId) {
+      loadData();
+    }
+  }, [branchId, loadData]); // Re-fetch when branch changes
 
   const checkSuperAdmin = async (): Promise<void> => {
     try {
@@ -181,16 +303,28 @@ const TreasuryPage: FC = () => {
     try {
       const { supabase } = await import('../services/supabaseClient');
       
-      // CRITICAL: Use EXACT column names from verified schema: id, code, name, symbol, is_common
-      // Remove any references to currency_code, currency_name, or 'common' as they don't exist
+      // CRITICAL: Use EXACT column names from verified schema: code, name, symbol, is_common
+      // Note: id column may not exist, so we use code as the identifier
       const { data, error } = await supabase
         .from('global_currencies')
-        .select('id, code, name, symbol, is_common')
+        .select('code, name, symbol, is_common')
         .order('is_common', { ascending: false, nullsFirst: false }) // TRUE first
         .order('name', { ascending: true }); // Then by name
 
       if (error) {
         console.error('❌ Error loading currencies:', error);
+        // If table doesn't exist or column error, use fallback
+        if (error.code === 'PGRST116' || error.message?.includes('does not exist') || error.message?.includes('column')) {
+          console.warn('⚠️ global_currencies table or column not found, using fallback currencies');
+          setCurrencies([
+            { id: 'SAR', code: 'SAR', name: 'Saudi Riyal', symbol: 'ر.س', is_common: true },
+            { id: 'USD', code: 'USD', name: 'US Dollar', symbol: '$', is_common: true },
+            { id: 'EUR', code: 'EUR', name: 'Euro', symbol: '€', is_common: true },
+            { id: 'AED', code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', is_common: true },
+            { id: 'IQD', code: 'IQD', name: 'Iraqi Dinar', symbol: 'ع.د', is_common: true },
+          ]);
+          return;
+        }
         throw error;
       }
 
@@ -198,11 +332,11 @@ const TreasuryPage: FC = () => {
         console.warn('⚠️ No currencies found in database, using fallback');
         // Fallback to common currencies if table is empty
         setCurrencies([
-          { id: null, code: 'SAR', name: 'Saudi Riyal', symbol: 'ر.س', is_common: true },
-          { id: null, code: 'USD', name: 'US Dollar', symbol: '$', is_common: true },
-          { id: null, code: 'EUR', name: 'Euro', symbol: '€', is_common: true },
-          { id: null, code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', is_common: true },
-          { id: null, code: 'IQD', name: 'Iraqi Dinar', symbol: 'ع.د', is_common: true },
+          { id: 'SAR', code: 'SAR', name: 'Saudi Riyal', symbol: 'ر.س', is_common: true },
+          { id: 'USD', code: 'USD', name: 'US Dollar', symbol: '$', is_common: true },
+          { id: 'EUR', code: 'EUR', name: 'Euro', symbol: '€', is_common: true },
+          { id: 'AED', code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', is_common: true },
+          { id: 'IQD', code: 'IQD', name: 'Iraqi Dinar', symbol: 'ع.د', is_common: true },
         ]);
         return;
       }
@@ -213,7 +347,7 @@ const TreasuryPage: FC = () => {
         const isCommon = curr.is_common === true || curr.is_common === 'true' || curr.is_common === 1;
         
         return {
-          id: curr.id || null,
+          id: curr.code || null, // Use code as id if id column doesn't exist
           code: curr.code || '', // REQUIRED: code column
           name: curr.name || '', // REQUIRED: name column
           symbol: curr.symbol || null,
@@ -231,8 +365,6 @@ const TreasuryPage: FC = () => {
       });
 
       setCurrencies(mappedData);
-      console.log('✅ Loaded currencies:', mappedData.length, 'total');
-      console.log('✅ Currency columns verified: id, code, name, symbol, is_common');
     } catch (error: any) {
       console.error('❌ Error loading currencies:', error);
       console.error('❌ Error details:', {
@@ -242,86 +374,16 @@ const TreasuryPage: FC = () => {
       });
       // Fallback to common currencies if table doesn't exist or query fails
       setCurrencies([
-        { id: null, code: 'SAR', name: 'Saudi Riyal', symbol: 'ر.س', is_common: true },
-        { id: null, code: 'USD', name: 'US Dollar', symbol: '$', is_common: true },
-        { id: null, code: 'EUR', name: 'Euro', symbol: '€', is_common: true },
-        { id: null, code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', is_common: true },
-        { id: null, code: 'IQD', name: 'Iraqi Dinar', symbol: 'ع.د', is_common: true },
+        { id: 'SAR', code: 'SAR', name: 'Saudi Riyal', symbol: 'ر.س', is_common: true },
+        { id: 'USD', code: 'USD', name: 'US Dollar', symbol: '$', is_common: true },
+        { id: 'EUR', code: 'EUR', name: 'Euro', symbol: '€', is_common: true },
+        { id: 'AED', code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', is_common: true },
+        { id: 'IQD', code: 'IQD', name: 'Iraqi Dinar', symbol: 'ع.د', is_common: true },
       ]);
     }
   };
 
-  const loadData = async (): Promise<void> => {
-    setLoading(true);
-    try {
-      await Promise.all([loadAccounts(), loadTransactions()]);
-    } catch (error) {
-      console.error('Error loading data:', error);
-      message.error('Failed to load treasury data.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const loadAccounts = async (): Promise<void> => {
-    updateStatus('loading', language === 'ar' ? 'جاري التحقق من أرصدة الخزينة...' : 'Checking treasury balances...', branchName || null);
-    try {
-      // CRITICAL: Strict branch isolation - only fetch accounts for current branch
-      if (!branchId) {
-        console.warn('⚠️ [TreasuryPage] No branchId, cannot load accounts');
-        setAccounts([]);
-        setAllAccounts([]);
-        updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
-        return;
-      }
-
-      console.log('🔍 [TreasuryPage] Loading accounts for branch:', branchId, branchName);
-      
-      // Fetch accounts and filter by branchId (service already filters by user profile branch_id, but we enforce it here too)
-      const data = await treasuryService.getAccounts();
-      
-      // CRITICAL: Double-filter by branchId to ensure strict isolation
-      // Even if service returns data, we filter again to ensure only current branch accounts
-      const branchFilteredData = (data || []).filter(
-        (acc) => acc.branchId === branchId
-      );
-      
-      console.log(`✅ [TreasuryPage] Loaded ${branchFilteredData.length} accounts for branch ${branchId} (filtered from ${data?.length || 0} total)`);
-      
-      setAllAccounts(branchFilteredData);
-      
-      // Filter out private accounts for non-Super Admins
-      if (!isSuperAdmin) {
-        const filteredData = branchFilteredData.filter(
-          (acc) => acc.accountType !== 'private'
-        );
-        setAccounts(filteredData);
-        // Update status with filtered count
-        if (filteredData.length === 0) {
-          updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
-        } else {
-          updateStatus('success', language === 'ar' ? `تم تحميل ${filteredData.length} حساب خزينة نشط` : `Treasury accounts active (${filteredData.length})`, branchName || null);
-        }
-        // CRITICAL: Reload transactions after accounts are loaded (for branch filtering)
-        await loadTransactions(filters.accountId || null);
-      } else {
-        setAccounts(branchFilteredData);
-        // Update status with all accounts count
-        if (branchFilteredData.length === 0) {
-          updateStatus('empty', language === 'ar' ? 'لا توجد حسابات خزينة' : 'No treasury accounts', branchName || null);
-        } else {
-          updateStatus('success', language === 'ar' ? `تم تحميل ${branchFilteredData.length} حساب خزينة نشط` : `Treasury accounts active (${branchFilteredData.length})`, branchName || null);
-        }
-        // CRITICAL: Reload transactions after accounts are loaded (for branch filtering)
-        await loadTransactions(filters.accountId || null);
-      }
-    } catch (error) {
-      console.error('Error loading accounts:', error);
-      const errorMsg = language === 'ar' ? 'تعذر المزامنة مع قاعدة البيانات' : 'Could not sync with the database';
-      updateStatus('error', errorMsg, branchName || null);
-      message.error('Failed to load accounts.');
-    }
-  };
 
   // Update accounts when isSuperAdmin changes
   useEffect(() => {
@@ -337,49 +399,42 @@ const TreasuryPage: FC = () => {
     }
   }, [isSuperAdmin, allAccounts]);
 
-  // CRITICAL: Reload transactions when accounts change (for branch filtering)
+  // CRITICAL: Reload transactions when accounts or branch changes (for branch filtering)
   useEffect(() => {
-    if (accounts.length > 0 && branchId) {
-      loadTransactions(filters.accountId || null);
+    if (!branchId) {
+      return;
     }
-  }, [accounts.length, branchId]); // Reload when accounts or branch changes
 
-  const loadTransactions = async (accountId: string | null = null): Promise<void> => {
-    setTransactionsLoading(true);
-    try {
-      // CRITICAL: Strict branch isolation - only fetch transactions for current branch accounts
-      if (!branchId) {
-        console.warn('⚠️ [TreasuryPage] No branchId, cannot load transactions');
-        setTransactions([]);
+    // Always fetch transactions when branchId is available
+    // If accounts are loaded, filter by them; otherwise fetch all and filter later
+    const fetchAndFilterTransactions = async () => {
+      setTransactionsLoading(true);
+      try {
+        // Fetch all transactions for the branch (service handles branch filtering)
+        const data = await treasuryService.getTransactions(filters.accountId || null);
+        
+        if (accounts.length > 0) {
+          // Filter by current branch accounts
+          const branchAccountIds = accounts.map(acc => acc.id);
+          const branchFilteredTransactions = (data || []).filter((txn) => 
+            branchAccountIds.includes(txn.accountId)
+          );
+          setTransactions(branchFilteredTransactions);
+        } else {
+          // If no accounts loaded yet, store all transactions (will be filtered when accounts load)
+          // This ensures transactions appear even if accounts haven't loaded yet
+          setTransactions(data || []);
+        }
+      } catch (error) {
+        console.error('Error loading transactions:', error);
+        message.error('Failed to load transactions.');
+      } finally {
         setTransactionsLoading(false);
-        return;
       }
+    };
 
-      console.log('🔍 [TreasuryPage] Loading transactions for branch:', branchId, branchName);
-      
-      // Fetch transactions
-      const data = await treasuryService.getTransactions(accountId);
-      
-      // CRITICAL: Filter transactions to only include those from accounts in the current branch
-      // Get account IDs for current branch
-      const branchAccountIds = accounts.map(acc => acc.id);
-      
-      const branchFilteredTransactions = (data || []).filter((txn) => {
-        // If accountId filter is provided, it should already be in branchAccountIds
-        // Otherwise, check if the transaction's account is in the current branch
-        return branchAccountIds.includes(txn.accountId);
-      });
-      
-      console.log(`✅ [TreasuryPage] Loaded ${branchFilteredTransactions.length} transactions for branch ${branchId} (filtered from ${data?.length || 0} total)`);
-      
-      setTransactions(branchFilteredTransactions);
-    } catch (error) {
-      console.error('Error loading transactions:', error);
-      message.error('Failed to load transactions.');
-    } finally {
-      setTransactionsLoading(false);
-    }
-  };
+    fetchAndFilterTransactions();
+  }, [accounts, branchId, filters.accountId]);
 
   /* =======================
      Statistics
@@ -706,13 +761,6 @@ const TreasuryPage: FC = () => {
         initialBalance: values.initialBalance || 0,
       };
       
-      console.log('💾 Saving account with data:', {
-        name: accountData.name,
-        type: accountData.type,
-        accountType: accountData.accountType,
-        currency: accountData.currency, // Should be string like 'SAR', 'USD', etc.
-        initialBalance: accountData.initialBalance
-      });
 
       let result;
       if (selectedAccount) {
@@ -751,7 +799,7 @@ const TreasuryPage: FC = () => {
         await loadAccounts();
         if (filters.accountId === id) {
           setFilters((prev) => ({ ...prev, accountId: null }));
-          loadTransactions();
+          // Transactions will reload automatically via useEffect when filters.accountId changes
         }
       } else {
         message.error(result.error || 'Failed to delete account.');
@@ -764,7 +812,7 @@ const TreasuryPage: FC = () => {
 
   const handleAccountFilterChange = (accountId: string | null): void => {
     setFilters((prev) => ({ ...prev, accountId }));
-    loadTransactions(accountId || null);
+    // Transactions will reload automatically via useEffect when filters.accountId changes
   };
 
   const handleRefresh = (): void => {
@@ -807,7 +855,7 @@ const TreasuryPage: FC = () => {
         setIsAddFundsModalVisible(false);
         addFundsForm.resetFields();
         await loadAccounts();
-        await loadTransactions();
+        // Transactions will reload automatically via useEffect when accounts change
       } else {
         message.error(result.error || 'Failed to add funds.');
       }
@@ -868,7 +916,7 @@ const TreasuryPage: FC = () => {
         setIsTransferFundsModalVisible(false);
         transferFundsForm.resetFields();
         await loadAccounts();
-        await loadTransactions();
+        // Transactions will reload automatically via useEffect when accounts change
       } else {
         message.error(result.error || 'Failed to transfer funds.');
       }
@@ -947,7 +995,7 @@ const TreasuryPage: FC = () => {
                 value={totalCash}
                 precision={0}
                 prefix={<WalletOutlined />}
-                suffix={branchCurrency || ''}
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: totalCash >= 0 ? '#52c41a' : '#ff4d4f' } }}
               />
             </Card>
@@ -959,7 +1007,7 @@ const TreasuryPage: FC = () => {
                 value={totalBank}
                 precision={0}
                 prefix={<BankOutlined />}
-                suffix={branchCurrency || ''}
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: totalBank >= 0 ? '#1890ff' : '#ff4d4f' } }}
               />
             </Card>
@@ -971,7 +1019,7 @@ const TreasuryPage: FC = () => {
                 value={grandTotal}
                 precision={0}
                 prefix={<DollarOutlined />}
-                suffix={branchCurrency || ''}
+                suffix={branchCurrency || 'SAR'}
                 styles={{ value: { color: grandTotal >= 0 ? '#722ed1' : '#ff4d4f' } }}
               />
             </Card>
@@ -991,6 +1039,8 @@ const TreasuryPage: FC = () => {
               `${record.id}-${record.updatedAt || record.lastUpdated || ''}`
             }
             pagination={{ pageSize: 10 }}
+            virtual={false}
+            sticky={true}
           />
         </Card>
 
@@ -1037,6 +1087,8 @@ const TreasuryPage: FC = () => {
               `${record.id}-${record.updatedAt || record.lastUpdated || ''}`
             }
             pagination={{ pageSize: 20 }}
+            virtual={false}
+            sticky={true}
           />
         </Card>
 

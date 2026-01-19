@@ -345,6 +345,8 @@ const AuditLogsPage = () => {
             showSizeChanger: true,
             showTotal: (total) => (language === 'ar' ? `إجمالي ${total} سجل` : `Total ${total} logs`)
           }}
+          virtual={false}
+          sticky={true}
         />
       </Card>
 

@@ -11,7 +11,9 @@ import {
   WhatsAppOutlined
 } from '@ant-design/icons'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBranch } from '../contexts/BranchContext'
 import { getTranslations } from '../utils/translations'
+import { getCurrencySymbol } from '../utils/currencyUtils'
 
 const { TextArea } = Input
 
@@ -51,7 +53,10 @@ const ApprovalWorkflow: React.FC<ApprovalWorkflowProps> = ({
   onSubmit
 }) => {
   const { language } = useLanguage()
+  const { branchCurrency } = useBranch()
   const t = getTranslations(language)
+  const displayCurrency = branchCurrency || 'SAR'
+  const currencySymbol = getCurrencySymbol(displayCurrency, language)
 
   // Status configuration
   const statusConfig: Record<string, { color: string; text: string }> = {
@@ -66,8 +71,8 @@ const ApprovalWorkflow: React.FC<ApprovalWorkflowProps> = ({
   // WhatsApp Share Handler
   const handleWhatsAppShare = () => {
     const message = language === 'ar' 
-      ? `عرض سعر\nرقم المرجع: ${refNumber}\nالعميل: ${clientName}\nالمبلغ الإجمالي: ${totalAmount.toLocaleString()} ${t.common?.sar || 'SAR'}\nالحالة: ${currentStatus.text}`
-      : `Quotation\nRef No: ${refNumber}\nClient: ${clientName}\nTotal Amount: ${totalAmount.toLocaleString()} ${t.common?.sar || 'SAR'}\nStatus: ${currentStatus.text}`
+      ? `عرض سعر\nرقم المرجع: ${refNumber}\nالعميل: ${clientName}\nالمبلغ الإجمالي: ${totalAmount.toLocaleString()} ${currencySymbol}\nالحالة: ${currentStatus.text}`
+      : `Quotation\nRef No: ${refNumber}\nClient: ${clientName}\nTotal Amount: ${totalAmount.toLocaleString()} ${currencySymbol}\nStatus: ${currentStatus.text}`
     
     const encodedMessage = encodeURIComponent(message)
     const whatsappUrl = `https://wa.me/?text=${encodedMessage}`

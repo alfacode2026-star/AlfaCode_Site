@@ -83,7 +83,7 @@ interface TreasuryAccount {
    Utilities
 ======================= */
 
-const formatCurrency = (value: number, currency: string = 'SAR'): string => {
+const formatCurrency = (value: number, currency?: string): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
@@ -247,10 +247,10 @@ const IncomesPage: FC = () => {
         key: 'amount',
         render: (value: number, record: Income) => {
           // Use branch currency as single source of truth
-          const currency = branchCurrency || 'SAR';
+          const currency = displayCurrency;
           return (
             <span style={{ fontWeight: 'bold', color: '#52c41a' }}>
-              {formatCurrencyWithSymbol(value, currency)}
+              {formatCurrencyWithSymbol(value, currency, language)}
             </span>
           );
         },
@@ -449,11 +449,22 @@ const IncomesPage: FC = () => {
         formattedDate = moment().format('YYYY-MM-DD');
       }
 
+      // CRITICAL: Parse amount to ensure large numbers are handled correctly
+      // InputNumber parser removes commas, but we need to ensure it's a number
+      const parsedAmount = typeof values.amount === 'string' 
+        ? parseFloat(values.amount.replace(/,/g, '')) 
+        : (typeof values.amount === 'number' ? values.amount : parseFloat(values.amount) || 0);
+
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        message.error('Please enter a valid amount greater than zero');
+        return;
+      }
+
       const incomeData = {
         projectId: values.projectId,
         projectName: selectedProject?.name || '',
         date: formattedDate, // Safely formatted date (YYYY-MM-DD string)
-        amount: values.amount,
+        amount: parsedAmount, // Use parsed number to prevent data corruption
         incomeType: values.incomeType || 'down_payment',
         treasuryAccountId: values.treasuryAccountId,
         currency: currency, // Include currency from treasury account
@@ -578,9 +589,9 @@ const IncomesPage: FC = () => {
                 title={formatCurrencyLabel('Total Incomes', displayCurrency)}
                 value={totalAmount}
                 prefix={<DollarOutlined />}
-                suffix={getCurrencySymbol(displayCurrency)}
+                suffix={getCurrencySymbol(displayCurrency, language)}
                 styles={{ value: { color: '#52c41a' } }}
-                formatter={(value) => formatCurrency(Number(value))}
+                formatter={(value) => formatCurrency(Number(value), displayCurrency, displayCurrency, language)}
               />
             </Card>
           </Col>
@@ -604,6 +615,8 @@ const IncomesPage: FC = () => {
           }
           pagination={{ pageSize: 10 }}
           locale={{ emptyText: 'No incomes found' }}
+          virtual={false}
+          sticky={true}
         />
       </Card>
 
@@ -829,7 +842,7 @@ const IncomesPage: FC = () => {
               {treasuryAccounts.map((acc) => (
                 <Option key={acc.id} value={acc.id}>
                   {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
-                  {acc.currency && acc.currency !== 'SAR' ? ` - ${acc.currency}` : ''}
+                  {acc.currency && acc.currency !== displayCurrency ? ` - ${acc.currency}` : ''}
                 </Option>
               ))}
             </Select>

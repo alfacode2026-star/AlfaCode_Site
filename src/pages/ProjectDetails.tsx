@@ -467,14 +467,9 @@ const ProjectDetails = () => {
     return statusConfig[status] || { color: 'default', text: t.common.notSpecified }
   }
 
-  // Format currency
+  // Format currency - use branch currency dynamically
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', {
-      style: 'currency',
-      currency: 'SAR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount)
+    return formatCurrencyWithSymbol(amount, displayCurrency, language)
   }
 
   // Prepare unified ledger data (Orders + Payments)
@@ -752,7 +747,7 @@ const ProjectDetails = () => {
         const color = isIncome ? '#52c41a' : '#ff4d4f' // Green for income, Red for expense
         return (
           <span style={{ fontWeight: 'bold', color: color, fontSize: '16px' }}>
-            {isIncome ? '+' : '-'}{formatCurrency(amount || 0)}
+            {isIncome ? '+' : '-'}{formatCurrency(amount || 0, displayCurrency, displayCurrency, language)}
           </span>
         )
       },
@@ -811,7 +806,7 @@ const ProjectDetails = () => {
       key: 'amount',
       render: (amount: number) => (
         <span style={{ fontWeight: 'bold', color: '#52c41a', fontSize: '16px' }}>
-          {formatCurrency(amount || 0)}
+          {formatCurrency(amount || 0, displayCurrency, displayCurrency, language)}
         </span>
       ),
       align: 'right' as const,
@@ -913,7 +908,7 @@ const ProjectDetails = () => {
       key: 'amount',
       render: (amount: number) => (
         <span style={{ fontWeight: 'bold', color: '#ff4d4f', fontSize: '16px' }}>
-          {formatCurrency(amount || 0)}
+          {formatCurrency(amount || 0, displayCurrency, displayCurrency, language)}
         </span>
       ),
       align: 'right' as const,
@@ -1069,7 +1064,7 @@ const ProjectDetails = () => {
               title={<span style={{ color: 'white', fontSize: '16px' }}>{t.projectDetails.totalBudget || 'Total Budget'}</span>}
               value={totalBudget}
               prefix={<WalletOutlined style={{ color: 'white' }} />}
-              suffix={<span style={{ color: 'white' }}>{displayCurrency}</span>}
+              suffix={<span style={{ color: 'white' }}>{getCurrencySymbol(displayCurrency, language)}</span>}
               styles={{ value: { color: 'white', fontSize: '28px', fontWeight: 'bold' } }}
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
@@ -1143,7 +1138,7 @@ const ProjectDetails = () => {
             />
             <div style={{ marginTop: 12, color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
               <div>{t.projectDetails.margin || 'Margin'}: {profitMargin.toFixed(2)}%</div>
-              <div>{t.projectDetails.netMargin || 'Net Margin'}: {formatCurrency(netMargin)}</div>
+              <div>{t.projectDetails.netMargin || 'Net Margin'}: {formatCurrency(netMargin, displayCurrency, displayCurrency, language)}</div>
             </div>
           </Card>
         </Col>
@@ -1192,7 +1187,7 @@ const ProjectDetails = () => {
                 strokeColor={getProgressColor(budgetUsagePercent)}
                 trailColor="#f0f0f0"
                 strokeWidth={20}
-                format={() => `${formatCurrency(totalExpenses)} ${t.common.of || 'of'} ${formatCurrency(totalBudget)}`}
+                format={() => `${formatCurrency(totalExpenses, displayCurrency, displayCurrency, language)} ${t.common.of || 'of'} ${formatCurrency(totalBudget, displayCurrency, displayCurrency, language)}`}
                 status={budgetUsagePercent >= 100 ? 'exception' : budgetUsagePercent >= 90 ? 'active' : 'success'}
               />
             </div>
@@ -1821,7 +1816,7 @@ const ProjectDetails = () => {
                 }
 
                 // CRITICAL: Use branch currency as the single source of truth (no treasury-based currency)
-                const currency = branchCurrency || 'SAR';
+                const currency = displayCurrency;
 
                 const expenseData = {
                   projectId: id,
@@ -1933,7 +1928,7 @@ const ProjectDetails = () => {
                         {treasuryAccounts.map(acc => (
                           <Option key={acc.id} value={acc.id}>
                             {acc.name} ({acc.type === 'bank' ? 'بنك' : acc.type === 'cash_box' ? 'صندوق' : acc.type})
-                            {acc.currency && acc.currency !== 'SAR' ? ` - ${acc.currency}` : ''}
+                            {acc.currency && acc.currency !== displayCurrency ? ` - ${acc.currency}` : ''}
                           </Option>
                         ))}
                       </Select>

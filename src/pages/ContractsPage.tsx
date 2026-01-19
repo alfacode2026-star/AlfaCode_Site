@@ -126,7 +126,7 @@ const ContractsPage = () => {
   const [treasuryAccounts, setTreasuryAccounts] = useState<TreasuryAccount[]>([])
   const [datesEditModalVisible, setDatesEditModalVisible] = useState<boolean>(false)
   const [datesEditForm] = Form.useForm()
-  const [selectedCurrency, setSelectedCurrency] = useState<string>('SAR') // Track selected currency
+  const [selectedCurrency, setSelectedCurrency] = useState<string>(branchCurrency || 'SAR') // Track selected currency
   const [deleteModalVisible, setDeleteModalVisible] = useState<boolean>(false)
   const [contractToDelete, setContractToDelete] = useState<ContractWithKey | null>(null)
   const [deleteForm] = Form.useForm()
@@ -378,7 +378,7 @@ const ContractsPage = () => {
   
   // Format currency with dynamic currency symbol (using global utility)
   const formatCurrencyWithSymbol = (amount: number | undefined, currency?: string): string => {
-    return formatCurrency(amount || 0, currency, branchCurrency)
+    return formatCurrency(amount || 0, currency, branchCurrency, language)
   }
 
   // Memoize columns to prevent closure issues and force re-render when contracts change
@@ -994,7 +994,7 @@ const ContractsPage = () => {
 
       // Get currency from selected treasury account
       const selectedAccount = treasuryAccounts.find(acc => acc.id === values.treasuryAccountId);
-      const currency = selectedAccount?.currency || selectedCurrency || 'SAR';
+      const currency = selectedAccount?.currency || selectedCurrency || branchCurrency || 'SAR';
 
       const paymentData = {
         contractId: selectedContract.id,
@@ -1038,9 +1038,9 @@ const ContractsPage = () => {
         setPaymentModalVisible(false)
         setSelectedPaymentProject(null)
         setAvailablePaymentWorkScopes([])
-        setSelectedCurrency('SAR') // Reset to default currency
+        setSelectedCurrency(branchCurrency || 'SAR') // Reset to default currency
         paymentForm.resetFields()
-        paymentForm.setFieldsValue({ currency: 'SAR' })
+        paymentForm.setFieldsValue({ currency: branchCurrency || 'SAR' })
         if (selectedContract) {
           await loadContractPayments(selectedContract.id)
         }
@@ -1110,7 +1110,7 @@ const ContractsPage = () => {
               value={stats.totalAmount}
               precision={0}
               prefix={<DollarOutlined />}
-              suffix={branchCurrency || 'SAR'}
+              suffix={getCurrencySymbol(branchCurrency || 'SAR', language)}
             />
           </Card>
         </Col>
@@ -1154,6 +1154,8 @@ const ContractsPage = () => {
                 />
               )
             }}
+            virtual={false}
+            sticky={true}
           />
         </Spin>
       </Card>
@@ -1315,7 +1317,7 @@ const ContractsPage = () => {
               >
                 <Select 
                   placeholder={t.contracts.selectWorkType} 
-                  disabled={!!form.getFieldValue('quotationId')}
+                  disabled={!!(form && form.getFieldValue && form.getFieldValue('quotationId'))}
                   showSearch 
                   filterOption={(input: string, option?: { label?: string }) =>
                     String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
@@ -1865,7 +1867,7 @@ const ContractsPage = () => {
               onChange={(accountId) => {
                 // Sync currency when treasury account is selected
                 const account = treasuryAccounts.find(acc => acc.id === accountId);
-                const currency = account?.currency || 'SAR';
+                const currency = account?.currency || branchCurrency || 'SAR';
                 setSelectedCurrency(currency);
                 paymentForm.setFieldsValue({ currency });
                 console.log('✅ Currency synced to treasury account:', { accountId, currency });
@@ -1874,7 +1876,7 @@ const ContractsPage = () => {
               {treasuryAccounts.map((acc: TreasuryAccount) => (
                 <Option key={acc.id} value={acc.id}>
                   {acc.name} ({acc.type === 'bank' ? 'Bank' : acc.type === 'cash_box' ? 'Cash' : acc.type})
-                  {acc.currency && acc.currency !== 'SAR' ? ` - ${acc.currency}` : ''}
+                  {acc.currency && acc.currency !== (branchCurrency || 'SAR') ? ` - ${acc.currency}` : ''}
                 </Option>
               ))}
             </Select>

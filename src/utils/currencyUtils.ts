@@ -33,6 +33,7 @@ export const getCurrencySymbol = (currencyCode: string): string => {
 
 /**
  * Format currency amount with symbol
+ * CRITICAL: Returns symbol based on locale (ر.س for Arabic, SAR for English)
  */
 export const formatCurrencyWithSymbol = (
   amount: number,
@@ -47,7 +48,14 @@ export const formatCurrencyWithSymbol = (
     }).format(amount)
   }
   
-  const symbol = getCurrencySymbol(currencyCode)
+  // CRITICAL: For SAR, use locale-specific symbol
+  let symbol: string
+  if (currencyCode === 'SAR') {
+    symbol = language === 'ar' ? 'ر.س' : 'SAR'
+  } else {
+    symbol = getCurrencySymbol(currencyCode)
+  }
+  
   const formatted = new Intl.NumberFormat(language === 'ar' ? 'ar-SA' : 'en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
@@ -86,12 +94,14 @@ export const getCurrencyFromTreasury = (
  * @param amount - The numeric amount to format
  * @param recordCurrency - Currency from the record (e.g., contract.currency)
  * @param branchCurrency - Default currency from branch context
- * @returns Formatted string like "500,000 IQD" or "1,234 SAR"
+ * @param language - Language for symbol display ('en' | 'ar')
+ * @returns Formatted string like "500,000 ر.س" (Arabic) or "1,234 SAR" (English)
  */
 export const formatCurrency = (
   amount: number | undefined,
   recordCurrency?: string | null,
-  branchCurrency?: string | null
+  branchCurrency?: string | null,
+  language: 'en' | 'ar' = 'en'
 ): string => {
   const numericAmount = amount || 0
   const formatted = numericAmount.toLocaleString('en-US', {
@@ -99,6 +109,17 @@ export const formatCurrency = (
     maximumFractionDigits: 0
   })
   
-  const currency = recordCurrency || branchCurrency || 'IQD'
-  return `${formatted} ${currency}`
+  // Default to SAR if no currency specified
+  const currency = recordCurrency || branchCurrency || 'SAR'
+  
+  // CRITICAL: Return symbol based on locale, not currency code
+  // Arabic: Use "ر.س" for SAR, English: Use "SAR"
+  if (currency === 'SAR') {
+    const symbol = language === 'ar' ? 'ر.س' : 'SAR'
+    return `${formatted} ${symbol}`
+  }
+  
+  // For other currencies, use the symbol from mapping
+  const symbol = getCurrencySymbol(currency)
+  return `${formatted} ${symbol}`
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Spin } from 'antd'
 import { supabase } from '../services/supabaseClient'
+import userManagementService from '../services/userManagementService'
 
 interface RequireSetupProps {
   children: React.ReactNode
@@ -13,12 +14,36 @@ interface RequireSetupProps {
  * Guard component that checks if system setup is completed.
  * If not completed, redirects to /setup-wizard.
  * If completed and user is on /setup, redirects to /.
+ * CRITICAL: Non-super_admin users bypass all setup checks.
  */
 export default function RequireSetup({ children }: RequireSetupProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const [isChecking, setIsChecking] = useState(true)
   const [isSetupCompleted, setIsSetupCompleted] = useState(false)
+  const [userRole, setUserRole] = useState<string | null>(null)
+
+  // Check user role first - CRITICAL: Managers/Staff should never see Setup Wizard
+  useEffect(() => {
+    const checkUserRole = async () => {
+      try {
+        const profile = await userManagementService.getCurrentUserProfile()
+        const role = profile?.role || null
+        setUserRole(role)
+        
+        // If user is not super_admin, bypass all setup checks immediately
+        if (role !== 'super_admin') {
+          setIsChecking(false)
+          setIsSetupCompleted(true) // Treat as completed to bypass checks
+          return
+        }
+      } catch (error) {
+        // If we can't get profile, continue with normal setup check
+        // (might be during initial setup before user exists)
+      }
+    }
+    checkUserRole()
+  }, [])
 
   // Query system_settings table directly with retry logic
   const checkSetupStatus = async (retries = 3, delay = 500): Promise<boolean> => {
@@ -75,6 +100,16 @@ export default function RequireSetup({ children }: RequireSetupProps) {
   }
 
   useEffect(() => {
+    // CRITICAL: Skip setup check if user is not super_admin
+    if (userRole !== null && userRole !== 'super_admin') {
+      return // Already handled in role check effect
+    }
+
+    // Only run setup check for super_admin users
+    if (userRole !== 'super_admin') {
+      return // Wait for role check to complete
+    }
+
     const checkSetup = async () => {
       try {
         const completed = await checkSetupStatus()
@@ -93,7 +128,6 @@ export default function RequireSetup({ children }: RequireSetupProps) {
           return
         }
       } catch (error) {
-        console.error('Error checking setup status:', error)
         // On error, treat as not completed and redirect to setup
         const isOnSetupPage = location.pathname === '/setup' || location.pathname === '/setup-wizard'
         if (!isOnSetupPage) {
@@ -105,7 +139,7 @@ export default function RequireSetup({ children }: RequireSetupProps) {
     }
 
     checkSetup()
-  }, [location.pathname, navigate])
+  }, [location.pathname, navigate, userRole])
 
   // Show loading spinner while checking
   if (isChecking) {
