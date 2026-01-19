@@ -27,7 +27,12 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 /**
  * Get currency symbol from currency code
  */
-export const getCurrencySymbol = (currencyCode: string): string => {
+export const getCurrencySymbol = (currencyCode: string | null | undefined, language: 'en' | 'ar' = 'en'): string => {
+  if (!currencyCode) return 'SAR'
+  // CRITICAL: For SAR, return locale-specific symbol
+  if (currencyCode === 'SAR') {
+    return language === 'ar' ? 'ر.س' : 'SAR'
+  }
   return CURRENCY_SYMBOLS[currencyCode] || currencyCode
 }
 
@@ -65,14 +70,21 @@ export const formatCurrencyWithSymbol = (
 }
 
 /**
- * Format currency label (e.g., "Total (SAR)" or "Total (AED)")
+ * Format currency label (e.g., "Total (SAR)" or "المبلغ (ر.س)")
+ * Returns label with currency code/symbol based on language
  */
 export const formatCurrencyLabel = (
   label: string,
-  currencyCode?: string
+  currencyCode?: string | null,
+  language: 'en' | 'ar' = 'en'
 ): string => {
   if (!currencyCode) return label
-  return `${label} (${currencyCode})`
+  
+  // Get currency symbol for display
+  const symbol = getCurrencySymbol(currencyCode, language)
+  
+  // Return label with currency symbol
+  return `${label} (${symbol})`
 }
 
 /**

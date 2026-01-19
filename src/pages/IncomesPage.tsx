@@ -586,7 +586,7 @@ const IncomesPage: FC = () => {
           <Col xs={24} sm={12} lg={8}>
             <Card>
               <Statistic
-                title={formatCurrencyLabel('Total Incomes', displayCurrency)}
+                title={formatCurrencyLabel('Total Incomes', displayCurrency, language)}
                 value={totalAmount}
                 prefix={<DollarOutlined />}
                 suffix={getCurrencySymbol(displayCurrency, language)}
@@ -703,7 +703,7 @@ const IncomesPage: FC = () => {
             <Col span={12}>
               <Form.Item
                 name="amount"
-                label={formatCurrencyLabel('Amount', displayCurrency)}
+                label={formatCurrencyLabel('Amount', displayCurrency, language)}
                 rules={[{ required: true, message: 'Please enter the amount' }]}
               >
                 <Space.Compact style={{ width: '100%' }}>

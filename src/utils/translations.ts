@@ -429,6 +429,34 @@ export interface Translations {
     fillRequiredFieldsCorrectly: string
     errorSavingOrder: string
     noOrdersToPrint: string
+    // New keys from audit
+    currency: string
+    currencyTooltip: string
+  }
+  
+  // Incomes
+  incomes: {
+    title: string
+    subtitle: string
+    newIncome: string
+    editIncome: string
+    deleteIncome: string
+    incomeNumber: string
+    projectName: string
+    amount: string
+    date: string
+    description: string
+    status: string
+    incomeCreated: string
+    incomeUpdated: string
+    incomeDeleted: string
+    failedToLoad: string
+    failedToSave: string
+    failedToDelete: string
+    fillRequiredFields: string
+    // New keys from audit
+    currency: string
+    currencyTooltip: string
   }
   
   // Projects
@@ -568,6 +596,30 @@ export interface Translations {
     used: string
     available: string
     backToProjects: string
+    // New keys from audit
+    scopeSpendingBreakdown: string
+    addIncomeOrAdvance: string
+    addProjectExpense: string
+    selectTransactionType: string
+    incomeType: string
+    selectIncomeType: string
+    engineerName: string
+    engineerNamePlaceholder: string
+    descriptionOrPhase: string
+    descriptionPlaceholder: string
+    workScopeOptional: string
+    selectWorkScope: string
+    previousCompletion: string
+    dueDate: string
+    treasuryAccountTooltip: string
+    referenceNumberOptional: string
+    referenceNumberPlaceholder: string
+    date: string
+    treasuryOrCashBox: string
+    selectTreasuryOrCashBox: string
+    description: string
+    descriptionPlaceholder: string
+    currency: string
   }
   
   // Customers
@@ -677,6 +729,8 @@ export interface Translations {
     initialBalance: string
     mainCurrenciesLabel: string
     otherCurrenciesLabel: string
+    // New keys from audit
+    currency: string
   }
   
   // Settings
@@ -771,6 +825,9 @@ export interface Translations {
     pleaseEnterManagerTitle: string
     pleaseEnterTopMargin: string
     pleaseEnterBottomMargin: string
+    // New keys from audit
+    smtpServer: string
+    secureConnection: string
   }
   
   // General Expenses
@@ -799,6 +856,14 @@ export interface Translations {
     title: string
     totalExpenses: string
     treasuryAccount: string
+    // New keys from audit
+    category: string
+    paymentFrequency: string
+    currency: string
+    addedItems: string
+    readOnlyStatus: string
+    transferCustody: string
+    selectTreasuryAccountTooltip: string
     searchExpensePlaceholder: string
     searchAdvanceSettlement: string
     selectEmployee: string
@@ -1113,7 +1178,10 @@ const translations: Record<Language, Translations> = {
       currencyAutoSetPlaceholder: 'Currency will be set automatically',
       amountPlaceholder: '0',
       selectStartDatePlaceholder: 'Select start date',
-      selectEndDatePlaceholder: 'Select end date'
+      selectEndDatePlaceholder: 'Select end date',
+      // New keys from audit
+      currency: 'Currency',
+      currencyTooltip: 'Currency is automatically set based on the selected treasury account'
     },
     labor: {
       title: 'Labor & Staff Management',
@@ -1412,7 +1480,10 @@ const translations: Record<Language, Translations> = {
       itemDescriptionRequired: 'Please enter item description',
       quantityRequired: 'Please enter a valid quantity greater than zero',
       unitPriceRequired: 'Please enter a valid unit price',
-      itemAdded: 'Item added successfully'
+      itemAdded: 'Item added successfully',
+      // New keys from audit
+      currency: 'Currency',
+      currencyTooltip: 'Currency is set at the branch level and cannot be changed per transaction'
     },
     projects: {
       title: 'Projects Management',
@@ -1547,7 +1618,32 @@ const translations: Record<Language, Translations> = {
       netMargin: 'Net Margin',
       used: 'Used',
       available: 'Available',
-      backToProjects: 'Back to Projects'
+      backToProjects: 'Back to Projects',
+      // New keys from audit
+      scopeSpendingBreakdown: 'Scope Spending Breakdown',
+      addIncomeOrAdvance: 'Add Income/Advance',
+      addProjectExpense: 'Add Project Expense',
+      transactionType: 'Transaction Type',
+      selectTransactionType: 'Select Transaction Type',
+      incomeType: 'Income Type',
+      selectIncomeType: 'Select Income Type',
+      engineerName: 'Engineer/Employee Name',
+      engineerNamePlaceholder: 'Example: Ahmed Mohammed',
+      descriptionOrPhase: 'Description/Phase Name',
+      descriptionPlaceholder: 'Example: Foundation phase...',
+      workScopeOptional: 'Work Scope (Optional)',
+      selectWorkScope: 'Select Work Scope',
+      previousCompletion: 'Previous Completion (%)',
+      dueDate: 'Due Date',
+      treasuryAccountTooltip: 'Select account to deposit amount',
+      referenceNumberOptional: 'Reference Number (Optional)',
+      referenceNumberPlaceholder: 'Reference number or receipt number',
+      date: 'Date',
+      treasuryOrCashBox: 'Treasury/Cash Box',
+      selectTreasuryOrCashBox: 'Select Treasury/Cash Box',
+      description: 'Description',
+      descriptionPlaceholder: 'Expense description...',
+      currency: 'Currency'
     },
     customers: {
       title: 'Customer Management',
@@ -1609,6 +1705,29 @@ const translations: Record<Language, Translations> = {
       exportSuccess: 'Data exported successfully',
       noData: 'No data available'
     },
+    incomes: {
+      title: 'Incomes Management',
+      subtitle: 'Manage all income records',
+      newIncome: 'New Income',
+      editIncome: 'Edit Income',
+      deleteIncome: 'Delete Income',
+      incomeNumber: 'Income Number',
+      projectName: 'Project Name',
+      amount: 'Amount',
+      date: 'Date',
+      description: 'Description',
+      status: 'Status',
+      incomeCreated: 'Income created successfully!',
+      incomeUpdated: 'Income updated successfully!',
+      incomeDeleted: 'Income deleted successfully',
+      failedToLoad: 'Failed to load incomes data',
+      failedToSave: 'Failed to save income',
+      failedToDelete: 'Failed to delete income',
+      fillRequiredFields: 'Please fill all required fields',
+      // New keys from audit
+      currency: 'Currency',
+      currencyTooltip: 'Currency is set at the branch level and cannot be changed per transaction'
+    },
     treasury: {
       accountCreated: 'Account created successfully!',
       accountDeleted: 'Account deleted successfully',
@@ -1652,7 +1771,9 @@ const translations: Record<Language, Translations> = {
       visibility: 'Visibility',
       initialBalance: 'Initial Balance',
       mainCurrenciesLabel: 'Main Currencies',
-      otherCurrenciesLabel: 'Other Global Currencies'
+      otherCurrenciesLabel: 'Other Global Currencies',
+      // New keys from audit
+      currency: 'Currency'
     },
     settings: {
       address: 'Address',
@@ -1883,6 +2004,16 @@ const translations: Record<Language, Translations> = {
       saveError: 'Save error',
       allowPopupsForPrinting: 'Please allow popups for printing'
     },
+    approvalWorkflow: {
+      title: 'Approval Workflow & Print Controls',
+      status: 'Status:',
+      shareWhatsApp: 'Share via WhatsApp',
+      approve: 'Approve',
+      reject: 'Reject / Request Changes',
+      submitForApproval: 'Submit for Approval',
+      managerNotes: 'Manager Notes:',
+      managerNotesPlaceholder: 'Enter manager notes...'
+    },
     quotations: {
       accepted: 'Accepted',
       converted: 'Converted',
@@ -2085,7 +2216,10 @@ const translations: Record<Language, Translations> = {
       currencyAutoSetPlaceholder: 'سيتم تعيين العملة تلقائياً',
       amountPlaceholder: '0',
       selectStartDatePlaceholder: 'اختر تاريخ البدء',
-      selectEndDatePlaceholder: 'اختر تاريخ الانتهاء'
+      selectEndDatePlaceholder: 'اختر تاريخ الانتهاء',
+      // New keys from audit
+      currency: 'العملة',
+      currencyTooltip: 'العملة مضبوطة تلقائياً بناءً على حساب الخزينة المحدد'
     },
     labor: {
       title: 'إدارة الموظفين والعمالة اليومية',
@@ -2365,7 +2499,55 @@ const translations: Record<Language, Translations> = {
       netMargin: 'صافي الهامش',
       used: 'المستخدم',
       available: 'المتاح',
-      backToProjects: 'العودة إلى المشاريع'
+      backToProjects: 'العودة إلى المشاريع',
+      // New keys from audit
+      scopeSpendingBreakdown: 'توزيع الإنفاق حسب نطاق العمل',
+      addIncomeOrAdvance: 'إضافة وارد/سلفة جديدة',
+      addProjectExpense: 'إضافة مصروف جديد للمشروع',
+      transactionType: 'نوع المعاملة',
+      selectTransactionType: 'اختر نوع المعاملة',
+      incomeType: 'نوع الوارد',
+      selectIncomeType: 'اختر نوع الوارد',
+      engineerName: 'اسم المهندس/الموظف',
+      engineerNamePlaceholder: 'مثال: أحمد محمد',
+      descriptionOrPhase: 'الوصف/اسم المرحلة',
+      descriptionPlaceholder: 'مثال: مرحلة الأساسات، مرحلة البنية التحتية...',
+      workScopeOptional: 'نطاق العمل (اختياري)',
+      selectWorkScope: 'اختر نطاق العمل',
+      previousCompletion: 'نسبة الإنجاز السابقة (%)',
+      dueDate: 'تاريخ الاستحقاق',
+      treasuryAccountTooltip: 'اختر الحساب الذي سيتم إيداع المبلغ فيه',
+      referenceNumberOptional: 'رقم المرجع (اختياري)',
+      referenceNumberPlaceholder: 'رقم المرجع أو رقم الإيصال',
+      date: 'التاريخ',
+      treasuryOrCashBox: 'الخزينة/الصندوق',
+      selectTreasuryOrCashBox: 'اختر الخزينة/الصندوق',
+      description: 'الوصف',
+      descriptionPlaceholder: 'وصف المصروف...',
+      currency: 'العملة'
+    },
+    incomes: {
+      title: 'إدارة الواردات',
+      subtitle: 'إدارة جميع سجلات الواردات',
+      newIncome: 'وارد جديد',
+      editIncome: 'تعديل وارد',
+      deleteIncome: 'حذف وارد',
+      incomeNumber: 'رقم الوارد',
+      projectName: 'اسم المشروع',
+      amount: 'المبلغ',
+      date: 'التاريخ',
+      description: 'الوصف',
+      status: 'الحالة',
+      incomeCreated: 'تم إنشاء الوارد بنجاح!',
+      incomeUpdated: 'تم تحديث الوارد بنجاح!',
+      incomeDeleted: 'تم حذف الوارد بنجاح',
+      failedToLoad: 'فشل في تحميل بيانات الواردات',
+      failedToSave: 'فشل في حفظ الوارد',
+      failedToDelete: 'فشل في حذف الوارد',
+      fillRequiredFields: 'يرجى ملء جميع الحقول المطلوبة',
+      // New keys from audit
+      currency: 'العملة',
+      currencyTooltip: 'العملة مضبوطة على مستوى الفرع ولا يمكن تغييرها لكل معاملة'
     },
     treasury: {
       accountCreated: 'تم إنشاء الحساب بنجاح!',
@@ -2410,7 +2592,9 @@ const translations: Record<Language, Translations> = {
       visibility: 'الرؤية',
       initialBalance: 'الرصيد الأولي',
       mainCurrenciesLabel: 'العملات الأساسية',
-      otherCurrenciesLabel: 'باقي العملات العالمية'
+      otherCurrenciesLabel: 'باقي العملات العالمية',
+      // New keys from audit
+      currency: 'العملة'
     },
     settings: {
       address: 'العنوان',
@@ -2594,6 +2778,9 @@ const translations: Record<Language, Translations> = {
       quantityMustBeGreaterThanZero: 'الكمية يجب أن تكون أكبر من صفر',
       unitPriceMustBeGreaterThanOrEqualToZero: 'سعر الوحدة يجب أن يكون أكبر من أو يساوي صفر',
       itemAdded: 'تم إضافة البند',
+      // New keys from audit
+      currency: 'العملة',
+      currencyTooltip: 'العملة مضبوطة على مستوى الفرع ولا يمكن تغييرها لكل معاملة',
       addNewSupplier: 'إضافة مورد جديد',
       addAtLeastOneItem: 'يرجى إضافة بند واحد على الأقل',
       supplierNameRequired: 'يرجى إدخال اسم المورد',
@@ -2639,7 +2826,21 @@ const translations: Record<Language, Translations> = {
       expenseSaved: 'تم حفظ المصروف بنجاح',
       failedToSaveExpense: 'فشل في حفظ المصروف',
       saveError: 'خطأ في الحفظ',
-      allowPopupsForPrinting: 'يرجى السماح بالنوافذ المنبثقة للطباعة'
+      allowPopupsForPrinting: 'يرجى السماح بالنوافذ المنبثقة للطباعة',
+      // New keys from audit
+      readOnlyStatus: 'الحالة للقراءة فقط - لا يمكن تعديلها من قبل المحاسب',
+      transferCustody: 'ترحيل العهدة',
+      selectTreasuryAccountTooltip: 'اختر الحساب الذي سيتم خصم المصروف منه'
+    },
+    approvalWorkflow: {
+      title: 'سير العمل والموافقة',
+      status: 'الحالة:',
+      shareWhatsApp: 'مشاركة عبر واتساب',
+      approve: 'موافقة',
+      reject: 'رفض / طلب تعديلات',
+      submitForApproval: 'إرسال للموافقة',
+      managerNotes: 'ملاحظات المدير:',
+      managerNotesPlaceholder: 'أدخل ملاحظات المدير...'
     },
     quotations: {
       accepted: 'مقبول',

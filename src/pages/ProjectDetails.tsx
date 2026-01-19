@@ -1599,7 +1599,7 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="amount"
-            label={formatCurrencyLabel('المبلغ', displayCurrency)}
+            label={formatCurrencyLabel('المبلغ', displayCurrency, language)}
             rules={[{ required: true, message: 'يرجى إدخال المبلغ' }]}
           >
             <InputNumber
@@ -1957,7 +1957,7 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="amount"
-            label={formatCurrencyLabel('المبلغ', displayCurrency)}
+            label={formatCurrencyLabel('المبلغ', displayCurrency, language)}
             rules={[{ required: true, message: 'يرجى إدخال المبلغ' }]}
           >
             <InputNumber

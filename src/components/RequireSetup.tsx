@@ -102,14 +102,16 @@ export default function RequireSetup({ children }: RequireSetupProps) {
   useEffect(() => {
     // CRITICAL: Skip setup check if user is not super_admin
     if (userRole !== null && userRole !== 'super_admin') {
+      setIsChecking(false)
       return // Already handled in role check effect
     }
 
-    // Only run setup check for super_admin users
-    if (userRole !== 'super_admin') {
-      return // Wait for role check to complete
+    // Wait for role check to complete
+    if (userRole === null) {
+      return
     }
 
+    // Only run setup check for super_admin users
     const checkSetup = async () => {
       try {
         const completed = await checkSetupStatus()

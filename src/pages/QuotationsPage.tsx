@@ -1051,6 +1051,7 @@ const QuotationsPage = () => {
               {workScopeCategories.length < availableCategories.length && (
                 <Select
                   placeholder={language === 'ar' ? 'اختر نوع العمل' : 'Select Work Type'}
+                  style={{ marginBottom: 16 }}
                   style={{ width: '100%', marginBottom: 16 }}
                   value={categorySelectValue}
                   onChange={(value) => {

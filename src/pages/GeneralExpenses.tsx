@@ -3148,7 +3148,7 @@ const GeneralExpenses = () => {
                 name="amount"
                 label={transactionType === 'settlement' && settlementType === 'expense' 
                   ? `مبلغ التسوية (يُحسب تلقائياً من البنود)` 
-                  : formatCurrencyLabel('المبلغ', displayCurrency)}
+                  : formatCurrencyLabel('المبلغ', displayCurrency, language)}
                 rules={[
                   { required: true, message: 'يرجى إدخال المبلغ' },
                   {
@@ -3445,82 +3445,6 @@ const GeneralExpenses = () => {
                     </Option>
                   ))}
                 </Select>
-              </Form.Item>
-
-              {/* Exchange Rate Fields - Show when treasury currency != base currency */}
-              <Form.Item
-                noStyle
-                shouldUpdate={(prevValues, currentValues) => 
-                  prevValues.treasuryAccountId !== currentValues.treasuryAccountId ||
-                  prevValues.amount !== currentValues.amount ||
-                  prevValues.exchangeRate !== currentValues.exchangeRate
-                }
-              >
-                {({ getFieldValue }) => {
-                  const treasuryAccountId = getFieldValue('treasuryAccountId')
-                  const amount = getFieldValue('amount') || 0
-                  const exchangeRate = getFieldValue('exchangeRate') || 1
-                  const selectedAccount = treasuryAccounts.find(acc => acc.id === treasuryAccountId)
-                  const accountCurrency = selectedAccount?.currency || displayCurrency
-                  const showExchangeRate = selectedAccount && accountCurrency !== displayCurrency
-
-                  if (showExchangeRate) {
-                    const convertedAmount = amount && exchangeRate ? (parseFloat(amount) * parseFloat(exchangeRate)) : 0
-                    
-                    // Auto-update converted amount when amount or exchange rate changes
-                    if (amount && exchangeRate) {
-                      setTimeout(() => {
-                        form.setFieldsValue({ convertedAmount: convertedAmount })
-                      }, 0)
-                    }
-
-                    return (
-                      <>
-                        <Form.Item
-                          name="exchangeRate"
-                          label={`سعر الصرف (${accountCurrency} → ${displayCurrency}) / Exchange Rate`}
-                          rules={[
-                            { required: true, message: 'يرجى إدخال سعر الصرف' },
-                            { type: 'number', min: 0.0001, message: 'يجب أن يكون سعر الصرف أكبر من صفر' }
-                          ]}
-                          tooltip={`سعر تحويل 1 ${accountCurrency} إلى ${displayCurrency}`}
-                        >
-                          <InputNumber
-                            min={0.0001}
-                            step={0.01}
-                            placeholder="1.00"
-                            size="large"
-                            style={{ width: '100%' }}
-                            formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-                            parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
-                            onChange={(value) => {
-                              const amount = form.getFieldValue('amount') || 0
-                              if (value && amount) {
-                                const converted = parseFloat(amount) * parseFloat(value as any)
-                                form.setFieldsValue({ convertedAmount: converted })
-                              }
-                            }}
-                          />
-                        </Form.Item>
-                        <Form.Item
-                          name="convertedAmount"
-                          label={`المبلغ المحول (${displayCurrency}) / Converted Amount`}
-                        >
-                          <InputNumber
-                            min={0}
-                            style={{ width: '100%' }}
-                            placeholder={t.generalExpenses.amountPlaceholder}
-                            size="large"
-                            disabled
-                            formatter={(value) => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
-                            parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '') as any}
-                          />
-                        </Form.Item>
-                      </>
-                    )
-                  }
-                  return null
-                }}
               </Form.Item>
 
               {/* Description */}
