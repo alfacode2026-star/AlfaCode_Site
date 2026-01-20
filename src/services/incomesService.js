@@ -42,6 +42,8 @@ class IncomesService {
         .eq('branch_id', branchId) // MANDATORY: Always filter by branch_id
         .or('contract_id.not.is.null,payment_type.eq.income')
         // REMOVED: .not('project_id', 'is', null) - Allow payments without project_id (contract payments may not have project_id)
+        // ⚠️ CRITICAL: DO NOT REMOVE - This filter ensures employee advances NEVER appear in incomes table
+        // Engineer advances (expenseType: 'employee_advance') are OUT flows, not IN flows
         .neq('transaction_type', 'advance') // EXCLUDE advances (Custody)
         .neq('transaction_type', 'settlement') // EXCLUDE internal transfers/settlements
 
@@ -237,7 +239,8 @@ class IncomesService {
       const positiveAmount = Math.abs(amount)
       const newPayment = {
         tenant_id: tenantId,
-        contract_id: null, // Incomes can be standalone
+        // ⚠️ CRITICAL: DO NOT REMOVE - Contract linking for data chain integrity
+        contract_id: incomeData.contractId || null, // Link to contract if provided (unified form requirement)
         project_id: incomeData.projectId,
         work_scope: incomeData.workScope || null,
         expense_category: null,

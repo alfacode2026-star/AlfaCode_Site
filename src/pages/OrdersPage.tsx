@@ -486,10 +486,9 @@ const OrdersPage = () => {
       key: 'total',
       render: (total) => {
         const totalValue = total || 0
-        const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
         return (
           <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-            {totalValue.toLocaleString()} {currencySymbol}
+            {totalValue.toLocaleString()} {getCurrencySymbol(displayCurrency, language)}
           </span>
         )
       },
@@ -779,7 +778,7 @@ const OrdersPage = () => {
                     </Table.Summary.Cell>
                     <Table.Summary.Cell>
                       <strong style={{ color: '#1890ff', fontSize: 16, fontWeight: 'bold' }}>
-                        {total.toLocaleString()} {language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')}
+                        {total.toLocaleString()} {getCurrencySymbol(displayCurrency, language)}
                       </strong>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell />
@@ -1050,8 +1049,7 @@ const OrdersPage = () => {
               })
               
               if (treasuryResult.success) {
-                const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
-                message.success(`${t.orders.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${currencySymbol} (${treasuryResult.accountName || t.common.notSpecified})`)
+                message.success(`${t.orders.amountDeductedFromTreasury} ${totalAmount.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)} (${treasuryResult.accountName || t.common.notSpecified})`)
               } else {
                 // VISIBLE UI ERROR: Show detailed error to user
                 console.error('❌ OrdersPage: Failed to update treasury:', treasuryResult.error)
@@ -1268,7 +1266,7 @@ const OrdersPage = () => {
                   <Col span={12}>
                     <Form.Item
                       name="projectId"
-                      label="المشروع"
+                      label={t.orders.project || 'Project'}
                       rules={[{ required: true, message: t.orders.projectRequired }]}
                     >
                       <Select
@@ -1292,7 +1290,7 @@ const OrdersPage = () => {
                     {selectedProject && availableWorkScopes.length > 0 && (
                       <Form.Item
                         name="workScope"
-                        label="نطاق العمل / الوصف"
+                        label={t.orders.workScope || 'Work Scope'}
                       >
                         <Select
                           placeholder={t.orders.selectWorkScope}
@@ -1318,7 +1316,7 @@ const OrdersPage = () => {
 
           <Form.Item
             name="customerSearch"
-            label="المورد / العميل"
+            label={t.orders.supplierCustomer || 'Supplier/Customer'}
             rules={[
               {
                 validator: (_, value) => {
@@ -1418,7 +1416,7 @@ const OrdersPage = () => {
           
           <Form.Item
             name="status"
-            label="حالة الطلب"
+            label={t.orders.orderStatus || 'Order Status'}
             initialValue="pending"
           >
             <Select>
@@ -1431,7 +1429,7 @@ const OrdersPage = () => {
           {/* Treasury Account Selection */}
           <Form.Item
             name="treasuryAccountId"
-            label="حساب الخزينة / الدفع"
+            label={t.orders.treasuryAccount || 'Treasury Account'}
             rules={[{ required: true, message: t.orders.selectTreasuryAccount }]}
             tooltip={t.orders.selectTreasuryAccount}
           >
@@ -1455,8 +1453,8 @@ const OrdersPage = () => {
 
           {/* Currency Display - Static label showing branch currency */}
           <Form.Item
-            label={`العملة / Currency (${displayCurrency})`}
-            tooltip="العملة مضبوطة على مستوى الفرع ولا يمكن تغييرها لكل معاملة / Currency is set at the branch level and cannot be changed per transaction"
+            label={formatCurrencyLabel(t.orders.currency || 'Currency', displayCurrency, language)}
+            tooltip={t.orders.currencyTooltip || 'Currency is set at the branch level and cannot be changed per transaction'}
           >
             <Input
               readOnly
@@ -1470,14 +1468,14 @@ const OrdersPage = () => {
 
           <Form.Item
             name="shippingAddress"
-            label="عنوان الشحن"
+            label={t.orders.shippingAddress || 'Shipping Address'}
           >
             <Input.TextArea rows={2} placeholder={t.orders.shippingAddressPlaceholder || 'Enter shipping address'} />
           </Form.Item>
 
           <Form.Item
             name="notes"
-            label="ملاحظات إضافية"
+            label={t.common.notes || 'Additional Notes'}
           >
             <Input.TextArea rows={2} placeholder={t.orders.notesPlaceholder} />
           </Form.Item>
@@ -1557,8 +1555,7 @@ const OrdersPage = () => {
                   dataIndex: 'price',
                   render: (p, record) => {
                     const price = p || record?.unitPrice || 0
-                    const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
-                    return `${price.toLocaleString()} ${currencySymbol}`
+                    return `${price.toLocaleString()} ${getCurrencySymbol(displayCurrency, language)}`
                   }
                 },
                 { 
@@ -1566,8 +1563,7 @@ const OrdersPage = () => {
                   render: (_, item) => {
                     const price = item?.price || item?.unitPrice || 0
                     const quantity = item?.quantity || 0
-                    const currencySymbol = language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')
-                    return `${(price * quantity).toLocaleString()} ${currencySymbol}`
+                    return `${(price * quantity).toLocaleString()} ${getCurrencySymbol(displayCurrency, language)}`
                   }
                 },
               ]}
@@ -1582,7 +1578,7 @@ const OrdersPage = () => {
                     </Table.Summary.Cell>
                     <Table.Summary.Cell>
                       <strong style={{ color: '#1890ff', fontSize: 16 }}>
-                        {total.toLocaleString()} {language === 'ar' ? 'ر.س' : (displayCurrency || 'SAR')}
+                        {total.toLocaleString()} {getCurrencySymbol(displayCurrency, language)}
                       </strong>
                     </Table.Summary.Cell>
                   </Table.Summary.Row>

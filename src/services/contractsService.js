@@ -940,6 +940,7 @@ class ContractsService {
 
       // 🏁 EXECUTION - Only after Layers 1, 2, and 3 pass successfully
       
+      // ⚠️ CRITICAL: DO NOT REMOVE - Complete Cascade Deletion Chain
       // Step 6A: Find Linked Project (Cascade Cleanup)
       let linkedProjectId = null
       let linkedProjectSnapshot = null
@@ -966,7 +967,30 @@ class ContractsService {
         .delete()
         .eq('contract_id', id)
 
-      // Step 6C: Delete linked project if exists (BEFORE deleting contract to avoid FK issues)
+      // ⚠️ CRITICAL: DO NOT REMOVE - Quotation Rollback Logic
+      // Step 6C: Rollback linked quotation to 'draft' status (BEFORE deleting contract)
+      if (contract.quotationId) {
+        try {
+          const { error: quotationError } = await supabase
+            .from('quotations')
+            .update({ status: 'draft' })
+            .eq('id', contract.quotationId)
+            .eq('tenant_id', tenantId)
+          
+          if (quotationError) {
+            console.error('⚠️ Failed to rollback quotation status:', quotationError)
+            // Non-blocking - continue with deletion
+          } else {
+            console.log(`✅ Quotation ${contract.quotationId} rolled back to 'draft' status`)
+          }
+        } catch (quotationRollbackError) {
+          console.error('⚠️ Error during quotation rollback:', quotationRollbackError)
+          // Continue with deletion even if rollback fails
+        }
+      }
+
+      // ⚠️ CRITICAL: DO NOT REMOVE - Project Deletion Chain
+      // Step 6D: Delete linked project if exists (BEFORE deleting contract to avoid FK issues)
       if (linkedProjectId && linkedProjectSnapshot) {
         try {
           const { error: projectDeleteError } = await supabase
@@ -989,7 +1013,8 @@ class ContractsService {
                 cascade_metadata: {
                   linked_project_deleted: true,
                   project_id: linkedProjectId,
-                  project_snapshot: linkedProjectSnapshot
+                  project_snapshot: linkedProjectSnapshot,
+                  quotation_rolled_back: !!contract.quotationId
                 }
               }
               await supabase
@@ -1020,7 +1045,12 @@ class ContractsService {
 
       if (error) throw error
 
-      return { success: true, linkedProjectDeleted: linkedProjectId !== null, linkedProjectId: linkedProjectId }
+      return { 
+        success: true, 
+        linkedProjectDeleted: linkedProjectId !== null, 
+        linkedProjectId: linkedProjectId,
+        quotationRolledBack: !!contract.quotationId
+      }
     } catch (error) {
       console.error('Error deleting contract:', error.message)
       return {

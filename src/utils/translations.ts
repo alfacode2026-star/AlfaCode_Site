@@ -94,6 +94,7 @@ export interface Translations {
     dueDate: string
     paidDate: string
     addPayment: string
+    addPaymentAdvance: string
     newPayment: string
     paymentAmount: string
     paymentStatus: string
@@ -439,6 +440,7 @@ export interface Translations {
     title: string
     subtitle: string
     newIncome: string
+    addPaymentAdvance: string
     editIncome: string
     deleteIncome: string
     incomeNumber: string
@@ -555,6 +557,8 @@ export interface Translations {
     errorCreatingTransaction: string
     projectExpenses: string
     addNewExpense: string
+    addEngineerAdvance: string
+    engineerAdvanceCreated: string
     expenseWarning: string
     itemType: string
     generalExpense: string
@@ -579,6 +583,7 @@ export interface Translations {
     noMilestones: string
     engineerAdvance: string
     investorInflow: string
+    employeeAdvance: string
     projectExpense: string
     totalBudget: string
     totalCollected: string
@@ -848,6 +853,7 @@ export interface Translations {
     fillRequiredFields: string
     linkedAdvance: string
     newExpense: string
+    addEngineerAdvance: string
     remainingAmount: string
     selectAdvance: string
     selectCategory: string
@@ -1134,6 +1140,7 @@ const translations: Record<Language, Translations> = {
       dueDate: 'Due Date',
       paidDate: 'Paid Date',
       addPayment: 'Add Payment',
+      addPaymentAdvance: 'Add Payment/Advance',
       newPayment: 'Add New Payment',
       paymentAmount: 'Amount (SAR)',
       paymentStatus: 'Status',
@@ -1578,6 +1585,8 @@ const translations: Record<Language, Translations> = {
       errorCreatingTransaction: 'Error occurred while creating transaction',
       projectExpenses: 'Project Expenses',
       addNewExpense: 'Add New Expense',
+      addEngineerAdvance: 'Add Engineer Advance',
+      engineerAdvanceCreated: 'Engineer advance created successfully',
       expenseWarning: 'Warning: Expenses entered here are exclusively linked to this project',
       itemType: 'Item Type',
       generalExpense: 'General Expense',
@@ -1602,6 +1611,7 @@ const translations: Record<Language, Translations> = {
       noMilestones: 'No milestones registered',
       engineerAdvance: 'Engineer Advance',
       investorInflow: 'Investor Inflow',
+      employeeAdvance: 'Employee Advance',
       projectExpense: 'Project Expense',
       totalBudget: 'Total Budget',
       totalCollected: 'Total Collected',
@@ -1709,6 +1719,7 @@ const translations: Record<Language, Translations> = {
       title: 'Incomes Management',
       subtitle: 'Manage all income records',
       newIncome: 'New Income',
+      addPaymentAdvance: 'Add Payment/Advance',
       editIncome: 'Edit Income',
       deleteIncome: 'Delete Income',
       incomeNumber: 'Income Number',
@@ -1886,6 +1897,7 @@ const translations: Record<Language, Translations> = {
       fillRequiredFields: 'Please fill all required fields',
       linkedAdvance: 'Linked Advance',
       newExpense: 'New Expense',
+      addEngineerAdvance: 'Add Engineer Advance',
       remainingAmount: 'Remaining Amount',
       selectAdvance: 'Select Advance',
       selectTreasuryAccount: 'Select Treasury Account',
@@ -2172,6 +2184,7 @@ const translations: Record<Language, Translations> = {
       dueDate: 'تاريخ الاستحقاق',
       paidDate: 'تاريخ الدفع',
       addPayment: 'إضافة دفعة',
+      addPaymentAdvance: 'إضافة دفعة أو سلفة',
       newPayment: 'إضافة دفعة جديدة',
       paymentAmount: 'المبلغ (ريال)',
       paymentStatus: 'الحالة',
@@ -2459,6 +2472,8 @@ const translations: Record<Language, Translations> = {
       errorCreatingTransaction: 'حدث خطأ أثناء إنشاء المعاملة',
       projectExpenses: 'مصاريف المشروع',
       addNewExpense: 'إضافة مصروف جديد',
+      addEngineerAdvance: 'إضافة عهدة مهندس',
+      engineerAdvanceCreated: 'تم إنشاء العهدة بنجاح',
       expenseWarning: 'تنبيه: المصاريف المدخلة هنا مرتبطة حصرياً بهذا المشروع',
       itemType: 'نوع العنصر',
       generalExpense: 'مصروف عام',
@@ -2483,6 +2498,7 @@ const translations: Record<Language, Translations> = {
       noMilestones: 'لا توجد مستخلصات مسجلة',
       engineerAdvance: 'عهدة مهندس',
       investorInflow: 'وارد مستثمر',
+      employeeAdvance: 'سلفة عهدة لموظف',
       projectExpense: 'مصروف مشروع',
       totalBudget: 'الميزانية الإجمالية',
       totalCollected: 'إجمالي المحصل',
@@ -2530,6 +2546,7 @@ const translations: Record<Language, Translations> = {
       title: 'إدارة الواردات',
       subtitle: 'إدارة جميع سجلات الواردات',
       newIncome: 'وارد جديد',
+      addPaymentAdvance: 'إضافة دفعة أو سلفة',
       editIncome: 'تعديل وارد',
       deleteIncome: 'حذف وارد',
       incomeNumber: 'رقم الوارد',
@@ -2707,6 +2724,7 @@ const translations: Record<Language, Translations> = {
       fillRequiredFields: 'يرجى ملء جميع الحقول المطلوبة',
       linkedAdvance: 'العهدة المرتبطة',
       newExpense: 'مصروف جديد',
+      addEngineerAdvance: 'إضافة عهدة مهندس',
       remainingAmount: 'المبلغ المتبقي',
       selectAdvance: 'اختر العهدة',
       selectTreasuryAccount: 'اختر حساب الخزينة',

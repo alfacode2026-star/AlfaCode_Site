@@ -13,6 +13,7 @@ import { useBranch } from '../contexts/BranchContext'
 import { useSyncStatus } from '../contexts/SyncStatusContext'
 import { getTranslations } from '../utils/translations'
 import { translateWorkType, translateWorkScopes } from '../utils/workTypesTranslation'
+import { getCurrencySymbol } from '../utils/currencyUtils'
 import {
   Card,
   Table,
@@ -310,16 +311,45 @@ const QuotationsPage = () => {
       title: t.quotations.status,
       dataIndex: 'status',
       key: 'status',
-      render: (status) => {
+      render: (status, record) => {
         const config = statusLabels[status] || { text: status, color: 'default' }
+        
+        // If quotation is not converted or accepted, show Approve button with Popconfirm
+        if (status !== 'converted' && status !== 'accepted') {
+          return (
+            <Popconfirm
+              title={language === 'ar' ? 'هل تريد تحويل العرض إلى عقد ومشروع؟' : 'Convert to Contract & Project?'}
+              description={language === 'ar' ? 'سيتم تحويل عرض السعر هذا إلى عقد ومشروع رسمي' : 'Are you sure you want to convert this quotation into an official contract and project?'}
+              onConfirm={() => {
+                setSelectedQuotation(record)
+                convertForm.resetFields()
+                setConvertModalVisible(true)
+              }}
+              okText={t.common.yes || (language === 'ar' ? 'نعم' : 'Yes')}
+              cancelText={t.common.no || (language === 'ar' ? 'لا' : 'No')}
+            >
+              <Button 
+                type="primary" 
+                size="small" 
+                icon={<CheckCircleOutlined />}
+                style={{ fontSize: '12px' }}
+              >
+                {t.quotations.approveQuotation || (language === 'ar' ? 'اعتماد وتحويل لعقد' : 'Approve & Convert')}
+              </Button>
+            </Popconfirm>
+          )
+        }
+        
+        // Otherwise, show status tag
         return <Tag color={config.color}>{config.text}</Tag>
       }
     },
     {
       title: t.common.actions,
       key: 'actions',
+      width: 220,
       render: (_, record) => (
-        <Space>
+        <Space size="small" direction="horizontal" style={{ width: '100%', justifyContent: 'start' }}>
           <Button
             type="link"
             icon={<EyeOutlined />}
@@ -327,28 +357,15 @@ const QuotationsPage = () => {
               setSelectedQuotation(record)
               setViewModalVisible(true)
             }}
+            title={t.common.view || 'View Details'}
           >
             {t.common.view}
           </Button>
           {record.status !== 'accepted' && record.status !== 'converted' && (
-            <>
-              <Button
-                type="link"
-                icon={<CheckCircleOutlined />}
-                style={{ color: '#52c41a' }}
-                title={language === 'ar' ? 'اعتماد وتحويل لمشروع' : 'Approve and Create Project'}
-                onClick={() => {
-                  setSelectedQuotation(record)
-                  convertForm.resetFields()
-                  setConvertModalVisible(true)
-                }}
-              >
-                {t.quotations.approve}
-              </Button>
-              <Button
-                type="link"
-                icon={<EditOutlined />}
-                onClick={async () => {
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={async () => {
                   setSelectedQuotation(record)
                   // Try to find the customer by ID or name to set the display value
                   let customer = null
@@ -410,16 +427,16 @@ const QuotationsPage = () => {
                     validUntil: record.validUntil ? moment(record.validUntil) : null,
                     notes: record.notes
                   })
-                  setIsModalVisible(true)
-                }}
-              >
-                {t.quotations.editQuotation || t.common.edit}
-              </Button>
-            </>
+                setIsModalVisible(true)
+              }}
+              title={t.quotations.editQuotation || t.common.edit}
+            >
+              {t.common.edit}
+            </Button>
           )}
           <Popconfirm
-            title={t.quotations.deleteQuotationConfirm}
-            description={t.quotations.deleteQuotationDescription}
+            title={t.quotations.deleteQuotationConfirm || (language === 'ar' ? 'هل أنت متأكد؟' : 'Are you sure?')}
+            description={t.quotations.deleteQuotationDescription || (language === 'ar' ? 'هل أنت متأكد من حذف عرض السعر؟' : 'Are you sure you want to delete this quotation?')}
             onConfirm={async () => {
               try {
                 const result = await quotationsService.deleteQuotation(record.id)
@@ -434,11 +451,11 @@ const QuotationsPage = () => {
                 message.error(t.quotations.failedToDelete)
               }
             }}
-            okText={t.quotations.yes}
-            cancelText={t.quotations.no}
+            okText={t.quotations.yes || (language === 'ar' ? 'نعم' : 'Yes')}
+            cancelText={t.quotations.no || (language === 'ar' ? 'لا' : 'No')}
           >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              {t.quotations.delete}
+            <Button type="link" danger icon={<DeleteOutlined />} title={t.quotations.deleteQuotation || 'Delete Quotation'}>
+              {t.common.delete}
             </Button>
           </Popconfirm>
         </Space>
@@ -985,7 +1002,7 @@ const QuotationsPage = () => {
 
           {/* Work Scope Section with Main Label */}
           <Form.Item
-            label={t.quotations.workScope || 'نطاق العمل'}
+            label={t.quotations.workScope || 'Work Scope'}
             style={{ marginTop: 24 }}
           >
             <div>
@@ -1108,7 +1125,7 @@ const QuotationsPage = () => {
                 onClick={addCustomWorkScope}
                 style={{ width: '100%', marginBottom: 16 }}
               >
-                {t.quotations.addCustomWork}
+                {t.quotations.addNewWorkCategory || 'Add Custom Work Scope'}
               </Button>
             </div>
           </Form.Item>
@@ -1152,6 +1169,78 @@ const QuotationsPage = () => {
         open={viewModalVisible}
         onCancel={() => setViewModalVisible(false)}
         footer={[
+          selectedQuotation?.status !== 'accepted' && selectedQuotation?.status !== 'converted' && (
+            <Button
+              key="edit"
+              type="primary"
+              icon={<EditOutlined />}
+              onClick={async () => {
+                setViewModalVisible(false)
+                // Load customer and work scopes for editing
+                let customer = null
+                if (selectedQuotation.customerId) {
+                  try {
+                    customer = await customersService.getCustomer(selectedQuotation.customerId)
+                  } catch (error) {
+                    console.error('Error loading customer:', error)
+                  }
+                }
+                if (!customer && selectedQuotation.customerName) {
+                  customer = customers.find(c => c.name === selectedQuotation.customerName)
+                }
+                
+                setSelectedCustomer(customer)
+                
+                // Parse work scopes
+                const workScopes = selectedQuotation.workScopes || []
+                const categoryMap = {}
+                const customScopes = []
+                
+                workScopes.forEach(scope => {
+                  let found = false
+                  for (const [catKey, catData] of Object.entries(allWorkScopeCategories)) {
+                    if (catData.items.some(item => item.value === scope)) {
+                      if (!categoryMap[catKey]) {
+                        categoryMap[catKey] = []
+                      }
+                      categoryMap[catKey].push(scope)
+                      found = true
+                      break
+                    }
+                  }
+                  if (!found) {
+                    customScopes.push(scope)
+                  }
+                })
+                
+                const categoriesArray = Object.keys(categoryMap).map(catKey => ({
+                  category: catKey,
+                  selectedItems: categoryMap[catKey]
+                }))
+                
+                setWorkScopeCategories(categoriesArray)
+                setCustomWorkScopes(customScopes)
+                
+                form.setFieldsValue({
+                  customerSearch: customer?.name || selectedQuotation.customerName || '',
+                  customerName: selectedQuotation.customerName,
+                  customerPhone: selectedQuotation.customerPhone,
+                  customerEmail: selectedQuotation.customerEmail,
+                  projectName: selectedQuotation.projectName || '',
+                  documentType: selectedQuotation.documentType || 'original',
+                  totalAmount: selectedQuotation.totalAmount,
+                  status: selectedQuotation.status,
+                  date: selectedQuotation.createdAt ? moment(selectedQuotation.createdAt).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'),
+                  validUntil: selectedQuotation.validUntil ? moment(selectedQuotation.validUntil) : null,
+                  notes: selectedQuotation.notes
+                })
+                
+                setIsModalVisible(true)
+              }}
+            >
+              {t.common.edit}
+            </Button>
+          ),
           <Button
             key="convert"
             type="primary"
@@ -1179,7 +1268,7 @@ const QuotationsPage = () => {
           <Button key="close" onClick={() => setViewModalVisible(false)}>
             {t.quotations.close}
           </Button>
-        ]}
+        ].filter(Boolean)}
         width={700}
       >
         {selectedQuotation && (
@@ -1213,7 +1302,7 @@ const QuotationsPage = () => {
                 </Descriptions.Item>
               )}
               <Descriptions.Item label={t.quotations.totalAmount}>
-                {selectedQuotation.totalAmount.toLocaleString()} {language === 'ar' ? 'ر.س' : (branchCurrency || 'SAR')}
+                {selectedQuotation.totalAmount.toLocaleString()} {getCurrencySymbol(branchCurrency, language)}
               </Descriptions.Item>
               <Descriptions.Item label={t.quotations.status}>
                 <Tag color={statusLabels[selectedQuotation.status]?.color}>

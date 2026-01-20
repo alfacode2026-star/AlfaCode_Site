@@ -14,6 +14,8 @@ import paymentsService from '../services/paymentsService'
 import projectsService from '../services/projectsService'
 // @ts-ignore
 import treasuryService from '../services/treasuryService'
+// @ts-ignore
+import incomesService from '../services/incomesService'
 import { useTenant } from '../contexts/TenantContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useBranch } from '../contexts/BranchContext'
@@ -80,6 +82,8 @@ interface ContractWithKey extends Contract {
 // Extended Payment type with project information
 interface PaymentWithProject extends Payment {
   projectName?: string | null
+  isIncome?: boolean // Flag to identify incomes vs payments
+  incomeType?: string // For displaying income type
 }
 
 // Customer search option type
@@ -130,6 +134,10 @@ const ContractsPage = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState<boolean>(false)
   const [contractToDelete, setContractToDelete] = useState<ContractWithKey | null>(null)
   const [deleteForm] = Form.useForm()
+  const [hasExistingIncomes, setHasExistingIncomes] = useState<boolean>(false)
+  const [loadingProjectIncomes, setLoadingProjectIncomes] = useState<boolean>(false)
+  const [previousCompletionPercentage, setPreviousCompletionPercentage] = useState<number | null>(null)
+  const [isCorrectionMode, setIsCorrectionMode] = useState(false)
 
   useEffect(() => {
     loadContracts()
@@ -232,7 +240,29 @@ const ContractsPage = () => {
 
   const loadContractPayments = async (contractId: string): Promise<void> => {
     try {
-      const payments = await paymentsService.getPaymentsByContract(contractId)
+      // Load both payments and incomes for this contract
+      const [payments, allIncomes] = await Promise.all([
+        paymentsService.getPaymentsByContract(contractId),
+        incomesService.getIncomes() // Load all incomes, then filter
+      ])
+      
+      // Filter incomes by contractId
+      const contractIncomes = (allIncomes || []).filter((income: any) => income.contractId === contractId)
+      
+      // Transform incomes to match payment structure for display
+      const transformedIncomes = contractIncomes.map((income: any) => ({
+        id: income.id,
+        paymentNumber: income.paymentNumber || `INC-${income.id.substring(0, 8)}`,
+        amount: income.amount,
+        dueDate: income.date,
+        paidDate: income.date, // Incomes are typically recorded as received
+        status: 'paid',
+        projectId: income.projectId,
+        projectName: income.projectName || null,
+        isIncome: true, // Flag to identify this as an income
+        incomeType: income.incomeType,
+        description: income.description
+      }))
       
       // Fetch project names for payments that have project_id
       const paymentsWithProjects = await Promise.all(
@@ -242,13 +272,20 @@ const ContractsPage = () => {
             const project = await projectsService.getProjectById(payment.projectId)
             projectName = project?.name || null
           }
-          return { ...payment, projectName } as PaymentWithProject
+          return { ...payment, projectName, isIncome: false } as PaymentWithProject
         })
       )
       
-      setSelectedContractPayments(paymentsWithProjects)
+      // Merge payments and incomes, sort by date descending
+      const merged = [...paymentsWithProjects, ...transformedIncomes].sort((a, b) => {
+        const dateA = new Date(a.dueDate || a.paidDate || 0).getTime()
+        const dateB = new Date(b.dueDate || b.paidDate || 0).getTime()
+        return dateB - dateA // Most recent first
+      })
+      
+      setSelectedContractPayments(merged)
     } catch (error) {
-      console.error('Error loading payments:', error)
+      console.error('Error loading payments and incomes:', error)
       setSelectedContractPayments([])
     }
   }
@@ -539,7 +576,7 @@ const ContractsPage = () => {
       key: 'totalAmount',
       render: (amount: number | undefined, record: ContractWithKey) => (
         <span style={{ fontWeight: 'bold', color: '#1890ff' }}>
-          {formatCurrencyWithSymbol(amount || 0, (record as any).currency || branchCurrency)}
+          {(amount || 0).toLocaleString()} {getCurrencySymbol((record as any).currency || branchCurrency, language)}
         </span>
       )
     },
@@ -559,8 +596,9 @@ const ContractsPage = () => {
     {
       title: t.common.actions,
       key: 'actions',
+      width: 250,
       render: (_: unknown, record: ContractWithKey) => (
-        <Space>
+        <Space size="small">
           <Button
             type="link"
             icon={<EyeOutlined />}
@@ -569,9 +607,22 @@ const ContractsPage = () => {
               await loadContractPayments(record.id)
               setViewModalVisible(true)
             }}
+            title={t.common.view}
           >
             {t.common.view}
           </Button>
+          {record.projectId && (
+            <Button
+              type="link"
+              icon={<FileProtectOutlined />}
+              onClick={() => {
+                window.location.href = `/projects/${record.projectId}`
+              }}
+              title={language === 'ar' ? 'عرض المشروع' : 'View Project'}
+            >
+              {language === 'ar' ? 'مشروع' : 'Project'}
+            </Button>
+          )}
           <Button
             type="link"
             icon={<CalendarOutlined />}
@@ -629,12 +680,14 @@ const ContractsPage = () => {
               
               setDatesEditModalVisible(true)
             }}
+            title={t.contracts.editDates}
             >
-            {t.contracts.editDates}
+            {language === 'ar' ? 'تواريخ' : 'Dates'}
           </Button>
           <Button
             type="link"
             icon={<EditOutlined />}
+            title={t.common.edit}
             onClick={async () => {
               setSelectedContract(record)
               
@@ -702,8 +755,9 @@ const ContractsPage = () => {
               deleteForm.resetFields()
               setDeleteModalVisible(true)
             }}
+            title={t.common.delete}
           >
-            {t.common.delete}
+            {language === 'ar' ? 'حذف' : 'Del'}
           </Button>
         </Space>
       )
@@ -988,69 +1042,100 @@ const ContractsPage = () => {
         return
       }
 
-      const transactionDate = values.status === 'paid' && values.paidDate
-        ? moment(values.paidDate).format('YYYY-MM-DD')
-        : (values.dueDate ? moment(values.dueDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD'))
-
       // Get currency from selected treasury account
       const selectedAccount = treasuryAccounts.find(acc => acc.id === values.treasuryAccountId);
       const currency = selectedAccount?.currency || selectedCurrency || branchCurrency || 'SAR';
 
-      const paymentData = {
+      // ⚠️ CRITICAL: DO NOT REMOVE - This form handles ONLY investor inflows (IN flows)
+      // For employee advances (OUT flows), use the dedicated Engineer Advance button
+      const incomeData = {
+        projectId: selectedContract.projectId || values.projectId || null,
         contractId: selectedContract.id,
-        projectId: selectedContract.projectId || null,
         workScope: values.workScope || null,
-        paymentType: 'income',
+        incomeType: values.incomeType || 'down_payment',
         amount: values.amount,
-        dueDate: moment(values.dueDate).format('YYYY-MM-DD'),
-        paidDate: values.status === 'paid' ? transactionDate : null,
+        date: moment(values.dueDate).format('YYYY-MM-DD'),
         status: values.status || 'pending',
-        paymentMethod: values.paymentMethod || null,
+        description: values.description || '',
         referenceNumber: values.referenceNumber || null,
-        notes: values.notes || '',
         treasuryAccountId: values.treasuryAccountId,
-        currency: currency, // Include currency from treasury account
+        currency: currency,
+        completionPercentage: values.completionPercentage || null,
         createdBy: 'user'
       }
 
-      console.log('💾 Saving payment with currency:', currency);
-
-      const result = await paymentsService.createPayment(paymentData)
+      const result = await incomesService.createIncome(incomeData)
 
       if (result.success) {
-        if (values.status === 'paid' && values.treasuryAccountId) {
+        // Create treasury transaction if paid
+        if (values.status === 'paid') {
           try {
             await treasuryService.createTransaction({
               accountId: values.treasuryAccountId,
               transactionType: 'inflow',
               amount: values.amount,
               referenceType: 'income',
-              referenceId: result.payment.id,
-              description: `Contract Payment: ${selectedContract.contractNumber} - ${values.notes || 'Payment from client'}`
+              referenceId: result.income.id,
+              description: `${t.projectDetails.investorInflow || 'Investor Inflow'}: ${selectedContract.contractNumber}${values.description ? ' - ' + values.description : ''}`
             })
           } catch (error) {
             console.error('Error creating treasury transaction:', error)
-            message.warning('Payment added successfully, but there was an error updating the treasury')
+            message.warning(t.projectDetails.advanceCreatedTreasuryError || 'Income created but treasury error')
           }
         }
 
-        message.success(t.contracts.paymentAdded)
-        setPaymentModalVisible(false)
-        setSelectedPaymentProject(null)
-        setAvailablePaymentWorkScopes([])
-        setSelectedCurrency(branchCurrency || 'SAR') // Reset to default currency
-        paymentForm.resetFields()
-        paymentForm.setFieldsValue({ currency: branchCurrency || 'SAR' })
-        if (selectedContract) {
-          await loadContractPayments(selectedContract.id)
+        // Update project completion percentage if milestone advance
+        if (selectedContract.projectId && values.incomeType === 'advance' && values.completionPercentage) {
+          try {
+            await projectsService.updateProject(selectedContract.projectId, {
+              completionPercentage: values.completionPercentage
+            })
+          } catch (error) {
+            console.error('Error updating project completion:', error)
+          }
         }
-        loadTreasuryAccounts()
+
+        message.success(t.projectDetails.investorInflowCreated || 'Investor inflow created successfully')
       } else {
-        message.error(result.error || 'Failed to add payment')
+        message.error(result.error || t.projectDetails.failedToCreateInvestorInflow)
+        return
       }
+
+      // Reset modal and reload ALL affected data
+      setPaymentModalVisible(false)
+      setSelectedPaymentProject(null)
+      setAvailablePaymentWorkScopes([])
+      setSelectedCurrency(branchCurrency || 'SAR')
+      setHasExistingIncomes(false)
+      setPreviousCompletionPercentage(null)
+      setIsCorrectionMode(false)
+      paymentForm.resetFields()
+      paymentForm.setFieldsValue({ currency: branchCurrency || 'SAR' })
+      
+      // ⚠️ CRITICAL: DO NOT REMOVE - Comprehensive data reload for all affected tables
+      // This ensures: Contracts, Projects, Treasury, and Income tables all sync
+      await Promise.all([
+        loadContracts(), // Update contract list and receivedAmount
+        loadTreasuryAccounts(), // Update treasury balances
+        industryType === 'engineering' ? loadProjects() : Promise.resolve(), // Update projects list
+        selectedContract ? loadContractPayments(selectedContract.id) : Promise.resolve() // Update payments tab (includes incomes)
+      ])
+      
+      // If modal is still open (View Modal), refresh the selected contract data
+      if (selectedContract && viewModalVisible) {
+        try {
+          const updatedContract = await contractsService.getContract(selectedContract.id)
+          if (updatedContract) {
+            setSelectedContract(updatedContract)
+          }
+        } catch (error) {
+          console.error('Error refreshing contract:', error)
+        }
+      }
+      
     } catch (error) {
-      console.error('Error creating payment:', error)
-      message.error('An error occurred while adding the payment')
+      console.error('Error creating payment/advance:', error)
+      message.error(t.projectDetails.errorCreatingTransaction || 'An error occurred while creating the transaction')
     }
   }
 
@@ -1635,6 +1720,11 @@ const ContractsPage = () => {
                         render: (paymentNumber: string, record: PaymentWithProject) => (
                           <div>
                             <div style={{ fontWeight: 500 }}>{paymentNumber}</div>
+                            {record.isIncome && (
+                              <Tag color="green" style={{ marginTop: 4 }}>
+                                {language === 'ar' ? 'وارد' : 'Income'}
+                              </Tag>
+                            )}
                             {record.isGeneralExpense && (
                               <Tag color="purple" style={{ marginTop: 4 }}>
                                 {t.contracts.generalExpense}
@@ -1712,7 +1802,7 @@ const ContractsPage = () => {
       </Modal>
 
       <Modal
-        title={t.contracts.newPayment}
+        title={t.contracts.addPaymentAdvance || t.contracts.newPayment}
         open={paymentModalVisible}
         onOk={handleAddPayment}
         onCancel={() => {
@@ -1720,14 +1810,83 @@ const ContractsPage = () => {
           setSelectedPaymentProject(null)
           setAvailablePaymentWorkScopes([])
           setSelectedCurrency('SAR') // Reset to default currency
+          setHasExistingIncomes(false)
+          setPreviousCompletionPercentage(null)
+          setIsCorrectionMode(false)
           paymentForm.resetFields()
           paymentForm.setFieldsValue({ currency: 'SAR' })
         }}
+        afterOpenChange={async (open) => {
+          if (open && selectedContract?.projectId) {
+            // Check if project has existing incomes
+            setLoadingProjectIncomes(true)
+            try {
+              const hasIncomes = await incomesService.hasExistingIncomes(selectedContract.projectId)
+              setHasExistingIncomes(hasIncomes)
+              
+              // Set default values
+              paymentForm.setFieldsValue({
+                incomeType: hasIncomes ? 'advance' : 'down_payment'
+              })
+              
+              // Fetch previous completion percentage if needed
+              if (hasIncomes) {
+                const projectData = await projectsService.getProject(selectedContract.projectId)
+                if (projectData) {
+                  setPreviousCompletionPercentage(projectData.completionPercentage || 0)
+                }
+              }
+            } catch (error) {
+              console.error('Error checking project incomes:', error)
+            } finally {
+              setLoadingProjectIncomes(false)
+            }
+          }
+        }}
         okText={t.common.add}
         cancelText={t.common.cancel}
-        width={600}
+        width={700}
       >
         <Form form={paymentForm} layout="vertical" style={{ marginTop: 24 }}>
+          {/* ⚠️ CRITICAL: DO NOT REMOVE - Income forms handle ONLY investor inflows (IN flows) */}
+          {/* Income Type - Always visible, no transaction type selector */}
+          <Form.Item
+            name="incomeType"
+            label={t.projectDetails.incomeType || 'Income Type'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار نوع الوارد' : 'Please select income type' }]}
+            initialValue={hasExistingIncomes ? 'advance' : 'down_payment'}
+            help={
+              hasExistingIncomes
+                ? (language === 'ar' ? 'يوجد واردات سابقة - اختر "سلفة مرحلة"' : 'Project has existing incomes - use "Milestone Advance"')
+                : (language === 'ar' ? 'أول وارد للمشروع - يجب أن يكون "عربون مقدم"' : 'First income for project - must be "Down Payment"')
+            }
+          >
+            <Select
+              placeholder={t.projectDetails.selectIncomeType || 'Select Income Type'}
+              disabled={!hasExistingIncomes}
+              loading={loadingProjectIncomes}
+            >
+              <Option value="down_payment" disabled={hasExistingIncomes}>
+                {language === 'ar' ? 'عربون مقدم' : 'Down Payment'}
+              </Option>
+              <Option value="advance">
+                {language === 'ar' ? 'سلفة مرحلة' : 'Milestone Advance'}
+              </Option>
+            </Select>
+          </Form.Item>
+
+          {/* Description/Phase Name */}
+          <Form.Item
+            name="description"
+            label={t.projectDetails.descriptionOrPhase || 'Description/Phase Name'}
+            rules={[{ required: false }]}
+          >
+            <Input.TextArea
+              rows={2}
+              placeholder={t.projectDetails.descriptionPlaceholder || (language === 'ar' ? 'مثال: مرحلة الأساسات...' : 'e.g., Foundation phase...')}
+            />
+          </Form.Item>
+
           {industryType === 'engineering' && (
             <>
               <Form.Item
@@ -1754,10 +1913,10 @@ const ContractsPage = () => {
               {selectedPaymentProject && availablePaymentWorkScopes.length > 0 && (
                 <Form.Item
                   name="workScope"
-                  label={`Work Scope ${t.common.optional}`}
+                  label={t.projectDetails.workScopeOptional || `Work Scope ${t.common.optional}`}
                 >
                   <Select
-                    placeholder={t.contracts.selectWorkScopePlaceholder}
+                    placeholder={t.projectDetails.selectWorkScope || t.contracts.selectWorkScopePlaceholder}
                     allowClear
                     showSearch
                     filterOption={(input, option) =>
@@ -1774,6 +1933,69 @@ const ContractsPage = () => {
               )}
             </>
           )}
+
+          {/* Conditional: Show completion percentage only for milestone advances */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => 
+              prevValues.transactionType !== currentValues.transactionType ||
+              prevValues.incomeType !== currentValues.incomeType
+            }
+          >
+            {({ getFieldValue }) => {
+              const transactionType = getFieldValue('transactionType')
+              const incomeType = getFieldValue('incomeType')
+              
+              if (transactionType === 'investor_inflow' && incomeType === 'advance') {
+                return (
+                  <>
+                    {previousCompletionPercentage !== null && (
+                      <Alert
+                        type="info"
+                        message={`${t.projectDetails.previousCompletion || 'Previous Completion'}: ${previousCompletionPercentage}%`}
+                        style={{ marginBottom: 16 }}
+                        showIcon
+                      />
+                    )}
+                    <Form.Item
+                      name="completionPercentage"
+                      label={`${t.projects.completionPercentage || 'Completion Percentage'} (%)`}
+                      rules={[
+                        { required: true, message: language === 'ar' ? 'يرجى إدخال نسبة الإنجاز' : 'Please enter completion percentage' },
+                        {
+                          validator: async (_, value) => {
+                            if (value !== undefined && value !== null) {
+                              if (value < 0 || value > 100) {
+                                return Promise.reject(new Error(language === 'ar' ? 'يجب أن تكون النسبة بين 0 و 100' : 'Percentage must be between 0 and 100'))
+                              }
+                              if (previousCompletionPercentage !== null && value <= previousCompletionPercentage && !isCorrectionMode) {
+                                return Promise.reject(new Error(
+                                  language === 'ar' 
+                                    ? `يجب أن تكون نسبة الإنجاز الجديدة أكبر من ${previousCompletionPercentage}%`
+                                    : `New completion must be greater than ${previousCompletionPercentage}%`
+                                ))
+                              }
+                            }
+                            return Promise.resolve()
+                          }
+                        }
+                      ]}
+                      help={language === 'ar' ? 'أدخل نسبة إنجاز المشروع الحالية' : 'Enter current project completion percentage'}
+                    >
+                      <InputNumber
+                        min={0}
+                        max={100}
+                        style={{ width: '100%' }}
+                        placeholder={language === 'ar' ? 'مثال: 45' : 'e.g., 45'}
+                        addonAfter="%"
+                      />
+                    </Form.Item>
+                  </>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
           
           <Form.Item
             name="amount"
@@ -1885,9 +2107,9 @@ const ContractsPage = () => {
           {/* Currency Field - Auto-synced and locked when treasury is selected */}
           <Form.Item
             name="currency"
-            label="Currency"
+            label={t.contracts.currency || 'Currency'}
             rules={[{ required: true, message: 'Currency is required' }]}
-            tooltip="Currency is automatically set based on the selected treasury account"
+            tooltip={t.contracts.currencyTooltip || 'Currency is automatically set based on the selected treasury account'}
           >
             <Select
               disabled={true} // Lock currency field - it's synced from treasury
@@ -1995,6 +2217,8 @@ const ContractsPage = () => {
               return
             }
 
+            // ⚠️ CRITICAL: DO NOT REMOVE - Complete deletion chain handled by service
+            // Service handles: Contract -> Project -> Quotation rollback
             const result = await contractsService.deleteContract(
               contractToDelete.id,
               values.password,
@@ -2002,11 +2226,26 @@ const ContractsPage = () => {
             )
 
             if (result.success) {
+              // Service has already handled:
+              // 1. Quotation rollback to 'draft' (if linked)
+              // 2. Project deletion (if linked)
+              // 3. Contract items deletion
+              console.log('✅ Contract deleted successfully with full cascade:', {
+                contractId: contractToDelete.id,
+                projectDeleted: result.linkedProjectDeleted,
+                quotationRolledBack: result.quotationRolledBack
+              })
+
               message.success(t.contracts.contractDeleted)
               setDeleteModalVisible(false)
               setContractToDelete(null)
               deleteForm.resetFields()
-              loadContracts()
+              
+              // ⚠️ CRITICAL: DO NOT REMOVE - Comprehensive data reload
+              await Promise.all([
+                loadContracts(), 
+                loadQuotations()
+              ])
             } else {
               message.error(result.error || t.contracts.failedToDelete)
             }

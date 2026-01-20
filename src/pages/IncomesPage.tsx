@@ -38,6 +38,10 @@ import incomesService from '../services/incomesService';
 import projectsService from '../services/projectsService';
 import treasuryService from '../services/treasuryService';
 import userManagementService from '../services/userManagementService';
+// @ts-ignore
+import paymentsService from '../services/paymentsService';
+// @ts-ignore
+import contractsService from '../services/contractsService';
 import { formatCurrencyWithSymbol, formatCurrencyLabel, getCurrencySymbol } from '../utils/currencyUtils';
 
 const { Option } = Select;
@@ -103,6 +107,7 @@ const IncomesPage: FC = () => {
 
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
+  const [contracts, setContracts] = useState<any[]>([]);
   const [treasuryAccounts, setTreasuryAccounts] = useState<TreasuryAccount[]>([]);
   const [filters, setFilters] = useState<FilterState>({
     searchText: '',
@@ -119,6 +124,9 @@ const IncomesPage: FC = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [incomeToDelete, setIncomeToDelete] = useState<Income | null>(null);
   const [deleteForm] = Form.useForm();
+  const [isCorrectionMode, setIsCorrectionMode] = useState(false);
+  const [previousCompletionPercentage, setPreviousCompletionPercentage] = useState<number | null>(null);
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   
   // Use branch currency as the single source of truth
   const displayCurrency = branchCurrency || 'SAR';
@@ -143,6 +151,7 @@ const IncomesPage: FC = () => {
     if (isEngineering) {
       loadProjects();
     }
+    loadContracts();
     loadTreasuryAccounts();
   }, [industryType]);
 
@@ -194,6 +203,16 @@ const IncomesPage: FC = () => {
     } catch (error) {
       console.error('Error loading treasury accounts:', error);
       setTreasuryAccounts([]);
+    }
+  };
+
+  const loadContracts = async (): Promise<void> => {
+    try {
+      const contractsList = await contractsService.getContracts();
+      setContracts(contractsList || []);
+    } catch (error) {
+      console.error('Error loading contracts:', error);
+      setContracts([]);
     }
   };
 
@@ -460,22 +479,23 @@ const IncomesPage: FC = () => {
         return;
       }
 
+      // ⚠️ CRITICAL: DO NOT REMOVE - This form handles ONLY investor inflows (IN flows)
+      // For employee advances (OUT flows), use the dedicated Engineer Advance button
       const incomeData = {
         projectId: values.projectId,
+        contractId: values.contractId || null,
         projectName: selectedProject?.name || '',
-        date: formattedDate, // Safely formatted date (YYYY-MM-DD string)
-        amount: parsedAmount, // Use parsed number to prevent data corruption
+        date: formattedDate,
+        amount: parsedAmount,
         incomeType: values.incomeType || 'down_payment',
         treasuryAccountId: values.treasuryAccountId,
-        currency: currency, // Include currency from treasury account
+        currency: currency,
         description: values.description,
         referenceNumber: values.referenceNumber,
         workScope: values.workScope || null,
         completionPercentage:
           values.incomeType === 'advance' ? values.completionPercentage : null,
       };
-
-      console.log('💾 Saving income with currency:', currency);
 
       let result;
       if (editingIncome) {
@@ -485,6 +505,7 @@ const IncomesPage: FC = () => {
       }
 
       if (result.success) {
+        // Update project completion percentage if milestone advance
         if (
           values.incomeType === 'advance' &&
           values.completionPercentage !== null &&
@@ -500,22 +521,54 @@ const IncomesPage: FC = () => {
           }
         }
 
+        // Create treasury transaction if treasury account is specified
+        if (values.treasuryAccountId && !editingIncome) {
+          try {
+            await treasuryService.createTransaction({
+              accountId: values.treasuryAccountId,
+              transactionType: 'inflow',
+              amount: parsedAmount,
+              referenceType: 'income',
+              referenceId: result.income?.id || result.data?.id,
+              description: `${t.projectDetails.investorInflow || 'Investor Inflow'}: ${selectedProject?.name || ''}${values.description ? ' - ' + values.description : ''}`
+            })
+          } catch (error) {
+            console.error('Error creating treasury transaction:', error)
+          }
+        }
+
         message.success(
-          editingIncome ? 'Income updated successfully.' : 'Income added successfully.'
+          editingIncome 
+            ? (t.incomes.incomeUpdated || 'Income updated successfully.') 
+            : (t.projectDetails.investorInflowCreated || 'Investor inflow created successfully')
         );
-        setIsModalVisible(false);
-        form.resetFields();
-        setEditingIncome(null);
-        setSelectedProjectId(null);
-        setHasExistingIncomes(false);
-        loadIncomes();
-        loadTreasuryAccounts();
       } else {
-        message.error(result.error || 'Failed to save income.');
+        message.error(result.error || t.projectDetails.failedToCreateInvestorInflow || 'Failed to save income.');
+        return;
       }
+
+      // Reset modal and reload ALL affected data
+      setIsModalVisible(false);
+      form.resetFields();
+      setEditingIncome(null);
+      setSelectedProjectId(null);
+      setSelectedContractId(null);
+      setHasExistingIncomes(false);
+      setPreviousCompletionPercentage(null);
+      setIsCorrectionMode(false);
+      
+      // ⚠️ CRITICAL: DO NOT REMOVE - Comprehensive data reload for all affected tables
+      // This ensures: Incomes, Contracts, Projects, and Treasury tables all sync
+      await Promise.all([
+        loadIncomes(), // Update incomes table
+        loadTreasuryAccounts(), // Update treasury balances
+        loadContracts(), // Update contracts if income was linked to one
+        isEngineering ? loadProjects() : Promise.resolve() // Update projects if in engineering mode
+      ])
+      
     } catch (error) {
-      console.error('Error saving income:', error);
-      message.error('Failed to save income.');
+      console.error('Error saving transaction:', error);
+      message.error(t.projectDetails.errorCreatingTransaction || 'Failed to save transaction.');
     }
   };
 
@@ -542,7 +595,7 @@ const IncomesPage: FC = () => {
         title="Incomes & Advances Management"
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            Add Income/Advance
+            {t.incomes.addPaymentAdvance || 'Add Payment/Advance'}
           </Button>
         }
       >
@@ -630,6 +683,7 @@ const IncomesPage: FC = () => {
           form.resetFields();
           setEditingIncome(null);
           setSelectedProjectId(null);
+          setSelectedContractId(null);
           setHasExistingIncomes(false);
         }}
         okText="Save"
@@ -637,6 +691,9 @@ const IncomesPage: FC = () => {
         width={600}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 24 }}>
+          {/* ⚠️ CRITICAL: DO NOT REMOVE - Income forms handle ONLY investor inflows (IN flows) */}
+          {/* For employee advances (OUT flows), use the dedicated Engineer Advance button */}
+
           {isEngineering && (
             <Form.Item
               name="projectId"
@@ -679,6 +736,28 @@ const IncomesPage: FC = () => {
               </Select>
             </Form.Item>
           )}
+
+          <Form.Item 
+            name="contractId" 
+            label={language === 'ar' ? 'العقد (اختياري)' : 'Contract (Optional)'}
+            tooltip={language === 'ar' ? 'ربط هذا الوارد بعقد محدد لتتبع أفضل' : 'Link this income to a specific contract for better tracking'}
+          >
+            <Select
+              placeholder={language === 'ar' ? 'اختر العقد (اختياري)' : 'Select Contract (Optional)'}
+              allowClear
+              showSearch
+              onChange={(contractId) => setSelectedContractId(contractId)}
+              filterOption={(input, option) =>
+                String(option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {contracts.map((contract: any) => (
+                <Option key={contract.id} value={contract.id}>
+                  {contract.contractNumber} - {contract.customerName}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
@@ -729,47 +808,62 @@ const IncomesPage: FC = () => {
             </Col>
           </Row>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="incomeType"
-                label="Income Type"
-                rules={[{ required: true, message: 'Please select income type' }]}
-                initialValue="down_payment"
-              >
-                <Select
-                  placeholder={t.common.select + ' ' + 'Income Type' || 'Select Income Type'}
-                  disabled={selectedProjectId ? (hasExistingIncomes ? false : true) : false}
-                  onChange={(value) => {
-                    if (value !== 'advance') {
-                      form.setFieldsValue({ completionPercentage: undefined });
-                    }
-                  }}
-                >
-                  <Option value="down_payment" disabled={selectedProjectId && hasExistingIncomes}>
-                    Down Payment
-                    {selectedProjectId && hasExistingIncomes && ' (Not Available)'}
-                  </Option>
-                  <Option value="advance" disabled={selectedProjectId && !hasExistingIncomes}>
-                    Milestone Advance
-                    {selectedProjectId && !hasExistingIncomes && ' (Not Available)'}
-                  </Option>
-                </Select>
-              </Form.Item>
-              {selectedProjectId && (
-                <div style={{ fontSize: '12px', color: '#666', marginTop: -16, marginBottom: 8 }}>
-                  {hasExistingIncomes
-                    ? 'Previous incomes exist - Must select "Milestone Advance"'
-                    : 'No previous incomes - Must select "Down Payment"'}
-                </div>
-              )}
-            </Col>
-            <Col span={12}>
-              <Form.Item name="referenceNumber" label="Reference Number (Optional)">
-                <Input placeholder={t.contracts.additionalNotesPlaceholder || 'Reference number or receipt number'} />
-              </Form.Item>
-            </Col>
-          </Row>
+          {/* Conditional: Show income type only for investor inflows */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.transactionType !== currentValues.transactionType}
+          >
+            {({ getFieldValue }) => {
+              const transactionType = getFieldValue('transactionType')
+              
+              if (transactionType === 'investor_inflow' || !transactionType) {
+                return (
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item
+                        name="incomeType"
+                        label={t.projectDetails.incomeType || 'Income Type'}
+                        rules={[{ required: true, message: 'Please select income type' }]}
+                        initialValue="down_payment"
+                      >
+                        <Select
+                          placeholder={t.projectDetails.selectIncomeType || 'Select Income Type'}
+                          disabled={selectedProjectId ? (hasExistingIncomes ? false : true) : false}
+                          onChange={(value) => {
+                            if (value !== 'advance') {
+                              form.setFieldsValue({ completionPercentage: undefined });
+                            }
+                          }}
+                        >
+                          <Option value="down_payment" disabled={selectedProjectId && hasExistingIncomes}>
+                            {language === 'ar' ? 'عربون مقدم' : 'Down Payment'}
+                            {selectedProjectId && hasExistingIncomes && ' (Not Available)'}
+                          </Option>
+                          <Option value="advance" disabled={selectedProjectId && !hasExistingIncomes}>
+                            {language === 'ar' ? 'سلفة مرحلة' : 'Milestone Advance'}
+                            {selectedProjectId && !hasExistingIncomes && ' (Not Available)'}
+                          </Option>
+                        </Select>
+                      </Form.Item>
+                      {selectedProjectId && (
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: -16, marginBottom: 8 }}>
+                          {hasExistingIncomes
+                            ? (language === 'ar' ? 'يوجد واردات سابقة - اختر "سلفة مرحلة"' : 'Previous incomes exist - Must select "Milestone Advance"')
+                            : (language === 'ar' ? 'لا توجد واردات سابقة - اختر "عربون مقدم"' : 'No previous incomes - Must select "Down Payment"')}
+                        </div>
+                      )}
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="referenceNumber" label={t.projectDetails.referenceNumberOptional || 'Reference Number (Optional)'}>
+                        <Input placeholder={t.projectDetails.referenceNumberPlaceholder || 'Reference number or receipt number'} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )
+              }
+              return null
+            }}
+          </Form.Item>
 
           <Form.Item
             noStyle
@@ -850,8 +944,8 @@ const IncomesPage: FC = () => {
 
           {/* Currency Display - Static label showing branch currency */}
           <Form.Item
-            label={`Currency (${displayCurrency})`}
-            tooltip="Currency is set at the branch level and cannot be changed per transaction"
+            label={formatCurrencyLabel(t.incomes.currency || 'Currency', displayCurrency, language)}
+            tooltip={t.incomes.currencyTooltip || 'Currency is set at the branch level and cannot be changed per transaction'}
           >
             <Input
               readOnly

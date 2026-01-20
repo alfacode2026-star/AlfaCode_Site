@@ -83,6 +83,9 @@ const ProjectDetails = () => {
   const [paymentsWithTreasuryAccounts, setPaymentsWithTreasuryAccounts] = useState<any[]>([])
   const [expenseModalVisible, setExpenseModalVisible] = useState(false)
   const [expenseForm] = Form.useForm()
+  // Engineer Advance modal states
+  const [engineerAdvanceModalVisible, setEngineerAdvanceModalVisible] = useState(false)
+  const [engineerAdvanceForm] = Form.useForm()
   const [engineerAdvances, setEngineerAdvances] = useState<any[]>([])
   const [previousCompletionPercentage, setPreviousCompletionPercentage] = useState<number | null>(null)
   const [isCorrectionMode, setIsCorrectionMode] = useState(false)
@@ -203,6 +206,94 @@ const ProjectDetails = () => {
     } catch (error) {
       console.error('Error loading treasury accounts:', error)
       setTreasuryAccounts([])
+    }
+  }
+
+  const handleAddEngineerAdvance = () => {
+    engineerAdvanceForm.resetFields()
+    engineerAdvanceForm.setFieldsValue({
+      date: moment().format('YYYY-MM-DD')
+    })
+    setEngineerAdvanceModalVisible(true)
+  }
+
+  const handleSubmitEngineerAdvance = async () => {
+    try {
+      const values = await engineerAdvanceForm.validateFields()
+
+      if (!id) {
+        message.error(t.projectDetails.projectIdNotFound)
+        return
+      }
+
+      // Format date
+      const formattedDate = values.date 
+        ? moment(values.date).format('YYYY-MM-DD')
+        : moment().format('YYYY-MM-DD')
+
+      // Parse amount
+      const parsedAmount = typeof values.amount === 'string' 
+        ? parseFloat(values.amount.replace(/,/g, '')) 
+        : values.amount
+
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        message.error(language === 'ar' ? 'يرجى إدخال مبلغ صحيح أكبر من صفر' : 'Please enter a valid amount greater than zero')
+        return
+      }
+
+      // ⚠️ CRITICAL: DO NOT REMOVE - Engineer Advance creates payment record with expenseType: 'employee_advance'
+      // This ensures advances NEVER appear in the Incomes table (OUT flow vs IN flow)
+      const paymentData = {
+        projectId: id,
+        workScope: values.workScope || null,
+        paymentType: 'expense',
+        expenseType: 'employee_advance', // CRITICAL: Marks this as an advance, not income
+        amount: parsedAmount,
+        dueDate: formattedDate,
+        paidDate: formattedDate, // Assume paid immediately for advances
+        status: 'paid',
+        recipientName: values.managerName || '',
+        notes: values.description || '',
+        treasuryAccountId: values.treasuryAccountId,
+        currency: displayCurrency,
+        createdBy: 'user'
+      }
+
+      const result = await paymentsService.createPayment(paymentData)
+
+      if (result.success) {
+        // Create treasury transaction (outflow)
+        if (values.treasuryAccountId) {
+          try {
+            await treasuryService.createTransaction({
+              accountId: values.treasuryAccountId,
+              transactionType: 'outflow', // CRITICAL: Outflow for employee advance
+              amount: parsedAmount,
+              referenceType: 'payment',
+              referenceId: result.payment.id,
+              description: `${language === 'ar' ? 'عهدة مهندس' : 'Engineer Advance'}: ${values.managerName || ''} - ${t.common.project || 'Project'}: ${project?.name || ''}`
+            })
+          } catch (error) {
+            console.error('Error creating treasury transaction:', error)
+            message.warning(language === 'ar' ? 'تم إنشاء العهدة ولكن حدث خطأ في الخزينة' : 'Advance created but treasury error')
+          }
+        }
+
+        message.success(language === 'ar' ? 'تم إنشاء العهدة بنجاح' : 'Engineer advance created successfully')
+        
+        // ⚠️ CRITICAL: DO NOT REMOVE - Comprehensive data reload
+        setEngineerAdvanceModalVisible(false)
+        engineerAdvanceForm.resetFields()
+        
+        // Reload project details to update expenses table
+        await loadProjectDetails()
+        await loadTreasuryAccounts()
+      } else {
+        message.error(result.error || (language === 'ar' ? 'فشل إنشاء العهدة' : 'Failed to create engineer advance'))
+      }
+    } catch (error) {
+      console.error('Error creating engineer advance:', error)
+      message.error(language === 'ar' ? 'حدث خطأ أثناء إنشاء العهدة' : 'An error occurred while creating the advance')
     }
   }
 
@@ -1247,7 +1338,7 @@ const ProjectDetails = () => {
 
       {/* Scope Spending Breakdown */}
       {scopeBreakdown.length > 0 && (
-        <Card title={<Title level={4} style={{ margin: 0 }}>توزيع الإنفاق حسب نطاق العمل</Title>}>
+        <Card title={<Title level={4} style={{ margin: 0 }}>{t.projectDetails.scopeSpendingBreakdown || 'Scope Spending Breakdown'}</Title>}>
           <Space orientation="vertical" size="large" style={{ width: '100%' }}>
             {scopeBreakdown?.map((scope) => (
               <div key={scope.scope}>
@@ -1290,7 +1381,7 @@ const ProjectDetails = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <InboxOutlined />
-              <Title level={4} style={{ margin: 0 }}>واردات أو سلف</Title>
+              <Title level={4} style={{ margin: 0 }}>{language === 'ar' ? 'واردات أو سلف' : 'Inflows & Advances'}</Title>
             </div>
             <Button 
               type="primary" 
@@ -1300,7 +1391,7 @@ const ProjectDetails = () => {
                 setInvoiceModalVisible(true)
               }}
             >
-              إضافة وارد/سلفة
+              {t.projectDetails.addIncomeOrAdvance || 'Add Income/Advance'}
             </Button>
           </div>
         }
@@ -1326,17 +1417,28 @@ const ProjectDetails = () => {
               <ShoppingOutlined />
               <Title level={4} style={{ margin: 0 }}>{t.projectDetails.projectExpenses || 'Project Expenses'}</Title>
             </div>
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />}
-              onClick={() => {
-                expenseForm.resetFields()
-                expenseForm.setFieldsValue({ date: moment() })
-                setExpenseModalVisible(true)
-              }}
-            >
-              {t.projectDetails.addNewExpense || 'Add New Expense'}
-            </Button>
+            <Space>
+              <Button 
+                type="primary" 
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  expenseForm.resetFields()
+                  expenseForm.setFieldsValue({ date: moment() })
+                  setExpenseModalVisible(true)
+                }}
+              >
+                {t.projectDetails.addNewExpense || 'Add New Expense'}
+              </Button>
+              
+              <Button 
+                type="primary" 
+                icon={<UserOutlined />}
+                onClick={handleAddEngineerAdvance}
+                style={{ backgroundColor: '#faad14', borderColor: '#faad14' }}
+              >
+                {language === 'ar' ? 'إضافة عهدة مهندس' : 'Add Engineer Advance'}
+              </Button>
+            </Space>
           </div>
         }
       >
@@ -1410,7 +1512,7 @@ const ProjectDetails = () => {
 
       {/* Invoice/Milestone Creation Modal */}
       <Modal
-        title="إضافة وارد/سلفة جديدة"
+        title={t.projectDetails.addIncomeOrAdvance || 'Add Income/Advance'}
         open={invoiceModalVisible}
         onOk={() => form.submit()}
         onCancel={() => {
@@ -1451,12 +1553,12 @@ const ProjectDetails = () => {
           {/* Transaction Type Selector - FIRST FIELD */}
           <Form.Item
             name="transactionType"
-            label="نوع المعاملة"
+            label={t.projectDetails.transactionType || 'Transaction Type'}
             rules={[{ required: true, message: 'يرجى اختيار نوع المعاملة' }]}
             initialValue="investor_inflow"
           >
             <Select 
-              placeholder="اختر نوع المعاملة"
+              placeholder={t.projectDetails.selectTransactionType || 'Select Transaction Type'}
               onChange={(value) => {
                 // Reset dependent fields when transaction type changes
                 if (value === 'employee_advance') {
@@ -1487,12 +1589,12 @@ const ProjectDetails = () => {
                 return (
                   <Form.Item
                     name="incomeType"
-                    label="نوع الوارد"
+                    label={t.projectDetails.incomeType || 'Income Type'}
                     rules={[{ required: true, message: 'يرجى اختيار نوع الوارد' }]}
                     initialValue="down_payment"
                   >
                     <Select 
-                      placeholder="اختر نوع الوارد"
+                      placeholder={t.projectDetails.selectIncomeType || 'Select Income Type'}
                       disabled={hasExistingIncomes ? false : true}
                       loading={loadingProjectIncomes}
                       onChange={async (value) => {
@@ -1556,10 +1658,10 @@ const ProjectDetails = () => {
                 return (
                   <Form.Item
                     name="managerName"
-                    label="اسم المهندس/الموظف"
+                    label={t.projectDetails.engineerName || 'Engineer/Employee Name'}
                     rules={[{ required: true, message: 'يرجى إدخال اسم المهندس/الموظف' }]}
                   >
-                    <Input placeholder="مثال: أحمد محمد" />
+                    <Input placeholder={t.projectDetails.engineerNamePlaceholder || 'e.g., Ahmed Mohammed'} />
                   </Form.Item>
                 )
               }
@@ -1569,19 +1671,19 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="description"
-            label="الوصف/اسم المرحلة"
+            label={t.projectDetails.descriptionOrPhase || 'Description/Phase Name'}
             rules={[{ required: true, message: 'يرجى إدخال الوصف' }]}
           >
-            <Input placeholder="مثال: مرحلة الأساسات، مرحلة البنية التحتية..." />
+            <Input placeholder={t.projectDetails.descriptionPlaceholder || 'e.g., Foundation phase, Infrastructure phase...'} />
           </Form.Item>
 
           {availableWorkScopes.length > 0 && (
             <Form.Item
               name="workScope"
-              label="نطاق العمل (اختياري)"
+              label={t.projectDetails.workScopeOptional || 'Work Scope (Optional)'}
             >
               <Select
-                placeholder="اختر نطاق العمل"
+                placeholder={t.projectDetails.selectWorkScope || 'Select Work Scope'}
                 allowClear
                 showSearch
                 filterOption={(input, option) =>
@@ -1632,7 +1734,7 @@ const ProjectDetails = () => {
                     )}
                     <Form.Item
                       name="completionPercentage"
-                      label="نسبة الإنجاز السابقة (%)"
+                      label={t.projectDetails.previousCompletion || 'Previous Completion (%)'}
                       rules={[
                         { required: true, message: 'يرجى إدخال نسبة الإنجاز السابقة' },
                         { type: 'number', min: 0, max: 100, message: 'يجب أن تكون النسبة بين 0 و 100' },
@@ -1678,7 +1780,7 @@ const ProjectDetails = () => {
             <Col span={12}>
               <Form.Item
                 name="dueDate"
-                label="تاريخ الاستحقاق"
+                label={t.projectDetails.dueDate || 'Due Date'}
                 rules={[{ required: true, message: 'يرجى اختيار تاريخ الاستحقاق' }]}
               >
                 <input
@@ -1745,9 +1847,9 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="treasuryAccountId"
-            label="حساب الخزينة"
+            label={t.projectDetails.treasuryAccount || 'Treasury Account'}
             rules={[{ required: true, message: 'يرجى اختيار حساب الخزينة' }]}
-            tooltip="اختر الحساب الذي سيتم إيداع المبلغ فيه"
+            tooltip={t.projectDetails.treasuryAccountTooltip || 'Select account to deposit amount'}
           >
             <Select
               placeholder="اختر حساب الخزينة"
@@ -1764,16 +1866,16 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="referenceNumber"
-            label="رقم المرجع (اختياري)"
+            label={t.projectDetails.referenceNumberOptional || 'Reference Number (Optional)'}
           >
-            <Input placeholder="رقم المرجع أو رقم الإيصال" />
+            <Input placeholder={t.projectDetails.referenceNumberPlaceholder || 'Reference number or receipt number'} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* Project Expense Modal */}
       <Modal
-        title="إضافة مصروف جديد للمشروع"
+        title={t.projectDetails.addProjectExpense || 'Add Project Expense'}
         open={expenseModalVisible}
         onOk={() => expenseForm.submit()}
         onCancel={() => {
@@ -1864,7 +1966,7 @@ const ProjectDetails = () => {
         >
           <Form.Item
             name="date"
-            label="التاريخ"
+            label={t.projectDetails.date || 'Date'}
             rules={[{ required: true, message: 'يرجى اختيار التاريخ' }]}
             initialValue={moment().format('YYYY-MM-DD')}
           >
@@ -1915,11 +2017,11 @@ const ProjectDetails = () => {
                   <>
                     <Form.Item
                       name="treasuryAccountId"
-                      label="الخزينة/الصندوق"
+                      label={t.projectDetails.treasuryOrCashBox || 'Treasury/Cash Box'}
                       rules={[{ required: true, message: 'يرجى اختيار الخزينة/الصندوق' }]}
                     >
                       <Select 
-                        placeholder="اختر الخزينة/الصندوق"
+                        placeholder={t.projectDetails.selectTreasuryOrCashBox || 'Select Treasury/Cash Box'}
                         onChange={(accountId) => {
                           // Note: Currency is now fixed to branch currency, no syncing needed
                           console.log('✅ Treasury account selected:', { accountId, branchCurrency: displayCurrency });
@@ -1936,8 +2038,8 @@ const ProjectDetails = () => {
 
                     {/* Currency Display - Static label showing branch currency */}
                     <Form.Item
-                      label={`العملة / Currency (${displayCurrency})`}
-                      tooltip="العملة مضبوطة على مستوى الفرع ولا يمكن تغييرها لكل معاملة / Currency is set at the branch level and cannot be changed per transaction"
+                      label={formatCurrencyLabel(t.projectDetails.currency || 'Currency', displayCurrency, language)}
+                      tooltip={t.projectDetails.currencyTooltip || 'Currency is set at the branch level and cannot be changed per transaction'}
                     >
                       <Input
                         readOnly
@@ -1970,10 +2072,108 @@ const ProjectDetails = () => {
 
           <Form.Item
             name="description"
-            label="الوصف"
+            label={t.common.description || 'Description'}
             rules={[{ required: true, message: 'يرجى إدخال الوصف' }]}
           >
-            <TextArea rows={3} placeholder="وصف المصروف..." />
+            <TextArea rows={3} placeholder={t.projectDetails.descriptionPlaceholder || 'Expense description...'} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Engineer Advance Modal */}
+      <Modal
+        title={language === 'ar' ? 'إضافة عهدة مهندس' : 'Add Engineer Advance'}
+        open={engineerAdvanceModalVisible}
+        onOk={handleSubmitEngineerAdvance}
+        onCancel={() => {
+          setEngineerAdvanceModalVisible(false)
+          engineerAdvanceForm.resetFields()
+        }}
+        okText={t.common.add || 'Add'}
+        cancelText={t.common.cancel || 'Cancel'}
+        width={600}
+      >
+        <Form form={engineerAdvanceForm} layout="vertical">
+          {/* Engineer Name */}
+          <Form.Item
+            name="managerName"
+            label={language === 'ar' ? 'اسم المهندس/الموظف' : 'Engineer/Employee Name'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال اسم المهندس/الموظف' : 'Please enter engineer name' }]}
+          >
+            <Input placeholder={language === 'ar' ? 'مثال: أحمد محمد' : 'e.g., Ahmed Mohammed'} />
+          </Form.Item>
+
+          {/* Amount */}
+          <Form.Item
+            name="amount"
+            label={formatCurrencyLabel(language === 'ar' ? 'المبلغ' : 'Amount', displayCurrency, language)}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى إدخال المبلغ' : 'Please enter amount' }]}
+          >
+            <InputNumber
+              min={0}
+              style={{ width: '100%' }}
+              formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={(value) => value!.replace(/\$\s?|(,*)/g, '')}
+              addonAfter={getCurrencySymbol(displayCurrency, language)}
+            />
+          </Form.Item>
+
+          {/* Date */}
+          <Form.Item
+            name="date"
+            label={language === 'ar' ? 'التاريخ' : 'Date'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار التاريخ' : 'Please select date' }]}
+          >
+            <input
+              type="date"
+              className="ant-input"
+              style={{ width: '100%', padding: '4px 11px', border: '1px solid #d9d9d9', borderRadius: '2px', height: '32px' }}
+            />
+          </Form.Item>
+
+          {/* Treasury Account */}
+          <Form.Item
+            name="treasuryAccountId"
+            label={language === 'ar' ? 'حساب الخزينة' : 'Treasury Account'}
+            rules={[{ required: true, message: language === 'ar' ? 'يرجى اختيار حساب الخزينة' : 'Please select treasury account' }]}
+          >
+            <Select placeholder={language === 'ar' ? 'اختر الحساب' : 'Select Account'}>
+              {treasuryAccounts.map((acc) => (
+                <Option key={acc.id} value={acc.id}>
+                  {acc.name} ({acc.type === 'bank' ? (language === 'ar' ? 'بنك' : 'Bank') : (language === 'ar' ? 'نقدي' : 'Cash')})
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          {/* Work Scope (Conditional) */}
+          {availableWorkScopes && availableWorkScopes.length > 0 && (
+            <Form.Item
+              name="workScope"
+              label={language === 'ar' ? 'نطاق العمل (اختياري)' : 'Work Scope (Optional)'}
+            >
+              <Select
+                placeholder={language === 'ar' ? 'اختر النطاق' : 'Select Scope'}
+                allowClear
+              >
+                {availableWorkScopes.map((scope) => (
+                  <Option key={scope} value={scope}>
+                    {scope}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          {/* Description */}
+          <Form.Item
+            name="description"
+            label={language === 'ar' ? 'الوصف/الملاحظات' : 'Description/Notes'}
+          >
+            <Input.TextArea
+              rows={3}
+              placeholder={language === 'ar' ? 'أدخل تفاصيل العهدة...' : 'Enter advance details...'}
+            />
           </Form.Item>
         </Form>
       </Modal>
